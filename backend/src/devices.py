@@ -273,6 +273,20 @@ def load_parts(device_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
     return grouped
 
 
+def part_media_counts(part_ids: List[int]) -> Dict[int, int]:
+    """一次数完这批部件各有几张图。逐个部件查一次就是 N+1，一台机器十来个部件就是
+    十来次往返。"""
+    if not part_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(part_ids))
+    rows = db.query(
+        "SELECT part_id, COUNT(*) AS n FROM device_part_media "
+        "WHERE part_id IN ({ph}) GROUP BY part_id".format(ph=placeholders),
+        part_ids,
+    )
+    return {int(r["part_id"]): int(r["n"]) for r in rows}
+
+
 def type_rank(part_type: Optional[str]) -> int:
     """部件类型的展示顺序，未知类型排最后。"""
     return _TYPE_ORDER.get(part_type or "", len(_TYPE_ORDER))

@@ -26,7 +26,7 @@
         </el-col>
         <el-col :xs="24" :sm="10">
           <el-form-item :label="t('device.name')">
-            <el-input v-model="form.title" :placeholder="t('device.namePlaceholder')" />
+            <el-input v-model="form.title" />
           </el-form-item>
         </el-col>
         <el-col :xs="24" :sm="7">
@@ -60,7 +60,7 @@
         </el-col>
       </el-row>
       <el-form-item :label="t('card.itemUrl')">
-        <el-input v-model="form.item_url" placeholder="https://" />
+        <el-input v-model="form.item_url" />
       </el-form-item>
 
       <!-- 采购信息：整机只有一笔总价，出售价在下面的部件里各自填 -->
@@ -89,11 +89,12 @@
       <!-- 资金来源。开着的时候这台设备的日元支出从资金池扣，成本改按被吃掉的那几批
            注资各自的换汇价折算，购入当天的市场牌价不再参与计算。 -->
       <div class="pool-row">
-        <el-switch v-model="usePool" />
+        <el-switch v-model="usePool" :disabled="poolLocked" />
         <span class="pool-label">{{ t('card.fundPool') }}</span>
         <span v-if="poolSummary" class="dc-dim pool-balance">
           {{ t('card.poolBalance') }} <b class="dc-mono">{{ jpyText(poolSummary.balance) }}</b>
         </span>
+        <span v-if="poolLocked" class="dc-dim pool-locked">{{ t('device.poolLocked') }}</span>
       </div>
       <div v-if="usePool" class="fx-hint pool-hint">
         <div>{{ t('device.fundPoolHint') }}</div>
@@ -117,33 +118,26 @@
 
       <!-- 部件与出售：一台设备多行，内存/硬盘可以重复添加 -->
       <div class="section-title">{{ t('device.parts') }}</div>
-      <div class="parts-hint">{{ t('device.partsHint') }}</div>
-      <div class="quick-add">
-        <span class="quick-add-label">{{ t('device.quickAdd') }}</span>
-        <el-button v-for="type in partTypes" :key="type" size="small" plain @click="addPart(type)">
-          + {{ t('partType.' + type) }}
-        </el-button>
-      </div>
-
-      <div v-if="!form.parts.length" class="parts-empty">{{ t('device.noParts') }}</div>
 
       <div v-for="(part, index) in form.parts" :key="part._uid" class="part-card"
         :class="{ 'part-card--blank': isBlank(part) }">
         <div class="part-head">
-          <el-tag size="small" effect="plain" type="info">{{ t('partType.' + part.part_type) }}</el-tag>
-          <span class="part-title">{{ partTitle(part) }}</span>
-          <!-- 空槽位：六个标准部件是默认摆出来的，没填的不会存进库 -->
-          <el-tag v-if="isBlank(part)" size="small" type="info" effect="plain">{{ t('device.blankSlot') }}</el-tag>
-          <el-tag v-else-if="part.sale_amount !== null && part.sale_amount !== ''" size="small" type="success" effect="plain">
+          <el-tag size="small" effect="plain" type="info" class="head-tag">{{ t('partType.' + part.part_type) }}</el-tag>
+          <!-- 「未填写 / 未出售 / 售价」紧跟类型标签，排在名称**左边**：这一列是等宽
+               对齐的，跟在长短不一的名称后面会左右乱跳，一眼扫不出哪几件还没卖掉 -->
+          <el-tag v-if="isBlank(part)" size="small" type="info" effect="plain" class="head-tag">{{ t('device.blankSlot') }}</el-tag>
+          <el-tag v-else-if="isSold(part)" size="small" type="success" effect="plain" class="head-tag">
             {{ formatMoney(part.sale_amount, part.sale_currency) }}
           </el-tag>
-          <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
-          <span v-if="partNet(index) !== null" class="dc-dim part-net">
-            {{ t('device.netIncome') }} <b class="dc-mono">{{ cny(partNet(index)) }}</b>
+          <el-tag v-else size="small" type="info" effect="plain" class="head-tag">{{ t('device.unsold') }}</el-tag>
+          <span class="part-title">{{ partTitle(part) }}</span>
+          <span v-if="partNet(part) !== null" class="dc-dim part-net">
+            {{ t('device.netIncome') }} <b class="dc-mono">{{ cny(partNet(part)) }}</b>
           </span>
           <div class="part-actions">
             <el-button size="small" text @click="toggleMore(part._uid)">
-              {{ expanded.has(part._uid) ? '−' : '+' }} {{ t('card.serialNo') }} / {{ t('device.buyer') }}
+              {{ expanded.has(part._uid) ? '−' : '+' }} {{ t('card.note') }} / {{ t('card.media') }}
+              <span v-if="part._media_count" class="media-badge">{{ part._media_count }}</span>
             </el-button>
             <el-button size="small" text type="danger" :icon="Delete" :title="t('device.removePart')"
               @click="removePart(index)" />
@@ -151,14 +145,7 @@
         </div>
 
         <el-row :gutter="10">
-          <el-col :xs="12" :sm="4">
-            <el-form-item :label="t('device.partType')">
-              <el-select v-model="part.part_type" class="full">
-                <el-option v-for="type in partTypes" :key="type" :label="t('partType.' + type)" :value="type" />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :xs="12" :sm="4">
+          <el-col :xs="12" :sm="5">
             <!-- 品牌候选按部件类型给：CPU 只有 Intel / AMD（不允许现场新建），
                  显卡直接用系统里的品牌字典，其余给一份常见清单但可以现场输入 -->
             <el-form-item :label="t('card.brand')">
@@ -171,26 +158,24 @@
           <el-col :xs="24" :sm="6">
             <el-form-item :label="t('card.model')">
               <el-select v-if="modelOptions(part).length" v-model="part.model" filterable allow-create
-                default-first-option clearable class="full" :placeholder="schemaOf(part).modelPlaceholder">
+                default-first-option clearable class="full">
                 <el-option v-for="m in modelOptions(part)" :key="m" :label="m" :value="m" />
               </el-select>
-              <el-input v-else v-model="part.model" :placeholder="schemaOf(part).modelPlaceholder" />
+              <el-input v-else v-model="part.model" />
             </el-form-item>
           </el-col>
-          <el-col :xs="18" :sm="7">
-            <!-- 「规格」这一栏各类型填的不是一回事：显存 / 容量 / 功率 / 芯片组，
-                 所以标题和候选值都跟着类型走，写法才不会一台一个样 -->
+          <el-col :xs="24" :sm="5">
+            <!-- 「规格」这一栏各类型填的不是一回事（显存 / 容量 / 功率 / 芯片组），
+                 所以标题跟着类型走；内容手填 -->
             <el-form-item :label="t(specLabelKey(part.part_type))">
-              <el-select v-if="specOptions(part).length" v-model="part.spec" filterable allow-create
-                default-first-option clearable class="full">
-                <el-option v-for="sp in specOptions(part)" :key="sp" :label="sp" :value="sp" />
-              </el-select>
-              <el-input v-else v-model="part.spec" :placeholder="t('device.specPlaceholder')" />
+              <el-input v-model="part.spec" />
             </el-form-item>
           </el-col>
-          <el-col :xs="6" :sm="3">
-            <el-form-item :label="t('device.quantity')">
-              <el-input-number v-model="part.quantity" :min="1" :max="999" :controls="false" class="full" />
+          <el-col :xs="24" :sm="8">
+            <!-- 序列号占原来数量那一格并加宽：数量恒为 1（两条内存就是两行），而序列号
+                 是这一行真正要记的东西，等宽字体下 30 位字母数字能完整显示 -->
+            <el-form-item :label="t('card.serialNo')">
+              <el-input v-model="part.serial_no" class="serial-input" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -220,21 +205,33 @@
 
         <el-row v-if="expanded.has(part._uid)" :gutter="10">
           <el-col :xs="24" :sm="8">
-            <el-form-item :label="t('card.serialNo')">
-              <el-input v-model="part.serial_no" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="8">
-            <el-form-item :label="t('device.buyer')">
-              <el-input v-model="part.buyer" />
-            </el-form-item>
-          </el-col>
-          <el-col :xs="24" :sm="8">
             <el-form-item :label="t('card.note')">
               <el-input v-model="part.note" />
             </el-form-item>
           </el-col>
+          <el-col :xs="24" :sm="16">
+            <!-- 每个部件各自一组图。折叠着放是因为一台机器十来个部件，全展开的话
+                 表单会长得没法用；抬头上的角标显示已有几张，折叠时也看得见。 -->
+            <div class="media-label">{{ t('device.partMedia') }}</div>
+            <PartMediaGallery
+              :part-id="part.id"
+              :hosting-configured="hostingConfigured"
+              @changed="(n) => onPartMediaChanged(part, n)"
+            />
+          </el-col>
         </el-row>
+      </div>
+
+      <!-- 添加部件。类型只在这里选一次，加进来之后那一行就不再能改类型了——
+           一行的类型换掉，它下面的品牌、规格、售价全都对不上了，与其允许改，
+           不如删掉重加一行来得清楚。 -->
+      <div class="add-part">
+        <el-select v-model="newPartType" class="add-part-select" :placeholder="t('device.choosePartType')">
+          <el-option v-for="type in partTypes" :key="type" :label="t('partType.' + type)" :value="type" />
+        </el-select>
+        <el-button type="primary" plain :icon="Plus" :disabled="!newPartType" @click="addChosenPart">
+          {{ t('device.addPart') }}
+        </el-button>
       </div>
 
       <!-- 合计：金额要按各自日期的汇率折算，只有后端算得准，这里显示最近一次保存的结果 -->
@@ -260,9 +257,7 @@
           <span class="dc-mono summary-value">{{ money.sold_count }} / {{ money.part_count }}</span>
         </div>
       </div>
-      <div v-if="money" class="fx-hint" :class="{ 'settled-hint': money.settled }">
-        {{ money.settled ? t('device.settledHint') : t('device.unsettledHint') }}
-      </div>
+      <div v-if="money && money.settled" class="fx-hint settled-hint">{{ t('device.settledHint') }}</div>
 
       <el-form-item :label="t('card.note')">
         <el-input v-model="form.note" type="textarea" :rows="2" />
@@ -274,17 +269,19 @@
 <script setup>
 import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, Loading, Select } from '@element-plus/icons-vue'
+import { Delete, Loading, Plus, Select } from '@element-plus/icons-vue'
 import { devicesApi, fundsApi, fxApi } from '@/api'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { useMetaStore } from '@/stores/meta'
 import { DEFAULT_PART_TYPES, partSchema, specLabelKey } from '@/constants/parts'
 import { optionsApi } from '@/api'
 import MoneyInput from './MoneyInput.vue'
+import PartMediaGallery from './PartMediaGallery.vue'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
-  device: { type: Object, default: null }
+  device: { type: Object, default: null },
+  hostingConfigured: { type: Boolean, default: true }
 })
 const emit = defineEmits(['update:modelValue', 'saved'])
 
@@ -320,6 +317,10 @@ const usePool = computed({
   get: () => form.fund_source === 'pool',
   set: (v) => { form.fund_source = v ? 'pool' : 'own' }
 })
+// 资金来源只在**新增**时可选。改一台已存在设备的来源，等于把它的成本口径整个换掉
+// （池内扣款要撤销或重建，池子余额和其它扣款的分摊全跟着变），录错了应该删掉重录，
+// 而不是在编辑里悄悄改一下。
+const poolLocked = computed(() => Boolean(props.device))
 // 池子里是日元，人民币支付的部分与它无关：开着开关但币种选了人民币时要说清楚
 const poolCurrencyMismatch = computed(() =>
   usePool.value && form.purchase_currency !== 'JPY' && form.purchase_amount
@@ -354,12 +355,17 @@ let uid = 0
 
 function blankPart(partType = 'other') {
   return {
+    // 服务端 id：存过的部件带着它，后端据此原地更新。图片是挂在这个 id 上的，
+    // 所以它必须一路带回去，不能每次保存都当新行插一遍。
+    id: null,
     _uid: ++uid,
+    // 下划线开头的字段只用于界面（不进提交载荷，见 buildPayload）
+    _media_count: 0,
     part_type: partType,
-    brand: null, model: null, spec: null, serial_no: null, quantity: 1,
+    brand: null, model: null, spec: null, serial_no: null,
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
-    buyer: null, status: 'purchased', note: null
+    status: 'purchased', note: null
   }
 }
 
@@ -393,40 +399,47 @@ function brandOptions(part) {
   }
   return schemaOf(part).brands
 }
-// 显卡的型号同样取字典；其余类型型号太发散，给个占位提示就够了
+// 显卡的型号同样取字典；其余类型型号太发散，手填
 const modelOptions = (part) => (part.part_type === 'gpu' ? models.value.map((m) => m.name) : [])
-const specOptions = (part) => schemaOf(part).specs
 
 // 完全没填过的槽位。数量、状态、币种这些一建行就有默认值的字段不算「填过」，
 // 否则六个默认槽位一打开就全成了「有内容」，会被原样存进库。
 const CONTENT_KEYS = [
-  'brand', 'model', 'spec', 'serial_no', 'buyer', 'note',
+  'brand', 'model', 'spec', 'serial_no', 'note',
   'sale_date', 'sale_amount', 'domestic_shipping_amount'
 ]
 const filled = (v) => v !== null && v !== undefined && v !== ''
 function isBlank(part) {
+  // 传了图也算「有内容」：否则把文字清空的那一刻，这一行会被当成空槽位不再提交，
+  // 后端随即删掉它，图片跟着级联消失。
+  if (part._media_count) return false
   return !CONTENT_KEYS.some((key) => filled(part[key]))
 }
+const isSold = (part) => filled(part.sale_amount)
 
 function partTitle(part) {
   return [part.brand, part.model, part.spec].filter(Boolean).join(' ') || '—'
 }
 
-// 单个部件折人民币后的净收入，从上次保存的返回值里按下标取——后端返回的部件顺序与
-// 提交顺序一致。但**提交时跳过了空槽位**，所以这里要按「非空行」重新数一遍下标，
-// 否则中间有一个空槽位，后面每一行显示的都会是上一行的钱。
-function partNet(index) {
-  const part = form.parts[index]
-  if (!part || isBlank(part)) return null
-  let pos = 0
-  for (let i = 0; i < index; i += 1) {
-    if (!isBlank(form.parts[i])) pos += 1
-  }
-  return saved.value?.parts?.[pos]?.money?.net_cny ?? null
+// 单个部件折人民币后的净收入，取自上次保存的返回值。按 id 对，不按下标——下标会
+// 被空槽位和刚删掉的行错开，一错就把上一行的钱显示到这一行上。
+function partNet(part) {
+  if (!part?.id) return null
+  return saved.value?.parts?.find((p) => p.id === part.id)?.money?.net_cny ?? null
 }
 
-function addPart(partType) {
-  form.parts.push(blankPart(partType))
+// 图片增删只改显示用的角标，不该触发一次整机保存
+function onPartMediaChanged(part, count) {
+  silently(() => { part._media_count = count })
+}
+
+// 底部虚线框里选的类型，选好才能添加
+const newPartType = ref(null)
+
+function addChosenPart() {
+  if (!newPartType.value) return
+  form.parts.push(blankPart(newPartType.value))
+  newPartType.value = null
 }
 function removePart(index) {
   const [removed] = form.parts.splice(index, 1)
@@ -455,7 +468,7 @@ function scheduleAutoSave() {
   saveTimer = setTimeout(doSave, AUTOSAVE_DELAY)
 }
 
-function buildPayload() {
+function buildPayload(submittedParts) {
   return {
     title: form.title,
     source_platform: form.source_platform,
@@ -470,15 +483,33 @@ function buildPayload() {
     fund_source: form.fund_source,
     status: form.status,
     note: form.note,
-    // 提交的数组就是这台设备**当前的全部部件**，后端整体覆盖。_uid 是前端的行标识，
-    // 不发给后端；sort_order 用下标，拖动/插入后不必自己维护。
-    // 一个字都没填的槽位不提交：默认摆出来的六个是录入模板，不是「这台机器有六个空部件」
-    // ——真存进去的话部件数会永远显示成 0/6，「已清算」也永远为假。
-    parts: form.parts.filter((part) => !isBlank(part)).map((part, index) => {
-      const { _uid, ...rest } = part
-      return { ...rest, sort_order: index }
+    // 提交的数组就是这台设备**当前的全部部件**：带 id 的后端原地更新，没 id 的新插，
+    // 没出现在这里的按「已删除」处理。下划线开头的字段（_uid / _media_count）只用于
+    // 界面，不发给后端；sort_order 用下标，拖动/插入后不必自己维护。
+    // 一个字都没填、也没有图的槽位不提交：默认摆出来的六个是录入模板，不是「这台机器
+    // 有六个空部件」——真存进去的话部件数会永远显示成 0/6，「已清算」也永远为假。
+    parts: submittedParts.map((part, index) => {
+      const out = { sort_order: index }
+      for (const [key, value] of Object.entries(part)) {
+        if (!key.startsWith('_')) out[key] = value
+      }
+      return out
     })
   }
+}
+
+// 保存后把后端分配的部件 id 贴回表单行上。不贴的话下一次保存这些行又是「没 id 的新
+// 行」，后端会插一遍新的、删掉旧的，刚传的图就跟着旧行级联没了。
+// 按对象引用配对而不是重新按 isBlank 过滤一遍：await 期间用户可能又填了某个空槽位，
+// 重新过滤会多出一行，后面每一行都错位一格，id 就贴到别人身上去了。
+function mergePartIds(submittedParts, result) {
+  const returned = result?.parts || []
+  submittedParts.forEach((part, index) => {
+    const server = returned[index]
+    if (!server) return
+    part.id = server.id
+    part._media_count = server.media_count ?? part._media_count ?? 0
+  })
 }
 
 async function doSave() {
@@ -491,7 +522,9 @@ async function doSave() {
   while (dirty.value) {
     dirty.value = false
     try {
-      const payload = buildPayload()
+      // 先定下这次提交的是哪几行（对象引用），保存回来后按同一批引用贴 id
+      const submittedParts = form.parts.filter((part) => !isBlank(part))
+      const payload = buildPayload(submittedParts)
       let result
       if (form.id) {
         result = await devicesApi.update(form.id, payload)
@@ -501,6 +534,7 @@ async function doSave() {
         form.mgmt_no = result.mgmt_no
       }
       saved.value = result
+      await silently(() => mergePartIds(submittedParts, result))
       // 这台设备的扣款改动了池子余额，顺手刷一次；不走资金池就没必要多打这个请求
       if (form.fund_source === 'pool') loadPoolSummary()
       isDraft.value = false   // 有内容了，不再是待删的空草稿
@@ -523,8 +557,18 @@ async function flushSave() {
   }
 }
 
+// 回填 id、更新图片角标这类「不是用户编辑」的改动要绕开自动保存，否则每次保存都会
+// 触发下一次保存。深层 watch 是 pre 刷新的，改完 await 一次 nextTick 就能盖住它那一轮。
+let suppressWatch = false
+async function silently(mutate) {
+  suppressWatch = true
+  mutate()
+  await nextTick()
+  suppressWatch = false
+}
+
 // 必须放在 form 声明之后：const 有暂时性死区，写在前面会直接抛 ReferenceError。
-watch(form, scheduleAutoSave, { deep: true })
+watch(form, () => { if (!suppressWatch) scheduleAutoSave() }, { deep: true })
 
 watch(
   () => props.modelValue,
@@ -536,6 +580,7 @@ watch(
     savedOnce.value = false
     fxPreview.value = null
     expanded.value = new Set()
+    newPartType.value = null
     saved.value = null
     loadPoolSummary()
     loadModels()
@@ -586,8 +631,10 @@ function normalize(device) {
   const saved = (device.parts || []).map((part) => {
     const row = blankPart(part.part_type)
     for (const key of Object.keys(row)) {
-      if (key !== '_uid' && key in part) row[key] = part[key] ?? row[key]
+      if (!key.startsWith('_') && key in part) row[key] = part[key] ?? row[key]
     }
+    row.id = part.id ?? null
+    row._media_count = part.media_count ?? 0
     return row
   })
   // 编辑已有设备时也要摆齐六个标准槽位：这台机器当初没录显卡，不代表之后不想补录，
@@ -693,18 +740,18 @@ async function onClosed() {
 .pool-draw { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
 .pool-seg { font-size: 12px; color: #9aa6b8; }
 
-.parts-hint { font-size: 12px; color: #8a94a6; margin-bottom: 8px; line-height: 1.6; }
-.quick-add { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
-.quick-add-label { font-size: 12px; color: #8a94a6; margin-right: 2px; }
-.parts-empty {
+.add-part {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   border: 1px dashed #3a4a66;
   border-radius: 10px;
-  padding: 18px;
-  text-align: center;
-  color: #8a94a6;
-  font-size: 13px;
+  padding: 14px;
   margin-bottom: 12px;
+  background: rgba(91, 140, 255, 0.03);
 }
+.add-part-select { width: 180px !important; flex: 0 0 180px; }
 
 .part-card {
   border: 1px solid #22304a;
@@ -727,6 +774,22 @@ async function onClosed() {
   margin-bottom: 8px;
 }
 .part-title { font-size: 13px; color: #c7d0de; }
+.head-tag { flex: 0 0 auto; }
+/* 序列号 30 位字母数字要完整看得见，等宽字体下不会被比例字体的宽窄挤掉尾巴 */
+.serial-input :deep(.el-input__inner) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.media-label { font-size: 12px; color: #9aa6b8; line-height: 1.3; padding-bottom: 4px; }
+.media-badge {
+  margin-left: 4px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #5b8cff;
+  color: #fff;
+  font-size: 11px;
+}
+.pool-locked { font-size: 12px; }
 .part-net { font-size: 12px; }
 .part-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 

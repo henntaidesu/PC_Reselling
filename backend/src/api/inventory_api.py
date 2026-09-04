@@ -71,6 +71,11 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         # 一张卡卖掉就没有后续了，所以「卖了 = 已结清」
         "settled": row.get("sale_amount") is not None,
         "cost_total_cny": money["cost_total_cny"],
+        # 成本的三项拆开一起给：列表页要在「总成本」上悬浮出「购入 + 国际运费 + 国内运费」
+        # 的明细。合计里本来就含着这两笔运费，但不摊开的话没人看得出利润是净的。
+        "purchase_cny": money["purchase_cny"],
+        "intl_shipping_cny": money["intl_shipping_cny"],
+        "domestic_shipping_cny": money["domestic_shipping_cny"],
         "sale_cny": money["sale_cny"],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
@@ -112,6 +117,8 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "sold": money["sold"],
         "settled": money["sold"],
         "cost_total_cny": None,
+        "purchase_cny": None,
+        "intl_shipping_cny": None,
         "sale_cny": money["sale_cny"],
         # 净收入 = 售价 − 国内运费。放在这儿供前端在「已收回」下方标一行小字，
         # 「已收回」本身仍取售价，二级行加起来才等于整机那一行。
@@ -149,6 +156,11 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[str, 
         "sold": money["sold_count"] > 0,
         "settled": money["settled"],
         "cost_total_cny": money["cost_total_cny"],
+        # 与显卡同一套明细。整机的国内运费是**各部件的合计**（部件分别发货，各按自己的
+        # 出售汇率折算），已经计入 cost_total_cny，这里只是把它单独摆出来。
+        "purchase_cny": money["purchase_cny"],
+        "intl_shipping_cny": money["intl_shipping_cny"],
+        "domestic_shipping_cny": money["domestic_shipping_cny"],
         "sale_cny": money["sale_cny"],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
@@ -315,8 +327,13 @@ def stats(
     """
     items = _collect(kind, keyword, status, brand, source_platform, purchase_from, purchase_to)
 
+    # 缺汇率的行（incomplete）三项合计里一个都不参与。逐项跳过 None 的话，一行的收入
+    # 会在它的成本被丢掉的情况下照样计入合计，「总利润」就凭空多出这一整笔成本——
+    # 宁可整行不算，也不能算出一个偏高的净利润。行数在 incomplete 里另外报。
+    countable = [i for i in items if not i["incomplete"]]
+
     def _sum(key: str) -> float:
-        return round(sum(i[key] for i in items if i[key] is not None), 2)
+        return round(sum(i[key] for i in countable if i[key] is not None), 2)
 
     card_count = sum(1 for i in items if i["kind"] == KIND_CARD)
     settled = sum(1 for i in items if i["settled"])

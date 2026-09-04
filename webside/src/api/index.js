@@ -47,6 +47,13 @@ export const mediaApi = {
   upload: (formData) =>
     http.post('/media/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }),
   listForCard: (cardId) => http.get(`/media/card/${cardId}`),
+  // 整机部件的图：平铺一组，没有分类
+  listForPart: (partId) => http.get(`/media/parts/${partId}`),
+  uploadForPart: (partId, formData) =>
+    http.post(`/media/parts/${partId}`, formData,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }),
+  removePartMedia: (mediaId, purge = true) =>
+    http.delete(`/media/parts/items/${mediaId}`, { params: { purge } }),
   reorder: (mediaIds) => http.put('/media/reorder', { media_ids: mediaIds }),
   remove: (mediaId, purge = true) => http.delete(`/media/${mediaId}`, { params: { purge } })
 }

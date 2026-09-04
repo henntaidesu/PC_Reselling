@@ -330,6 +330,30 @@ _TABLES: List[Tuple[str, str]] = [
         """,
     ),
     (
+        "device_part_media",
+        """
+        CREATE TABLE IF NOT EXISTS device_part_media (
+            id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            part_id     INT UNSIGNED NOT NULL,
+            kind        VARCHAR(8) NOT NULL DEFAULT 'image' COMMENT 'image / video',
+            stored_name VARCHAR(255) NOT NULL COMMENT '图床侧的存储名，删除靠它',
+            public_url  VARCHAR(1024) NOT NULL,
+            filename    VARCHAR(255) NULL COMMENT '上传时的原始文件名，仅供展示',
+            mime_type   VARCHAR(128) NULL,
+            size_bytes  BIGINT UNSIGNED NULL,
+            sort_order  INT NOT NULL DEFAULT 0,
+            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_device_part_media_part (part_id, sort_order, id),
+            CONSTRAINT fk_device_part_media_part FOREIGN KEY (part_id)
+                REFERENCES device_parts (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='部件图片/视频。不像 card_media 那样分五类——「显卡外观 / PCB / GPU 核心」
+                   这套分类只对显卡成立，一条内存、一块主板拍的就是它本身，平铺即可。
+                   外键指着 device_parts，所以部件行的 id 必须稳定（见 devices_api._write_parts）'
+        """,
+    ),
+    (
         "fx_rates",
         """
         CREATE TABLE IF NOT EXISTS fx_rates (

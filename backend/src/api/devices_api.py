@@ -39,24 +39,28 @@ _WRITABLE = [
     "status", "note",
 ]
 
-# 允许写入 device_parts 的列，顺序即 INSERT 里的顺序
+# 允许写入 device_parts 的列，顺序即 INSERT / UPDATE 里的顺序。
+# quantity 与 buyer 不在其中：数量恒为 1（同规格的两条内存就是两行，合成一行之后
+# 序列号、成色、卖价都只能记一份），买家一栏则没人填。两列仍留在表里，不动老数据。
 _PART_COLUMNS = [
-    "part_type", "brand", "model", "spec", "serial_no", "quantity",
+    "part_type", "brand", "model", "spec", "serial_no",
     "sale_date", "sale_amount", "sale_currency",
     "domestic_shipping_amount", "domestic_shipping_currency",
-    "buyer", "status", "note", "sort_order",
+    "status", "note", "sort_order",
 ]
 
 
 class PartPayload(BaseModel):
     """一个部件。内存 / 硬盘这类一台机器里有好几条的，就提交好几条，条数不限。"""
 
+    # 已存在的部件带上自己的 id，后端据此原地更新而不是删了重建——部件上挂着图片，
+    # 换一次 id 就等于把图片连同旧行一起级联删掉。新加的行不带 id。
+    id: Optional[int] = None
     part_type: str = "other"
     brand: Optional[str] = Field(default=None, max_length=64)
     model: Optional[str] = Field(default=None, max_length=128)
     spec: Optional[str] = Field(default=None, max_length=128)
     serial_no: Optional[str] = Field(default=None, max_length=128)
-    quantity: int = Field(default=1, ge=1, le=999)
 
     sale_date: Optional[dt.date] = None
     sale_amount: Optional[float] = Field(default=None, ge=0)
@@ -64,7 +68,6 @@ class PartPayload(BaseModel):
     domestic_shipping_amount: Optional[float] = Field(default=None, ge=0)
     domestic_shipping_currency: str = "CNY"
 
-    buyer: Optional[str] = Field(default=None, max_length=128)
     status: str = "purchased"
     note: Optional[str] = Field(default=None, max_length=500)
     sort_order: int = 0
@@ -187,33 +190,49 @@ def _apply_fx(payload: DevicePayload) -> Dict[str, Any]:
 
 
 def _write_parts(device_id: int, payload: DevicePayload, fx: Dict[str, Any]) -> None:
-    """整体覆盖这台设备的部件：先全删，再按提交的顺序全插。
+    """按 id 增量写入这台设备的部件：带 id 的原地更新，没 id 的新插，这次没提交的删掉。
 
-    没有做「按 id 逐条 upsert」是刻意的：部件行没有任何外部引用指向它（不像卡片有
-    媒体、有资金池扣款挂着），行 id 稳不稳定无人关心；而覆盖式写入让「删掉第 2 条
-    内存、把第 3 条挪到前面」这类操作不需要在前后端各维护一套差异比对。
+    原先是「先全删再全插」——写起来简单，代价是部件行的 id 每存一次就换一批。部件能
+    传图之后这条路就走不通了：device_part_media 的外键指着 device_parts，行一删，刚传
+    的图片就跟着级联没了，而表单是每改一个字段就自动保存一次的。所以 id 必须稳定。
+
+    提交里没出现的行按「用户删掉了这个部件」处理，连同它的图片记录一并删除；图床上的
+    文件不动（与删卡时的默认一致：留个孤儿文件只占空间，误删则找不回来）。
     """
+    existing = {int(r["id"]) for r in db.query(
+        "SELECT id FROM device_parts WHERE device_id = %s", (device_id,))}
+    kept = set()
+
+    insert_sql = "INSERT INTO device_parts ({cols}, device_id, sale_fx_rate, sale_fx_date) VALUES ({ph})".format(
+        cols=", ".join(f"`{c}`" for c in _PART_COLUMNS),
+        ph=", ".join(["%s"] * (len(_PART_COLUMNS) + 3)),
+    )
+    update_sql = "UPDATE device_parts SET {sets}, sale_fx_rate = %s, sale_fx_date = %s WHERE id = %s".format(
+        sets=", ".join(f"`{c}` = %s" for c in _PART_COLUMNS),
+    )
+
     with db.transaction() as cur:
-        cur.execute("DELETE FROM device_parts WHERE device_id = %s", (device_id,))
-        if not payload.parts:
-            return
-        rows = []
         for index, part in enumerate(payload.parts):
             values = {name: _clean(getattr(part, name)) for name in _PART_COLUMNS}
             # 排序按提交顺序重排，前端拖动 / 插入后不必自己维护 sort_order
             values["sort_order"] = index
             rate, rate_date = fx["part_rates"][index]
-            rows.append(
-                [values[c] for c in _PART_COLUMNS] + [device_id, rate, rate_date]
+            row = [values[c] for c in _PART_COLUMNS]
+            # id 必须确认属于这台设备才认：否则一个伪造的 id 就能改到别人的部件上
+            part_id = int(part.id) if part.id and int(part.id) in existing else None
+            if part_id:
+                cur.execute(update_sql, row + [rate, rate_date, part_id])
+                kept.add(part_id)
+            else:
+                cur.execute(insert_sql, row + [device_id, rate, rate_date])
+
+        stale = existing - kept
+        if stale:
+            cur.execute(
+                "DELETE FROM device_parts WHERE id IN ({ph})".format(
+                    ph=", ".join(["%s"] * len(stale))),
+                list(stale),
             )
-        cur.executemany(
-            "INSERT INTO device_parts ({cols}, device_id, sale_fx_rate, sale_fx_date) "
-            "VALUES ({ph})".format(
-                cols=", ".join(f"`{c}`" for c in _PART_COLUMNS),
-                ph=", ".join(["%s"] * (len(_PART_COLUMNS) + 3)),
-            ),
-            rows,
-        )
 
 
 def _load(device_id: int) -> Optional[Dict[str, Any]]:
@@ -229,6 +248,11 @@ def _result(device_id: int, warnings: List[str]) -> Dict[str, Any]:
     row = _load(device_id)
     parts = devices.load_parts([device_id]).get(device_id, [])
     out = devices.serialize(row, parts)
+    # 部件的图片本身按需拉（打开那一栏才请求），这里只带个数量，好在折叠状态下也能
+    # 看出哪些部件已经有图
+    counts = devices.part_media_counts([p["id"] for p in parts])
+    for item in out["parts"]:
+        item["media_count"] = counts.get(item["id"], 0)
     out["fund_draws"] = funds.device_draws(device_id) if uses_pool(row) else []
     out["warnings"] = warnings
     return out

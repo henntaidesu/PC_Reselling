@@ -88,7 +88,7 @@
         :row-class-name="rowClass"
         @row-click="onRowClick"
       >
-        <el-table-column :label="t('card.cover')" width="104">
+        <el-table-column :label="t('card.cover')" width="110">
           <template #default="{ row }">
             <!-- 二级行（部件）没有封面，这一格留空——树形展开的箭头和缩进由 el-table
                  画在第一列里，所以这一列要比原来宽一点 -->
@@ -111,10 +111,7 @@
         <el-table-column :label="t('inv.name')" min-width="190">
           <template #default="{ row }">
             <div class="model-cell">
-              <span class="model-name">
-                {{ nameOf(row) }}
-                <span v-if="row.kind === 'part' && row.quantity > 1" class="dc-dim">×{{ row.quantity }}</span>
-              </span>
+              <span class="model-name">{{ nameOf(row) }}</span>
               <span v-if="row.mgmt_no || row.subtitle" class="dc-dim sub">
                 <span class="dc-mono">{{ row.mgmt_no }}</span>
                 <template v-if="row.subtitle"> · {{ row.subtitle }}</template>
@@ -149,7 +146,19 @@
               <span class="dc-dim">—</span>
             </el-tooltip>
             <template v-else>
-              <span class="dc-mono">{{ cny(row.cost_total_cny) }}</span>
+              <!-- 总成本 = 购入价 + 国际运费 + 国内运费。三项都已计入合计，悬浮摊开是
+                   为了让人一眼确认运费确实算进去了，而不是只看到一个总数在那儿。 -->
+              <el-tooltip placement="left">
+                <template #content>
+                  <div class="cost-tip">
+                    <div><span>{{ t('card.purchaseAmount') }}</span><b>{{ cny(row.purchase_cny) }}</b></div>
+                    <div><span>{{ t('card.intlShipping') }}</span><b>{{ cny(row.intl_shipping_cny) }}</b></div>
+                    <div><span>{{ t('card.domesticShipping') }}</span><b>{{ cny(row.domestic_shipping_cny) }}</b></div>
+                    <div class="cost-tip-sum"><span>{{ t('card.cost') }}</span><b>{{ cny(row.cost_total_cny) }}</b></div>
+                  </div>
+                </template>
+                <span class="dc-mono cost-value">{{ cny(row.cost_total_cny) }}</span>
+              </el-tooltip>
               <!-- 成本是按资金池的注资汇率折的，不是买入当天的牌价——标出来，免得对不上账 -->
               <el-tooltip v-if="row.from_pool" :content="t('card.fundPoolHint')">
                 <el-tag size="small" type="primary" effect="plain" class="pool-tag">{{ t('card.poolTag') }}</el-tag>
@@ -168,34 +177,32 @@
           </template>
         </el-table-column>
         <el-table-column :label="t('card.profit')" width="150" align="right">
+          <template #header>
+            <!-- 这一列是净利润：收入减掉的成本里含国际运费与国内运费。表头标一下，
+                 免得被当成「售价 − 购入价」的毛利去对账。 -->
+            <el-tooltip :content="t('card.netProfitHint')">
+              <span class="net-profit-head">{{ t('card.profit') }}</span>
+            </el-tooltip>
+          </template>
           <template #default="{ row }">
             <el-tooltip v-if="row.kind === 'part'" :content="t('device.noPartCost')">
               <span class="dc-dim">—</span>
             </el-tooltip>
             <template v-else>
               <span class="dc-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
-              <!-- 整机部件没卖完时，这个数字只是「目前收回了多少」，标出来免得当成结论 -->
-              <el-tooltip v-if="row.kind === 'device' && row.part_count && !row.settled"
-                :content="t('device.unsettledHint')">
-                <el-tag size="small" type="warning" effect="plain" class="pool-tag">{{ t('device.inProgress') }}</el-tag>
-              </el-tooltip>
               <el-tooltip v-if="row.incomplete" :content="t('card.incomplete')">
                 <el-icon class="warn-icon"><WarningFilled /></el-icon>
               </el-tooltip>
             </template>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.actions')" width="130" fixed="right" align="center">
+        <el-table-column :label="t('common.actions')" width="90" fixed="right" align="center">
           <template #default="{ row }">
             <!-- 部件在它所属的整机表单里改，这里不另开入口 -->
-            <template v-if="row.kind !== 'part'">
-              <el-button size="small" type="primary" text bg :icon="EditPen" @click.stop="openEdit(row)">
-                {{ t('common.edit') }}
-              </el-button>
-              <!-- 整机没有详情页，删除入口放在这里；显卡的删除在它的详情页上 -->
-              <el-button v-if="row.kind === 'device'" size="small" type="danger" text :icon="Delete"
-                @click.stop="confirmRemove(row)" />
-            </template>
+            <el-button v-if="row.kind !== 'part'" size="small" type="primary" text bg :icon="EditPen"
+              @click.stop="openEdit(row)">
+              {{ t('common.edit') }}
+            </el-button>
           </template>
         </el-table-column>
         <template #empty><span class="dc-dim">{{ t('common.noData') }}</span></template>
@@ -221,7 +228,8 @@
       :hosting-configured="hostingConfigured"
       @saved="onSaved"
     />
-    <DeviceFormDialog v-model="deviceDialogVisible" :device="editingDevice" @saved="onSaved" />
+    <DeviceFormDialog v-model="deviceDialogVisible" :device="editingDevice"
+      :hosting-configured="hostingConfigured" @saved="onSaved" />
   </div>
 </template>
 
@@ -229,11 +237,10 @@
 import { computed, onActivated, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessageBox } from 'element-plus'
 import {
-  ArrowDown, Delete, EditPen, Plus, Refresh, Search, WarningFilled
+  ArrowDown, EditPen, Plus, Refresh, Search, WarningFilled
 } from '@element-plus/icons-vue'
-import { devicesApi, inventoryApi, optionsApi, systemApi } from '@/api'
+import { inventoryApi, optionsApi, systemApi } from '@/api'
 import { cny, firstImage, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsMobile } from '@/composables/useIsMobile'
@@ -422,17 +429,6 @@ function onRowClick(row) {
   openEdit(row)
 }
 
-async function confirmRemove(row) {
-  try {
-    await ElMessageBox.confirm(t('device.deleteConfirm'), t('common.delete'), { type: 'warning' })
-  } catch {
-    return  // 点了取消
-  }
-  await devicesApi.remove(row.id)
-  ElMessage.success(t('common.deleted'))
-  fetch()
-}
-
 async function onSaved() {
   await fetch()
   loadAux()
@@ -457,6 +453,12 @@ onActivated(() => {
 
 <style scoped>
 .pool-tag { margin-left: 5px; transform: scale(0.85); }
+/* 成本上有明细可看：加条虚下划线提示可以悬浮，否则没人会想到把鼠标停上去 */
+.cost-value { border-bottom: 1px dotted #5a6478; cursor: help; }
+.net-profit-head { border-bottom: 1px dotted #5a6478; cursor: help; }
+.cost-tip div { display: flex; justify-content: space-between; gap: 18px; line-height: 1.9; }
+.cost-tip b { font-variant-numeric: tabular-nums; }
+.cost-tip-sum { border-top: 1px solid rgba(255, 255, 255, 0.2); margin-top: 4px; padding-top: 4px; }
 .page-head {
   display: flex;
   align-items: center;
@@ -494,6 +496,17 @@ onActivated(() => {
 /* 二级行（部件）压暗一档并留出缩进，和顶层行分得开 */
 .cards-table :deep(.part-row) { background: rgba(91, 140, 255, 0.03); }
 .cards-table :deep(.part-row .cell) { color: #b9c4d6; }
+/* 树形展开箭头是 el-table 画在第一列单元格里的行内元素，而封面是个块级盒子——
+   不排成一行的话，箭头会被顶到封面上面去。占位符和箭头统一宽度，让有子行和没子行
+   的封面左边缘对齐。 */
+.cards-table :deep(td.el-table__cell:first-child .cell) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cards-table :deep(td.el-table__cell:first-child .cell > *) { flex: none; }
+.cards-table :deep(td.el-table__cell:first-child .el-table__expand-icon),
+.cards-table :deep(td.el-table__cell:first-child .el-table__placeholder) { width: 22px; }
 .cover {
   width: 54px;
   height: 40px;
