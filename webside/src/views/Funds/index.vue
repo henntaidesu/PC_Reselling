@@ -40,7 +40,7 @@
             <el-table-column :label="t('funds.amount')" align="right" min-width="110">
               <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.amount) }}</span></template>
             </el-table-column>
-            <el-table-column :label="t('funds.rate')" align="right" width="96">
+            <el-table-column :label="t('funds.rate')" align="right" width="112">
               <template #default="{ row }">
                 <span class="pcr-mono">{{ row.fx_rate ? formatRate(row.fx_rate) : '—' }}</span>
                 <el-tag v-if="row.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
@@ -83,7 +83,7 @@
                   <div v-for="(a, i) in row.allocations" :key="i" class="alloc-line">
                     <span class="pcr-mono pcr-dim">{{ a.inject_date }}</span>
                     <span class="pcr-mono">{{ jpy(a.amount) }}</span>
-                    <span class="pcr-dim">÷ {{ formatRate(a.fx_rate) }} =</span>
+                    <span class="pcr-dim">× {{ formatRate(a.fx_rate) }} =</span>
                     <span class="pcr-mono">{{ cny(a.cny_amount) }}</span>
                   </div>
                   <div v-if="row.shortfall" class="alloc-line short">
@@ -100,12 +100,14 @@
             </el-table-column>
             <el-table-column :label="t('funds.purpose')" min-width="150">
               <template #default="{ row }">
-                <!-- 扣款要么挂在一张卡上（有详情页，可点进去），要么挂在一台整机上
-                     （没有详情页，只显示名字），要么是手工记的池内支出 -->
+                <!-- 扣款要么挂在一张卡上、要么挂在一台整机上（两者都有详情页，可点进去），
+                     要么是手工记的池内支出 -->
                 <router-link v-if="row.card_id" :to="`/cards/${row.card_id}`" class="link" @click.stop>
                   {{ row.owner_name || row.mgmt_no }}
                 </router-link>
-                <span v-else-if="row.device_id">{{ row.owner_name || row.mgmt_no }}</span>
+                <router-link v-else-if="row.device_id" :to="`/devices/${row.device_id}`" class="link" @click.stop>
+                  {{ row.owner_name || row.mgmt_no }}
+                </router-link>
                 <span v-else>{{ row.note || t('funds.cat.other') }}</span>
                 <div class="pcr-dim sub">
                   <el-tag v-if="row.owner_kind" size="small" effect="plain"
@@ -156,10 +158,13 @@
           <div class="pcr-dim hint">{{ t('funds.rateManualHint') }}</div>
         </el-form-item>
         <el-form-item v-if="injectionForm.manual" :label="t('card.fxRate')">
-          <el-input-number v-model="injectionForm.fx_rate" :min="0.0001" :step="0.1" :precision="4" :controls="false" class="full" />
+          <el-input-number v-model="injectionForm.fx_rate" :min="0.000001" :max="0.999999" :step="0.0001"
+            :precision="6" :controls="false" class="full" />
+          <!-- 0.043169 这个数没人有直觉，顺手把反向口径显示出来：按旧口径填成 23.165 一眼就能看出不对 -->
+          <div v-if="manualInverse" class="pcr-dim hint">{{ t('funds.rateInverse', { rate: manualInverse }) }}</div>
         </el-form-item>
         <div v-else-if="ratePreview" class="fx-hint">
-          {{ t('card.fxPreview') }}: 1 {{ t('currency.CNY_short') }} = {{ formatRate(ratePreview.rate) }} {{ t('currency.JPY_short') }}
+          {{ t('card.fxPreview') }}: 1 {{ t('currency.JPY_short') }} = {{ formatRate(ratePreview.rate) }} {{ t('currency.CNY_short') }}
           <span class="pcr-dim">（{{ ratePreview.rate_date }}{{ ratePreview.stale ? ' *' : '' }}）</span>
         </div>
         <div v-if="injectionCostPreview" class="fx-hint">
@@ -207,7 +212,7 @@ import { Delete, EditPen, Lock, Minus, Plus, Refresh } from '@element-plus/icons
 import { ElMessageBox } from 'element-plus'
 import { fundsApi, fxApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
-import { cny, formatMoney, formatRate } from '@/utils/format'
+import { cny, formatMoney, formatRate, inverseRate } from '@/utils/format'
 import StatCard from '@/components/StatCard.vue'
 
 const { t } = useI18n()
@@ -269,8 +274,11 @@ const injectionForm = reactive({ id: null, inject_date: null, amount: null, manu
 const injectionCostPreview = computed(() => {
   const rate = injectionForm.manual ? injectionForm.fx_rate : ratePreview.value?.rate
   if (!rate || !injectionForm.amount) return null
-  return injectionForm.amount / rate
+  return injectionForm.amount * rate
 })
+
+// 手填的汇率折回「1 人民币 = ? 日元」给人对一眼，不参与保存
+const manualInverse = computed(() => (injectionForm.manual ? inverseRate(injectionForm.fx_rate) : null))
 
 function openInjection(row = null) {
   Object.assign(injectionForm, {

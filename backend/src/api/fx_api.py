@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from src import db, settings_store
 from src.auth import require_auth
-from src.fx import FxError, get_rate, refresh_range
+from src.fx import BASE, QUOTE, FxError, get_rate, refresh_range
 from src.fx.providers import PROVIDERS
 
 router = APIRouter(prefix="/fx", tags=["fx"], dependencies=[Depends(require_auth)])
@@ -19,8 +19,8 @@ router = APIRouter(prefix="/fx", tags=["fx"], dependencies=[Depends(require_auth
 @router.get("/rate")
 def rate(
     date: Optional[dt.date] = Query(default=None, description="留空取今天"),
-    base: str = Query(default="CNY"),
-    quote: str = Query(default="JPY"),
+    base: str = Query(default=BASE),
+    quote: str = Query(default=QUOTE),
 ):
     """取某天的汇率。录卡时选完日期就调它，让用户在保存前先看到会用哪个汇率。"""
     try:
@@ -42,8 +42,8 @@ def rate(
 def history(
     start: dt.date = Query(...),
     end: dt.date = Query(...),
-    base: str = Query(default="CNY"),
-    quote: str = Query(default="JPY"),
+    base: str = Query(default=BASE),
+    quote: str = Query(default=QUOTE),
 ):
     """读缓存里的一段汇率，用于概览页画走势线。**只读本地，不打网络**——
     画个图不该触发几十次外部请求；缺的部分由 /fx/refresh 显式补。"""

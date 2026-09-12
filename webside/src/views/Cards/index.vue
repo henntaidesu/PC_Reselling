@@ -196,15 +196,6 @@
             </template>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.actions')" width="90" fixed="right" align="center">
-          <template #default="{ row }">
-            <!-- 部件在它所属的整机表单里改，这里不另开入口 -->
-            <el-button v-if="row.kind !== 'part'" size="small" type="primary" text bg :icon="EditPen"
-              @click.stop="openEdit(row)">
-              {{ t('common.edit') }}
-            </el-button>
-          </template>
-        </el-table-column>
         <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
       </el-table>
 
@@ -221,15 +212,6 @@
         />
       </div>
     </el-card>
-
-    <CardFormDialog
-      v-model="cardDialogVisible"
-      :card="editingCard"
-      :hosting-configured="hostingConfigured"
-      @saved="onSaved"
-    />
-    <DeviceFormDialog v-model="deviceDialogVisible" :device="editingDevice"
-      :hosting-configured="hostingConfigured" @saved="onSaved" />
   </div>
 </template>
 
@@ -238,15 +220,13 @@ import { computed, onActivated, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  ArrowDown, EditPen, Plus, Refresh, Search, WarningFilled
+  ArrowDown, Plus, Refresh, Search, WarningFilled
 } from '@element-plus/icons-vue'
-import { inventoryApi, optionsApi, systemApi } from '@/api'
+import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
 import { cny, firstImage, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { useMetaStore } from '@/stores/meta'
-import CardFormDialog from '@/components/CardFormDialog.vue'
-import DeviceFormDialog from '@/components/DeviceFormDialog.vue'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 
@@ -264,13 +244,6 @@ const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 const usedBrands = ref([])
-const hostingConfigured = ref(true)
-
-// 两种货各有自己的表单弹窗：结构差得远，硬合成一个只会让两边都别扭
-const cardDialogVisible = ref(false)
-const deviceDialogVisible = ref(false)
-const editingCard = ref(null)
-const editingDevice = ref(null)
 
 const filters = reactive({ keyword: '', kind: null, status: [], brand: null, source_platform: null })
 // 购入日期区间：绑定 daterange 选择器，拆成 purchase_from/purchase_to 传后端
@@ -390,48 +363,24 @@ function resetFilters() {
 
 async function loadAux() {
   await meta.ensure()
-  const [ub, ih] = await Promise.all([
-    optionsApi.usedBrands(),
-    systemApi.getImageHosting().catch(() => ({ configured: false }))
-  ])
+  const ub = await optionsApi.usedBrands()
   usedBrands.value = ub.items || []
-  hostingConfigured.value = Boolean(ih.configured)
 }
 
-function onAdd(kind) {
-  if (kind === 'device') {
-    editingDevice.value = null
-    deviceDialogVisible.value = true
-  } else {
-    editingCard.value = null
-    cardDialogVisible.value = true
-  }
+// 新增 = 先建一行空草稿，再进详情页填。详情页本身就是编辑界面，没有第二套「新增
+// 表单」要维护；草稿不进列表也不进统计，什么都没填就离开的话详情页会把它删掉。
+async function onAdd(kind) {
+  try {
+    const draft = kind === 'device' ? await devicesApi.createDraft() : await cardsApi.createDraft()
+    router.push(`/${kind === 'device' ? 'devices' : 'cards'}/${draft.id}`)
+  } catch { /* 拦截器已提示 */ }
 }
-function openEdit(row) {
-  // row.data 是后端序列化好的完整对象，两个弹窗都直接吃它，不必再查一次
-  if (row.kind === 'device') {
-    editingDevice.value = row.data
-    deviceDialogVisible.value = true
-  } else {
-    editingCard.value = row.data
-    cardDialogVisible.value = true
-  }
-}
+
+// 点一行就进它的详情页——看和改都在那里。部件行进的是它所属的那台整机：部件是整机
+// 的一部分，没有自己的详情页。
 function onRowClick(row) {
-  // 显卡有详情页（图片、状态流转、资金池分摊都在那儿）；整机没有，点开就是编辑。
-  // 部件行点开的是它所属的那台整机——部件只在整机表单里改。
-  if (row.kind === 'card') return router.push(`/cards/${row.id}`)
-  if (row.kind === 'part') {
-    const device = rows.value.find((r) => r.kind === 'device' && r.id === row.device_id)
-    if (device) openEdit(device)
-    return
-  }
-  openEdit(row)
-}
-
-async function onSaved() {
-  await fetch()
-  loadAux()
+  if (row.kind === 'part') return router.push(`/devices/${row.device_id}`)
+  router.push(`/${row.kind === 'device' ? 'devices' : 'cards'}/${row.id}`)
 }
 
 // 概览页点进来时带 ?status=xxx，直接把筛选摆好；带空的 status= 表示「看全部」。

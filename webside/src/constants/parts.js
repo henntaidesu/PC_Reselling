@@ -53,6 +53,26 @@ export const PART_SCHEMA = {
   }
 }
 
+// 一行里「算填过了」的字段。数量、状态、币种这些一建行就有默认值的不算，否则六个
+// 默认槽位一摆出来就全成了「有内容」，会被原样存进库，部件数从此显示成 0/6。
+const CONTENT_KEYS = [
+  'brand', 'model', 'spec', 'serial_no', 'note',
+  'sale_date', 'sale_amount', 'domestic_shipping_amount'
+]
+
+// 完全没填过的槽位。详情页据此决定「这一行提交不提交」，部件卡据此把它画淡一档
+// ——两边必须是同一条判断：卡片显示「未填写」而保存时却提交了它（或反过来），
+// 表现就是部件莫名其妙地多出来或者消失。
+export function isBlankPart(part) {
+  // 传了图也算「有内容」：否则把文字清空的那一刻这一行会被当成空槽位不再提交，
+  // 后端随即删掉它，挂在上面的图片跟着级联消失。
+  if (part._media_count) return false
+  return !CONTENT_KEYS.some((key) => {
+    const value = part[key]
+    return value !== null && value !== undefined && value !== ''
+  })
+}
+
 export function partSchema(partType) {
   return PART_SCHEMA[partType] || PART_SCHEMA.other
 }

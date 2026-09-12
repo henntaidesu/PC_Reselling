@@ -86,9 +86,9 @@ const menuItems = [
   { path: '/settings', titleKey: 'route.settings', icon: 'Setting' }
 ]
 
-// 详情页 /cards/:id 高亮到「设备库存」
+// 详情页 /cards/:id 与 /devices/:id 都高亮到「设备库存」
 const activePath = computed(() => {
-  if (route.path.startsWith('/cards')) return '/cards'
+  if (route.path.startsWith('/cards') || route.path.startsWith('/devices')) return '/cards'
   return route.path
 })
 

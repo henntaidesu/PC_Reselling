@@ -64,8 +64,9 @@ class CardPayload(BaseModel):
     note: Optional[str] = None
 
     # 手工指定汇率：填了就用它，并置 fx_manual=1，之后自动刷新不再覆盖。
-    purchase_fx_rate: Optional[float] = Field(default=None, gt=0)
-    sale_fx_rate: Optional[float] = Field(default=None, gt=0)
+    # 口径是「1 日元 = ? 人民币」（约 0.0421），lt=1 是防呆，理由见 funds_api.InjectionPayload。
+    purchase_fx_rate: Optional[float] = Field(default=None, gt=0, lt=1)
+    sale_fx_rate: Optional[float] = Field(default=None, gt=0, lt=1)
 
     @field_validator("purchase_currency", "intl_shipping_currency",
                      "domestic_shipping_currency", "sale_currency")
@@ -152,7 +153,7 @@ def _list_filters(
     purchase_to: Optional[dt.date],
 ) -> tuple[str, List[Any]]:
     """把列表筛选条件拼成 WHERE 子句。列表和顶部统计共用这一份，保证两者口径一致。"""
-    # 草稿卡（新增弹窗里刚建、还没保存的空卡）一律不算
+    # 草稿卡（点了新增刚建出来、还没填过任何东西的空卡）一律不算
     where: List[str] = ["is_draft = 0"]
     params: List[Any] = []
     if keyword:
@@ -270,11 +271,14 @@ def next_mgmt_no():
     return {"mgmt_no": cards.next_mgmt_no()}
 
 
-@router.get("/{card_id}")
-def get_card(card_id: int):
+def _result(card_id: int, warnings: List[str]) -> Dict[str, Any]:
+    """一张卡的完整响应：卡片 + 媒体 + 池内扣款明细 + 状态流转 + 本次操作的警告。
+
+    增删改查一律回这同一个形状（与 devices_api._result 对称）。详情页既是展示页也是
+    编辑页，改一个字段就 PUT 一次，而一次编辑能同时改动金额、资金池分摊和状态时间线
+    ——响应里全带上，前端拿到就能整页刷新，不必在每次保存后再补一发 GET。
+    """
     row = db.query_one("SELECT * FROM cards WHERE id = %s", (card_id,))
-    if not row:
-        raise HTTPException(status_code=404, detail="显卡不存在")
     media = cards.load_media([card_id]).get(card_id, [])
     data = cards.serialize(row, media)
     # 走资金池的卡要能看到「这笔钱是从哪几批注资里出的、各按什么汇率折的」
@@ -292,15 +296,25 @@ def get_card(card_id: int):
             (card_id,),
         )
     ]
+    data["warnings"] = warnings
     return data
+
+
+@router.get("/{card_id}")
+def get_card(card_id: int):
+    if not db.query_one("SELECT id FROM cards WHERE id = %s", (card_id,)):
+        raise HTTPException(status_code=404, detail="显卡不存在")
+    return _result(card_id, [])
 
 
 @router.post("/draft")
 def create_draft():
-    """建一张空草稿卡，只为拿到 id 和管理编号——新增弹窗一打开就调它，好让图片能立刻上传。
+    """建一张空草稿卡，只为拿到 id 和管理编号——列表页点「新增显卡」就调它，拿到 id 后
+    直接跳进这张卡的详情页填写，于是新增与编辑是同一个界面，图片也能立刻上传。
 
-    草稿不进列表也不进统计（is_draft=1）。用户点保存会走 update 把它转正；直接关弹窗则由
-    前端删掉它，残留的（关浏览器等）由启动时的 _cleanup_stale_drafts 兜底清理。
+    草稿不进列表也不进统计（is_draft=1）。详情页上存下第一笔改动就会走 update 转正；
+    什么都没填就离开则由前端删掉它，残留的（关浏览器等）由启动时的 _cleanup_stale_drafts
+    兜底清理。
     """
     mgmt_no = cards.next_mgmt_no()
     card_id = db.insert(
@@ -329,10 +343,7 @@ def create_card(payload: CardPayload):
     cards.log_status(card_id, None, values["status"], "创建")
     # 先同步资金池扣款再读回：分摊结果是写在卡片行上的，读早了成本还是空的
     funds.sync_card_and_rebuild(card_id)
-    row = db.query_one("SELECT * FROM cards WHERE id = %s", (card_id,))
-    result = cards.serialize(row, [])
-    result["warnings"] = fx["warnings"]
-    return result
+    return _result(card_id, fx["warnings"])
 
 
 @router.put("/{card_id}")
@@ -356,11 +367,7 @@ def update_card(card_id: int, payload: CardPayload):
     )
     cards.log_status(card_id, existing["status"], values["status"], "编辑")
     funds.sync_card_and_rebuild(card_id)
-    row = db.query_one("SELECT * FROM cards WHERE id = %s", (card_id,))
-    media = cards.load_media([card_id]).get(card_id, [])
-    result = cards.serialize(row, media)
-    result["warnings"] = fx["warnings"]
-    return result
+    return _result(card_id, fx["warnings"])
 
 
 @router.patch("/{card_id}/status")
@@ -391,7 +398,7 @@ def refresh_fx(card_id: int):
     if row["fx_manual"]:
         raise HTTPException(
             status_code=400,
-            detail="这张卡的汇率是手工填写的，自动刷新会覆盖它。如需刷新请先在编辑页清空手填汇率。",
+            detail="这张卡的汇率是手工填写的，自动刷新会覆盖它。如需刷新请先在详情页清空手填汇率。",
         )
     resolved = cards.resolve_fx(row["purchase_date"], row["sale_date"])
     db.execute(
@@ -400,10 +407,7 @@ def refresh_fx(card_id: int):
         (resolved["purchase_fx_rate"], resolved["purchase_fx_date"],
          resolved["sale_fx_rate"], resolved["sale_fx_date"], card_id),
     )
-    updated = db.query_one("SELECT * FROM cards WHERE id = %s", (card_id,))
-    result = cards.serialize(updated, [])
-    result["warnings"] = resolved["warnings"]
-    return result
+    return _result(card_id, resolved["warnings"])
 
 
 @router.delete("/{card_id}")

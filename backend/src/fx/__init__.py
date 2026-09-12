@@ -2,6 +2,8 @@
 """汇率子系统：按**交易发生的那一天**取 JPY→CNY 牌价。"""
 
 from src.fx.service import (  # noqa: F401
+    BASE,
+    QUOTE,
     FxError,
     convert,
     get_rate,

@@ -69,7 +69,10 @@ webside (Vue3 + Element Plus, hash 路由)
 
 两条贯穿全系统的硬约定：
 
-- **汇率方向**：`rate` = 「1 人民币 = 多少日元」（约 23.76）。日元折人民币是**除以** rate。
+- **汇率方向**：`rate` = 「1 日元 = 多少人民币」（约 0.0421）。日元折人民币是**乘以** rate。
+  方向只定义在 `fx/service.py` 的 `BASE` / `QUOTE` 两个常量上；再要换向，得同时改那两个常量、
+  `cards._to_cny` / `funds._to_cny` 的乘除，以及库里全部存量汇率（照 `schema._migrate_fx_rate_direction`
+  的样子写一个取倒数的迁移）。前端显示取 6 位小数——0.0421 留 4 位只剩两位有效数字。
 - **缺汇率不当零**：任何一项该折算却折不出来时，含它的合计返回 `None`（前端显示「—」），
   绝不按 0 计入——那会算出一个看着正常、实际严重偏高的利润。
 
@@ -103,6 +106,10 @@ webside (Vue3 + Element Plus, hash 路由)
 `schema.py` 在每次启动时无条件跑一遍：`CREATE TABLE IF NOT EXISTS` + `_MIGRATIONS` 里逐条
 `_ensure_column`。没有版本号表，新列往 `_MIGRATIONS` 里加即可，跑多少次都一样。
 
+唯一会**改存量数据**的是 `_migrate_fx_rate_direction()`（汇率换向取倒数），它跑第二遍就会把
+数据改回去，所以自己在 `app_settings` 里记了一个标记来保证只跑一次。再有这类迁移照它写，
+别塞进 `_MIGRATIONS`。
+
 ## 写代码时的具体约束
 
 - **SQL 一律用 `%s` 占位**，永不 f-string 拼用户输入。读走 `db.query/query_one`，写走
@@ -118,15 +125,26 @@ webside (Vue3 + Element Plus, hash 路由)
 - 鉴权：Bearer JWT，默认**永不过期**，靠 `users.token_version` 自增作废旧令牌（改密码 / 禁用账号）。
   新增受保护路由挂 `dependencies=[Depends(require_auth)]`（管理员用 `require_admin`）。
 
-## 前端的两个非常规模式
+## 前端的三个非常规模式
 
-- **草稿行**：新增弹窗一打开就 `POST /cards/draft`（或 `/devices/draft`）建一行 `is_draft=1` 的空记录，
-  只为拿到 id 让图片能立刻上传。关闭时若什么都没填就删掉；漏网的由启动时的 `_cleanup_stale_drafts()`
-  （超过 2 小时）清理。再加类似的「先建后填」实体请沿用这套，而不是在前端缓存文件。
-- **表单实时自动保存，没有保存按钮**：`CardFormDialog.vue` / `DeviceFormDialog.vue` 用 debounce +
-  `dirty` 循环，保存期间的新改动会在同一条链里续存。整机的部件数组每次整体提交，后端
-  `devices_api._write_parts` 按 **id 增量写**（带 id 更新 / 无 id 插入 / 未提交的删除）——
-  **绝不能改回「先全删再全插」**：行 id 一换，挂在部件上的图片会被外键级联删掉。
+- **详情页就是编辑页，没有编辑弹窗、没有保存按钮**：`views/CardDetail` 与 `views/DeviceDetail` 里
+  每个值都是一个直接可改的控件（`InlineField.vue` 负责「平时长得像文本、悬浮才浮出边框」那层皮），
+  改动经 `composables/useAutoSave.js` 防抖后自动 PUT。这份 composable 是唯一实现，两个详情页共用——
+  它处理的三件事（存的过程中又改了要续存、离开页面前 flush、回填 id 不能反过来触发保存）每一件写错
+  都表现为「数据莫名其妙丢了一次」。**别再引入第二套表单**：列表页只负责跳转，不再持有任何编辑状态。
+  保存响应与 GET 是同一个形状（`cards_api._result` / `devices_api._result`，含 money、fund_draws、
+  status_logs、warnings），所以存完直接刷新展示部分即可，不必补一发 GET；但**绝不能拿它回灌表单**，
+  请求往返那几百毫秒里敲的字会被覆盖掉。
+- **草稿行**：点「新增」就 `POST /cards/draft`（或 `/devices/draft`）建一行 `is_draft=1` 的空记录，
+  然后直接跳进它的详情页——这样图片能立刻上传，新增与编辑也就是同一个界面。离开详情页时若它仍是
+  草稿（一个字都没存过）就删掉；漏网的由启动时的 `_cleanup_stale_drafts()`（超过 2 小时）清理。
+  只传了图没改字段的那种卡会在上传后立刻存一次转正，否则离开时会被当空草稿连图一起删掉。
+  再加类似的「先建后填」实体请沿用这套，而不是在前端缓存文件。
+- **整机的部件数组每次整体提交**，后端 `devices_api._write_parts` 按 **id 增量写**（带 id 更新 /
+  无 id 插入 / 未提交的删除）——**绝不能改回「先全删再全插」**：行 id 一换，挂在部件上的图片会被
+  外键级联删掉。前端对应地要在保存后把返回的 id 贴回行上（`mergePartIds`），并且「这一行算不算空」
+  只有 `constants/parts.js` 的 `isBlankPart()` 一处判断：详情页据它决定提交不提交，部件卡据它画淡
+  一档，两边不一致就会出现部件莫名多出来或消失。
 
 其余：`@` 别名指向 `webside/src`；全站强制暗色主题（`main.js`）；`api/http.js` 统一处理 401
 （清 token 跳 `#/login`）与断网（全屏遮罩 + 轮询 `/api/health` 恢复），所以各页面不用自己 catch 这两类错。

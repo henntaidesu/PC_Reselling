@@ -4,6 +4,10 @@
 启动时无条件跑一遍：``CREATE TABLE IF NOT EXISTS`` 保证新库能自建，``_ensure_column``
 保证老库能补上后加的字段。没有版本号表——这个系统的演进方式是「只加不改」，
 把每次新增的列写进 _MIGRATIONS 即可，跑多少次都一样。
+
+**唯一的例外是 ``_migrate_fx_rate_direction``**：它要改动存量数据（汇率换向取倒数），
+跑第二遍就会把数据改回去，所以它自己在 app_settings 里记了一个标记来保证只跑一次。
+再有这类「改数据」的迁移，照它的样子写，别塞进 _MIGRATIONS。
 """
 
 from __future__ import annotations
@@ -11,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import List, Tuple
 
-from src import db
+from src import db, settings_store
 
 log = logging.getLogger(__name__)
 
@@ -181,7 +185,7 @@ _TABLES: List[Tuple[str, str]] = [
 
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       TEXT NULL,
-            -- 草稿卡：新增弹窗一打开就先建一张（好让图片能立刻挂上去），保存即转 0。
+            -- 草稿卡：点「新增」就先建一张（好让图片能立刻挂上去），存下第一笔改动即转 0。
             -- 列表、统计一律只算 is_draft=0；未保存就关掉的草稿会被清理掉。
             is_draft   TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -261,7 +265,7 @@ _TABLES: List[Tuple[str, str]] = [
             intl_shipping_currency VARCHAR(3) NOT NULL DEFAULT 'JPY',
 
             -- 汇率快照，口径与 cards 完全一致：取到就写死，之后不重算。
-            purchase_fx_rate DECIMAL(18,8) NULL COMMENT '1 CNY = ? JPY，按 purchase_date',
+            purchase_fx_rate DECIMAL(18,8) NULL COMMENT '1 JPY = ? CNY，按 purchase_date',
             purchase_fx_date DATE NULL COMMENT '实际取到的牌价日（非交易日会回退）',
 
             -- 采购资金从哪来，与 cards 同一套语义：'own' 走 purchase_fx_rate；
@@ -273,7 +277,7 @@ _TABLES: List[Tuple[str, str]] = [
 
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       TEXT NULL,
-            -- 与卡片同一套草稿机制：新增弹窗一打开就先建一台，保存即转 0。
+            -- 与卡片同一套草稿机制：点「新增」就先建一台，存下第一笔改动即转 0。
             is_draft   TINYINT(1) NOT NULL DEFAULT 0,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -354,6 +358,25 @@ _TABLES: List[Tuple[str, str]] = [
         """,
     ),
     (
+        "device_status_logs",
+        """
+        CREATE TABLE IF NOT EXISTS device_status_logs (
+            id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            device_id   INT UNSIGNED NOT NULL,
+            from_status VARCHAR(24) NULL,
+            to_status   VARCHAR(24) NOT NULL,
+            note        VARCHAR(500) NULL,
+            occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_device_status_logs_device (device_id, occurred_at),
+            CONSTRAINT fk_device_status_logs_device FOREIGN KEY (device_id)
+                REFERENCES devices (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='整机的状态流转history，与 card_status_logs 同构。整机详情页要和显卡详情页
+                   显示同一条时间线，没有这张表就只剩一个当前状态，看不出它是什么时候到的'
+        """,
+    ),
+    (
         "fx_rates",
         """
         CREATE TABLE IF NOT EXISTS fx_rates (
@@ -377,7 +400,7 @@ _TABLES: List[Tuple[str, str]] = [
             inject_date DATE NOT NULL COMMENT '这笔钱进池的日期，也是 FIFO 的排序依据',
             amount      DECIMAL(16,2) NOT NULL COMMENT '注入的日元金额',
             currency    VARCHAR(3) NOT NULL DEFAULT 'JPY',
-            -- 换汇当时的汇率快照：1 人民币 = fx_rate 日元。这笔钱之后被谁用掉，
+            -- 换汇当时的汇率快照：1 日元 = fx_rate 人民币。这笔钱之后被谁用掉，
             -- 都按这个汇率折人民币成本 —— 池子里的钱是「已经用这个价换进来的」，
             -- 用它的那天市场价是多少与真实成本无关。
             fx_rate     DECIMAL(18,8) NULL,
@@ -439,7 +462,7 @@ _TABLES: List[Tuple[str, str]] = [
             seq          INT NOT NULL DEFAULT 0 COMMENT '同一笔扣款内的分段顺序',
             amount       DECIMAL(16,2) NOT NULL COMMENT '这一段从该批次吃掉的日元',
             fx_rate      DECIMAL(18,8) NULL COMMENT '该批次的汇率快照（冗余，便于直接展示）',
-            cny_amount   DECIMAL(14,2) NULL COMMENT 'amount / fx_rate；批次缺汇率时为 NULL',
+            cny_amount   DECIMAL(14,2) NULL COMMENT 'amount * fx_rate；批次缺汇率时为 NULL',
             PRIMARY KEY (id),
             KEY idx_fund_alloc_draw (draw_id, seq),
             KEY idx_fund_alloc_injection (injection_id),
@@ -547,8 +570,69 @@ def _migrate_fund_draws_devices() -> None:
         )
 
 
+# 汇率口径从「1 人民币 = ? 日元」换成「1 日元 = ? 人民币」时要做的一次性数据修正。
+# 库里所有汇率快照存的都是旧口径的数值（约 23.76），换向后代码改成乘法，不取倒数的话
+# 成本会算成原来的五百多倍。取两次倒数等于没取，所以拿 app_settings 里的一个标记当
+# 「做过了」的凭证——这是全库唯一一处改存量数据的迁移。
+_FX_DIRECTION_KEY = "fx_rate_direction"
+_FX_DIRECTION = "jpy_cny"
+
+# 所有存着汇率快照的列。派生出来的金额列（cny_amount / pool_*_cny）存的已经是人民币，
+# 与方向无关，不用动。
+_FX_RATE_COLUMNS: List[Tuple[str, str]] = [
+    ("cards", "purchase_fx_rate"),
+    ("cards", "sale_fx_rate"),
+    ("cards", "pool_fx_rate"),
+    ("devices", "purchase_fx_rate"),
+    ("devices", "pool_fx_rate"),
+    ("device_parts", "sale_fx_rate"),
+    ("fund_injections", "fx_rate"),
+    ("fund_allocations", "fx_rate"),
+]
+
+
+def _migrate_fx_rate_direction() -> None:
+    """把旧口径的存量汇率整体取倒数，并给缓存表换向。做过一次就跳过。
+
+    整段必须在一个事务里，标记也由同一个游标写：中途失败却留下一半已取倒数的数据，
+    下次启动会把那一半再取一次倒数——那时已经没法从数值上分辨谁是新口径谁是旧口径了。
+    """
+    if settings_store.get(_FX_DIRECTION_KEY) == _FX_DIRECTION:
+        return
+    log.info("迁移：汇率口径改为「1 日元 = ? 人民币」，存量汇率取倒数")
+    with db.transaction() as cur:
+        # 表名与列名都来自上面那张固定的表，不是外部输入，拼进 SQL 是安全的。
+        # 被除数写成 1.000000000000 而不是 1：MySQL 的除法结果小数位 =
+        # 被除数小数位 + div_precision_increment(默认 4)，用整数 1 除出来的
+        # 1/23.76 只有 0.0421（4 位），存进 DECIMAL(18,8) 也补不回丢掉的精度。
+        for table, column in _FX_RATE_COLUMNS:
+            if not _has_column(table, column):
+                continue
+            cur.execute(
+                "UPDATE `{t}` SET `{c}` = 1.000000000000 / `{c}` "
+                "WHERE `{c}` IS NOT NULL AND `{c}` > 0".format(t=table, c=column)
+            )
+        # 缓存表连 base/quote 一起换向。更早的版本也用过 JPY→CNY，那些行会与换向后的行
+        # 撞主键，先删掉——fx_rates 是纯缓存，删了下次自动重取。
+        cur.execute(
+            "DELETE j FROM fx_rates j JOIN fx_rates c "
+            "ON c.rate_date = j.rate_date AND c.source = j.source "
+            "WHERE j.base = 'JPY' AND j.quote = 'CNY' AND c.base = 'CNY' AND c.quote = 'JPY'"
+        )
+        cur.execute(
+            "UPDATE fx_rates SET base = 'JPY', quote = 'CNY', rate = 1.000000000000 / rate "
+            "WHERE base = 'CNY' AND quote = 'JPY' AND rate > 0"
+        )
+        # 与 settings_store.set 同一条语句，只是必须走本事务的游标
+        cur.execute(
+            "INSERT INTO app_settings (`key`, `value`) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+            (_FX_DIRECTION_KEY, _FX_DIRECTION),
+        )
+
+
 def init() -> None:
-    """建库 → 建表 → 补列 → 结构迁移 → 灌入首次运行的种子数据。可重复执行。"""
+    """建库 → 建表 → 补列 → 结构迁移 → 数据迁移 → 灌入首次运行的种子数据。可重复执行。"""
     db.ensure_database()
     for name, ddl in _TABLES:
         db.execute(ddl)
@@ -557,6 +641,7 @@ def init() -> None:
         _ensure_column(table, column, ddl)
     _migrate_gpu_models_standalone()
     _migrate_fund_draws_devices()
+    _migrate_fx_rate_direction()
     _cleanup_stale_drafts()
     _seed()
 
@@ -564,7 +649,7 @@ def init() -> None:
 def _cleanup_stale_drafts() -> None:
     """清掉超过 2 小时没定稿的草稿（卡片与整机都算）。
 
-    正常流程里草稿要么保存（转正）、要么关弹窗时被删；只有「开了新增弹窗又直接关掉浏览器」
+    正常流程里草稿要么存下改动（转正）、要么离开详情页时被删；只有「点了新增又直接关掉浏览器」
     才会残留。2 小时的阈值保证正在编辑中的草稿（刚建几秒）不会被误删，即使期间热重载了。
     连带 card_media / device_parts 由外键级联删除；图床上的文件成孤儿（可接受，仅占空间）。
     """

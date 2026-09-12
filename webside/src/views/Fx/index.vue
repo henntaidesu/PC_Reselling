@@ -7,8 +7,8 @@
         <el-card shadow="never" class="today-card">
           <div class="today-label">{{ t('fx.today') }}</div>
           <div class="today-rate pcr-mono" v-if="today">
-            1 <span class="unit">{{ t('currency.CNY_short') }}</span> =
-            {{ formatRate(today.rate) }} <span class="unit">{{ t('currency.JPY_short') }}</span>
+            1 <span class="unit">{{ t('currency.JPY_short') }}</span> =
+            {{ formatRate(today.rate) }} <span class="unit">{{ t('currency.CNY_short') }}</span>
           </div>
           <div class="today-rate" v-else>—</div>
           <div class="today-date pcr-dim" v-if="today">
@@ -94,7 +94,7 @@ const trendOption = computed(() => ({
   tooltip: { trigger: 'axis', valueFormatter: (v) => formatRate(v) },
   grid: { left: 8, right: 12, bottom: 8, top: 20, containLabel: true },
   xAxis: { type: 'category', data: history.value.map((h) => h.date), axisLine: { lineStyle: { color: '#3a4456' } } },
-  yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#1c2740' } }, axisLabel: { formatter: (v) => v.toFixed(4) } },
+  yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#1c2740' } }, axisLabel: { formatter: (v) => v.toFixed(6) } },
   series: [{
     type: 'line', smooth: true, showSymbol: false,
     data: history.value.map((h) => h.rate),

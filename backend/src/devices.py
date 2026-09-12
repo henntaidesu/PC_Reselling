@@ -24,7 +24,7 @@ CPU、显卡、内存、硬盘、主板、电源分别挂出去，于是有**一
 需要看单件贡献时看它的售价与净收入即可。
 
 **资金池**（``fund_source='pool'``）与显卡完全同一套：这台机器的日元从池里出，采购侧
-成本就不是「金额 ÷ 购入日牌价」，而是被吃掉的那几批注资各按各自的换汇价折算再相加。
+成本就不是「金额 × 购入日牌价」，而是被吃掉的那几批注资各按各自的换汇价折算再相加。
 分摊由 src.funds 按 FIFO 算好后回写在 ``pool_purchase_cny`` / ``pool_intl_cny`` 上，
 这里直接取用。出售侧不受影响：部件卖的是人民币，仍走各自的 ``sale_fx_rate``。
 """
@@ -290,6 +290,21 @@ def part_media_counts(part_ids: List[int]) -> Dict[int, int]:
 def type_rank(part_type: Optional[str]) -> int:
     """部件类型的展示顺序，未知类型排最后。"""
     return _TYPE_ORDER.get(part_type or "", len(_TYPE_ORDER))
+
+
+def log_status(device_id: int, from_status: Optional[str], to_status: str, note: str = "") -> None:
+    """写一条状态流转记录。与 ``cards.log_status`` 同构，只是换了一张表。
+
+    状态没变就不写：表单是实时自动保存的，改个备注也会 PUT 一次，不挡掉的话时间线
+    几秒钟就被同一个状态刷满，真正的流转反而淹没在里面。
+    """
+    if from_status == to_status:
+        return
+    db.execute(
+        "INSERT INTO device_status_logs (device_id, from_status, to_status, note) "
+        "VALUES (%s, %s, %s, %s)",
+        (device_id, from_status, to_status, (note or "")[:500]),
+    )
 
 
 def validate_status(status: Optional[str]) -> str:

@@ -12,7 +12,7 @@ export const cardsApi = {
   stats: (params) => http.get('/cards/stats', { params }),
   get: (id) => http.get(`/cards/${id}`),
   create: (payload) => http.post('/cards', payload),
-  // 新增弹窗打开即建的空草稿卡，只为拿到 id，好让图片立刻能传
+  // 点「新增」即建的空草稿卡，只为拿到 id 好跳进详情页（图片也就能立刻传）
   createDraft: () => http.post('/cards/draft'),
   update: (id, payload) => http.put(`/cards/${id}`, payload),
   changeStatus: (id, payload) => http.patch(`/cards/${id}/status`, payload),
@@ -28,12 +28,12 @@ export const inventoryApi = {
   stats: (params) => http.get('/inventory/stats', { params })
 }
 
-// 整机设备的增删改查：一次购入（一个总价）拆成多个部件分别出售。部件随设备整体
-// 提交，保存时后端按提交的数组整体覆盖 device_parts。列表走上面的 inventoryApi。
+// 整机设备的增删改查：一次购入（一个总价）拆成多个部件分别出售。部件随设备整体提交，
+// 后端按 id 增量写回 device_parts（见 devices_api._write_parts）。列表走上面的 inventoryApi。
 export const devicesApi = {
   get: (id) => http.get(`/devices/${id}`),
   create: (payload) => http.post('/devices', payload),
-  // 新增弹窗打开即建的空草稿设备，只为拿到 id 与管理编号
+  // 点「新增」即建的空草稿设备，只为拿到 id 与管理编号，随即跳进它的详情页
   createDraft: () => http.post('/devices/draft'),
   update: (id, payload) => http.put(`/devices/${id}`, payload),
   changeStatus: (id, payload) => http.patch(`/devices/${id}/status`, payload),

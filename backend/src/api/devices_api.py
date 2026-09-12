@@ -240,10 +240,11 @@ def _load(device_id: int) -> Optional[Dict[str, Any]]:
 
 
 def _result(device_id: int, warnings: List[str]) -> Dict[str, Any]:
-    """一台设备的完整响应：设备 + 部件 + 池内扣款明细 + 本次操作的警告。
+    """一台设备的完整响应：设备 + 部件 + 池内扣款明细 + 状态流转 + 本次操作的警告。
 
-    走资金池的设备要能看到「这笔钱是从哪几批注资里出的、各按什么汇率折的」——整机没有
-    独立详情页，编辑弹窗就是唯一能看到它的地方，所以每次保存的返回值里都带上。
+    增删改查一律回这同一个形状。详情页既是展示页也是编辑页（改一个字段就 PUT 一次），
+    而一次编辑能同时改动金额、资金池分摊和状态时间线——响应里全带上，前端拿到就能整页
+    刷新，不必在每次保存后再补一发 GET。
     """
     row = _load(device_id)
     parts = devices.load_parts([device_id]).get(device_id, [])
@@ -254,6 +255,19 @@ def _result(device_id: int, warnings: List[str]) -> Dict[str, Any]:
     for item in out["parts"]:
         item["media_count"] = counts.get(item["id"], 0)
     out["fund_draws"] = funds.device_draws(device_id) if uses_pool(row) else []
+    out["status_logs"] = [
+        {
+            "from_status": log_row["from_status"],
+            "to_status": log_row["to_status"],
+            "note": log_row["note"],
+            "occurred_at": log_row["occurred_at"].isoformat() if log_row["occurred_at"] else None,
+        }
+        for log_row in db.query(
+            "SELECT from_status, to_status, note, occurred_at FROM device_status_logs "
+            "WHERE device_id = %s ORDER BY occurred_at, id",
+            (device_id,),
+        )
+    ]
     out["warnings"] = warnings
     return out
 
@@ -273,10 +287,12 @@ def get_device(device_id: int):
 
 @router.post("/draft")
 def create_draft():
-    """建一台空草稿设备，只为拿到 id 与管理编号——新增弹窗一打开就调它。
+    """建一台空草稿设备，只为拿到 id 与管理编号——列表页点「新增整机」就调它，拿到 id
+    后直接跳进这台设备的详情页填写（与显卡同一套流程）。
 
-    草稿不进列表也不进统计（is_draft=1）。点保存会走 update 转正；直接关弹窗则由前端
-    删掉，残留的（关浏览器等）由启动时的 _cleanup_stale_drafts 兜底清理。
+    草稿不进列表也不进统计（is_draft=1）。详情页上存下第一笔改动就会走 update 转正；
+    什么都没填就离开则由前端删掉，残留的（关浏览器等）由启动时的 _cleanup_stale_drafts
+    兜底清理。
     """
     mgmt_no = devices.next_mgmt_no()
     device_id = db.insert(
@@ -303,6 +319,7 @@ def create_device(payload: DevicePayload):
         [values[c] for c in columns],
     )
     _write_parts(device_id, payload, fx)
+    devices.log_status(device_id, None, values["status"], "创建")
     # 先同步资金池扣款再读回：分摊结果是写在设备行上的，读早了成本还是空的
     funds.sync_device_and_rebuild(device_id)
     return _result(device_id, fx["warnings"])
@@ -310,7 +327,8 @@ def create_device(payload: DevicePayload):
 
 @router.put("/{device_id}")
 def update_device(device_id: int, payload: DevicePayload):
-    if not _load(device_id):
+    existing = _load(device_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="设备不存在")
 
     fx = _apply_fx(payload)
@@ -327,6 +345,7 @@ def update_device(device_id: int, payload: DevicePayload):
         list(values.values()) + [device_id],
     )
     _write_parts(device_id, payload, fx)
+    devices.log_status(device_id, existing["status"], values["status"], "编辑")
     funds.sync_device_and_rebuild(device_id)
     return _result(device_id, fx["warnings"])
 
@@ -338,9 +357,11 @@ def change_status(device_id: int, payload: StatusPayload):
         status = devices.validate_status(payload.status)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    if not _load(device_id):
+    existing = _load(device_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="设备不存在")
     db.execute("UPDATE devices SET status = %s WHERE id = %s", (status, device_id))
+    devices.log_status(device_id, existing["status"], status, payload.note or "")
     return {"ok": True, "status": status}
 
 

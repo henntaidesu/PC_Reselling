@@ -81,8 +81,6 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
         "media": data["media"],
-        # 编辑弹窗要的完整对象，前端不必为了改一行再单独查一次
-        "data": data,
     }
 
 
@@ -128,7 +126,6 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "incomplete": money["incomplete"],
         "from_pool": False,
         "media": [],
-        "data": None,
     }
 
 
@@ -166,7 +163,6 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[str, 
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
         "media": [],
-        "data": data,
     }
     # 二级行。没有部件时**不带 children 这个键**——给个空数组的话 el-table 仍会画出
     # 一个点开是空的展开箭头。

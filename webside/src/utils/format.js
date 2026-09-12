@@ -40,10 +40,19 @@ export function cny(amount) {
   return formatMoney(amount, 'CNY')
 }
 
+// 汇率口径是「1 日元 = 多少人民币」（约 0.0421，唯一定义在 backend/src/fx/service.py 的 BASE/QUOTE）。
+// 小数位跟着量级走：0.0421 留 4 位只剩两位有效数字，差 1% 的两个汇率会显示成同一个数，所以取 6 位。
 export function formatRate(rate) {
   if (rate === null || rate === undefined) return '—'
-  // rate = 1 人民币 = 多少日元，量级约 23.76，4 位小数足够看出变化
-  return Number(rate).toFixed(4)
+  return Number(rate).toFixed(6)
+}
+
+// 反向口径（1 人民币 = 多少日元），只用来给人做常识校验：0.043169 看不出对不对，
+// 23.16 一眼就知道。永远不参与计算。
+export function inverseRate(rate) {
+  const num = Number(rate)
+  if (!num || Number.isNaN(num)) return null
+  return (1 / num).toFixed(4)
 }
 
 // 利润着色：正绿负红，0 和缺失用默认色

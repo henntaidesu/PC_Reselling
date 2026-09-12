@@ -6,6 +6,9 @@ import { optionsApi } from '@/api'
 export const useMetaStore = defineStore('meta', () => {
   const enums = ref({ statuses: [], media_categories: [], source_platforms: [], currencies: [] })
   const brands = ref([])
+  // 型号字典不分品牌，全站一份：显卡详情页的「型号」下拉和整机部件里显卡那一行
+  // 用的是同一份候选，各自拉一遍只会拉出两份不同步的清单
+  const models = ref([])
   const loaded = ref(false)
 
   async function ensure() {
@@ -14,9 +17,10 @@ export const useMetaStore = defineStore('meta', () => {
   }
 
   async function reload() {
-    const [e, b] = await Promise.all([optionsApi.enums(), optionsApi.brands()])
+    const [e, b, m] = await Promise.all([optionsApi.enums(), optionsApi.brands(), optionsApi.models()])
     enums.value = e
     brands.value = b.items || []
+    models.value = m.items || []
     loaded.value = true
   }
 
@@ -25,5 +29,10 @@ export const useMetaStore = defineStore('meta', () => {
     brands.value = b.items || []
   }
 
-  return { enums, brands, loaded, ensure, reload, reloadBrands }
+  async function reloadModels() {
+    const m = await optionsApi.models()
+    models.value = m.items || []
+  }
+
+  return { enums, brands, models, loaded, ensure, reload, reloadBrands, reloadModels }
 })
