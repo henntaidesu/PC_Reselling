@@ -273,6 +273,30 @@ def load_parts(device_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
     return grouped
 
 
+def load_media(device_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+    """批量取多台设备自己的图，按 device_id 分组（口径与 cards.load_media 一致）。
+
+    库存列表每行要显示一张封面，逐行查一次就是 N+1。
+    """
+    if not device_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(device_ids))
+    rows = db.query(
+        f"SELECT id, device_id, kind, stored_name, public_url, filename, "
+        f"mime_type, size_bytes, sort_order, created_at "
+        f"FROM device_media WHERE device_id IN ({placeholders}) "
+        f"ORDER BY device_id, sort_order, id",
+        device_ids,
+    )
+    grouped: Dict[int, List[Dict[str, Any]]] = {did: [] for did in device_ids}
+    for row in rows:
+        item = dict(row)
+        item["created_at"] = _iso(row.get("created_at"))
+        item["size_bytes"] = int(row["size_bytes"]) if row.get("size_bytes") is not None else None
+        grouped.setdefault(row["device_id"], []).append(item)
+    return grouped
+
+
 def part_media_counts(part_ids: List[int]) -> Dict[int, int]:
     """一次数完这批部件各有几张图。逐个部件查一次就是 N+1，一台机器十来个部件就是
     十来次往返。"""

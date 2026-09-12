@@ -358,6 +358,30 @@ _TABLES: List[Tuple[str, str]] = [
         """,
     ),
     (
+        "device_media",
+        """
+        CREATE TABLE IF NOT EXISTS device_media (
+            id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            device_id   INT UNSIGNED NOT NULL,
+            kind        VARCHAR(8) NOT NULL DEFAULT 'image' COMMENT 'image / video',
+            stored_name VARCHAR(255) NOT NULL COMMENT '图床侧的存储名，删除靠它',
+            public_url  VARCHAR(1024) NOT NULL,
+            filename    VARCHAR(255) NULL COMMENT '上传时的原始文件名，仅供展示',
+            mime_type   VARCHAR(128) NULL,
+            size_bytes  BIGINT UNSIGNED NULL,
+            sort_order  INT NOT NULL DEFAULT 0,
+            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_device_media_device (device_id, sort_order, id),
+            CONSTRAINT fk_device_media_device FOREIGN KEY (device_id)
+                REFERENCES devices (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='整机本身的图片/视频：整机外观、铭牌、开机测试这类拍的是「这台机器」
+                   而不是某个部件的照片。与 device_part_media 同构（平铺一组，不分类），
+                   列表页的封面也取这里的第一张'
+        """,
+    ),
+    (
         "device_status_logs",
         """
         CREATE TABLE IF NOT EXISTS device_status_logs (
@@ -406,7 +430,9 @@ _TABLES: List[Tuple[str, str]] = [
             fx_rate     DECIMAL(18,8) NULL,
             fx_date     DATE NULL COMMENT '实际取到的牌价日（非交易日会回退）',
             fx_manual   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=汇率手工填写（真实换汇价），不自动覆盖',
-            channel     VARCHAR(64) NULL COMMENT '换汇渠道，如 银行电汇 / Wise，仅备注用',
+            -- 换汇渠道。界面上已经不录了（渠道对算账没有任何影响），列留着不删：
+            -- 老数据里还有值，而这个库的迁移规矩是只加不改。
+            channel     VARCHAR(64) NULL COMMENT '换汇渠道，已停用，不再写入',
             note        VARCHAR(500) NULL,
             created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP

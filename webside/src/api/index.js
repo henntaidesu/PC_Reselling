@@ -47,13 +47,14 @@ export const mediaApi = {
   upload: (formData) =>
     http.post('/media/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }),
   listForCard: (cardId) => http.get(`/media/card/${cardId}`),
-  // 整机部件的图：平铺一组，没有分类
-  listForPart: (partId) => http.get(`/media/parts/${partId}`),
-  uploadForPart: (partId, formData) =>
-    http.post(`/media/parts/${partId}`, formData,
+  // 平铺一组图（不分类）。owner 只有两种：'parts' = 某个部件，'devices' = 整机本身。
+  // 两边的请求与响应完全同形，所以只留这一组方法，别按归属各写一套。
+  flatList: (owner, ownerId) => http.get(`/media/${owner}/${ownerId}`),
+  flatUpload: (owner, ownerId, formData) =>
+    http.post(`/media/${owner}/${ownerId}`, formData,
       { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }),
-  removePartMedia: (mediaId, purge = true) =>
-    http.delete(`/media/parts/items/${mediaId}`, { params: { purge } }),
+  flatRemove: (owner, mediaId, purge = true) =>
+    http.delete(`/media/${owner}/items/${mediaId}`, { params: { purge } }),
   reorder: (mediaIds) => http.put('/media/reorder', { media_ids: mediaIds }),
   remove: (mediaId, purge = true) => http.delete(`/media/${mediaId}`, { params: { purge } })
 }

@@ -7,6 +7,11 @@
 显卡和部件共用同一套上传流程（``_store_files``），只有「落哪张表」不同：显卡的图分
 五类（外观 / PCB / 核心 / GPU-Z / mods），而一条内存、一块主板拍的就是它本身，没有
 可分的类别，所以部件那边是平铺的一组。
+
+平铺这一组有**两种归属**：整机部件（device_part_media）和整机本身（device_media，
+拍的是整机外观 / 铭牌 / 开机测试）。两者表结构、上传、列出、删除完全同构，只有表名和
+外键列不同，所以下面用 ``_FLAT_OWNERS`` 参数化成一套代码，路由则各自显式声明——
+写成 ``/{owner}/{id}`` 会和 ``/card/{card_id}`` 撞上，靠注册顺序分胜负太脆。
 """
 
 from __future__ import annotations
@@ -165,12 +170,22 @@ async def upload(
     return await _store_files(files, f"card{card_id}-{category}", base_order, insert_row)
 
 
-# ── 整机部件的图片 ──────────────────────────────────────────────────────── #
+# ── 平铺一组图：整机部件 / 整机本身 ────────────────────────────────────── #
 
-def _part_media_row(row) -> dict:
+# 归属 → (媒体表, 外键列, 归属表, 报错时的称呼, 图床 external_key 前缀)
+_FLAT_OWNERS = {
+    "parts": ("device_part_media", "part_id", "device_parts", "部件", "part"),
+    "devices": ("device_media", "device_id", "devices", "设备", "device"),
+}
+
+
+def _flat_row(owner: str, row) -> dict:
+    _table, fk, _owner_table, _label, _prefix = _FLAT_OWNERS[owner]
     return {
         "id": row["id"],
-        "part_id": row["part_id"],
+        # 前端只认 owner_id 这一个名字，两种归属的响应因此完全同形
+        "owner_id": row[fk],
+        fk: row[fk],
         "kind": row["kind"],
         "stored_name": row["stored_name"],
         "public_url": row["public_url"],
@@ -181,55 +196,88 @@ def _part_media_row(row) -> dict:
     }
 
 
-@router.post("/parts/{part_id}")
-async def upload_part_media(part_id: int, files: List[UploadFile] = File(...)):
-    """给一个部件传图。
+async def _upload_flat(owner: str, owner_id: int, files):
+    """给一个部件 / 一台整机传图。
 
-    部件必须先存在（有 id）才能挂文件，和卡片一样——文件是挂在行上的，行还没有，
-    文件就无处可去。表单里那一行只要填了任何内容，600ms 后的自动保存就会把它建出来。
+    归属必须先存在（有 id）才能挂文件：文件是挂在行上的，行还没有，文件就无处可去。
+    部件那一行由前端在上传前先存一次建出来（详情页的 ensurePartId），所以界面上不再
+    需要「先填点什么才能传图」这条规矩。
     """
-    if not db.query_one("SELECT id FROM device_parts WHERE id = %s", (part_id,)):
-        raise HTTPException(status_code=404, detail="部件不存在")
+    table, fk, owner_table, label, prefix = _FLAT_OWNERS[owner]
+    if not db.query_one(f"SELECT id FROM {owner_table} WHERE id = %s", (owner_id,)):
+        raise HTTPException(status_code=404, detail=f"{label}不存在")
 
+    # 追加到末尾，不打乱已有顺序
     base_order = int(db.query_scalar(
-        "SELECT COALESCE(MAX(sort_order), -1) AS m FROM device_part_media WHERE part_id = %s",
-        (part_id,), default=-1,
+        f"SELECT COALESCE(MAX(sort_order), -1) AS m FROM {table} WHERE {fk} = %s",
+        (owner_id,), default=-1,
     ) or -1) + 1
 
     def insert_row(kind, stored_name, public_url, filename, content_type, size, sort_order):
         media_id = db.insert(
-            "INSERT INTO device_part_media "
-            "(part_id, kind, stored_name, public_url, filename, mime_type, size_bytes, sort_order) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-            (part_id, kind, stored_name, public_url, filename[:255],
+            f"INSERT INTO {table} "
+            f"({fk}, kind, stored_name, public_url, filename, mime_type, size_bytes, sort_order) "
+            f"VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (owner_id, kind, stored_name, public_url, filename[:255],
              content_type[:128], size, sort_order),
         )
         return {
-            "id": media_id, "part_id": part_id, "kind": kind,
+            "id": media_id, "owner_id": owner_id, fk: owner_id, "kind": kind,
             "stored_name": stored_name, "public_url": public_url, "filename": filename,
             "mime_type": content_type, "size_bytes": size, "sort_order": sort_order,
         }
 
-    return await _store_files(files, f"part{part_id}", base_order, insert_row)
+    return await _store_files(files, f"{prefix}{owner_id}", base_order, insert_row)
+
+
+def _list_flat(owner: str, owner_id: int) -> dict:
+    table, fk, _owner_table, _label, _prefix = _FLAT_OWNERS[owner]
+    rows = db.query(
+        f"SELECT * FROM {table} WHERE {fk} = %s ORDER BY sort_order, id", (owner_id,))
+    return {"items": [_flat_row(owner, r) for r in rows]}
+
+
+def _delete_flat(owner: str, media_id: int, purge: bool) -> dict:
+    table, _fk, _owner_table, _label, _prefix = _FLAT_OWNERS[owner]
+    row = db.query_one(f"SELECT id, stored_name FROM {table} WHERE id = %s", (media_id,))
+    if not row:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    purged = _purge_from_hosting(row["stored_name"]) if purge else False
+    db.execute(f"DELETE FROM {table} WHERE id = %s", (media_id,))
+    return {"ok": True, "purged": purged}
+
+
+# 路由各写各的：表名从上面那张固定的表里取，不进 SQL 的用户输入，也不会和
+# /card/{card_id} 抢同一个形状的路径。
+
+@router.post("/parts/{part_id}")
+async def upload_part_media(part_id: int, files: List[UploadFile] = File(...)):
+    return await _upload_flat("parts", part_id, files)
 
 
 @router.get("/parts/{part_id}")
 def list_part_media(part_id: int):
-    rows = db.query(
-        "SELECT * FROM device_part_media WHERE part_id = %s ORDER BY sort_order, id",
-        (part_id,),
-    )
-    return {"items": [_part_media_row(r) for r in rows]}
+    return _list_flat("parts", part_id)
 
 
 @router.delete("/parts/items/{media_id}")
 def delete_part_media(media_id: int, purge: bool = True):
-    row = db.query_one("SELECT id, stored_name FROM device_part_media WHERE id = %s", (media_id,))
-    if not row:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    purged = _purge_from_hosting(row["stored_name"]) if purge else False
-    db.execute("DELETE FROM device_part_media WHERE id = %s", (media_id,))
-    return {"ok": True, "purged": purged}
+    return _delete_flat("parts", media_id, purge)
+
+
+@router.post("/devices/{device_id}")
+async def upload_device_media(device_id: int, files: List[UploadFile] = File(...)):
+    return await _upload_flat("devices", device_id, files)
+
+
+@router.get("/devices/{device_id}")
+def list_device_media(device_id: int):
+    return _list_flat("devices", device_id)
+
+
+@router.delete("/devices/items/{media_id}")
+def delete_device_media(media_id: int, purge: bool = True):
+    return _delete_flat("devices", media_id, purge)
 
 
 @router.get("/card/{card_id}")

@@ -1,11 +1,8 @@
 <template>
-  <div class="part-media">
-    <!-- 文件是挂在部件行上的，行还没存进库就没有 id，无处可挂。这一行只要填了任何
-         内容，600ms 后的自动保存就会把它建出来，提示随即消失。 -->
-    <div v-if="!partId" class="hint">{{ t('device.mediaNeedSave') }}</div>
-    <div v-else-if="!hostingConfigured" class="hint warn">{{ t('media.notConfigured') }}</div>
+  <div class="media-gallery">
+    <div v-if="!hostingConfigured" class="hint warn">{{ t('media.notConfigured') }}</div>
 
-    <div v-else class="grid">
+    <div v-else class="grid" :class="{ 'grid--lg': large }">
       <div v-for="item in items" :key="item.id" class="cell">
         <div class="thumb" @click="preview(item)">
           <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
@@ -55,10 +52,17 @@ import { Close, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { mediaApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 
+// 平铺一组图，不分类。两种归属共用这一个组件：owner='parts' 挂在某个部件上，
+// owner='devices' 挂在整机本身上（整机外观 / 铭牌 / 开机测试这类照片）。
+// 显卡不走这里——它的图分五类，用 MediaManager。
 const props = defineProps({
-  // 部件还没保存时为 null：此时只显示提示，不给上传口
-  partId: { type: [Number, null], default: null },
-  hostingConfigured: { type: Boolean, default: true }
+  owner: { type: String, required: true },   // 'parts' | 'devices'
+  // 归属行还没存进库时为 null。此时不是禁用上传，而是先调 ensureId 把行建出来——
+  // 「想给这条内存拍的照片先存下来」是个完全正当的诉求，不该被「你得先填点什么」挡住。
+  ownerId: { type: [Number, null], default: null },
+  ensureId: { type: Function, default: null },
+  hostingConfigured: { type: Boolean, default: true },
+  large: { type: Boolean, default: false }
 })
 const emit = defineEmits(['changed'])
 
@@ -77,21 +81,20 @@ const pending = []
 let flushScheduled = false
 
 async function load() {
-  if (!props.partId) {
+  if (!props.ownerId) {
     items.value = []
     return
   }
   try {
-    const res = await mediaApi.listForPart(props.partId)
+    const res = await mediaApi.flatList(props.owner, props.ownerId)
     items.value = res.items || []
   } catch {
     items.value = []
   }
 }
 
-// 部件是懒加载的（展开那一栏才挂载），partId 也可能从 null 变成真实 id（刚保存完），
-// 两种情况都要重新拉一次
-watch(() => props.partId, load, { immediate: true })
+// 归属 id 可能从 null 变成真实 id（刚为了传图建出来），要重新拉一次
+watch(() => [props.owner, props.ownerId], load, { immediate: true })
 
 function thumbUrl(item) {
   // 图床支持 ?w=<档位> 缩略图，列表里用 400 宽的，省流量
@@ -110,7 +113,7 @@ function preview(item) {
 }
 
 function onPick(file) {
-  if (uploading.value || !props.partId) return
+  if (uploading.value) return
   pending.push(file.raw)
   if (!flushScheduled) {
     flushScheduled = true
@@ -121,13 +124,19 @@ function onPick(file) {
 async function flush() {
   flushScheduled = false
   const files = pending.splice(0)
-  if (!files.length || !props.partId) return
+  if (!files.length) return
 
   uploading.value = true
   try {
+    // 行还没建出来（比如刚摆出来的空部件槽位）：先让页面存一次拿到 id 再传。
+    // 用 ensureId 的返回值而不是 props.ownerId——props 要等父组件那一轮渲染才更新。
+    let id = props.ownerId
+    if (!id && props.ensureId) id = await props.ensureId()
+    if (!id) return
+
     const fd = new FormData()
     for (const f of files) fd.append('files', f)
-    const res = await mediaApi.uploadForPart(props.partId, fd)
+    const res = await mediaApi.flatUpload(props.owner, id, fd)
     await load()
     emit('changed', items.value.length)
     if (res.errors?.length) {
@@ -144,7 +153,7 @@ async function flush() {
 
 async function removeItem(item) {
   try {
-    await mediaApi.removePartMedia(item.id, true)
+    await mediaApi.flatRemove(props.owner, item.id, true)
     await load()
     emit('changed', items.value.length)
     ElMessage.success(t('common.deleted'))
@@ -152,6 +161,8 @@ async function removeItem(item) {
     // 拦截器已提示
   }
 }
+
+defineExpose({ reload: load })
 </script>
 
 <style scoped>
@@ -165,12 +176,13 @@ async function removeItem(item) {
 }
 .hint.warn { color: #e6a23c; border-color: #6b5326; }
 
-/* 部件的图比卡片少得多，格子小一档，一行能排开也不至于把表单撑长 */
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 8px;
 }
+/* 整机自己的照片给大一档：那是「这台机器长什么样」，缩略图太小等于没有 */
+.grid--lg { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
 .cell {
   position: relative;
   aspect-ratio: 4 / 3;

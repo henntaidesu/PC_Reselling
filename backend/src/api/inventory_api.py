@@ -129,7 +129,8 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
     }
 
 
-def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
+                 media: List[Dict[str, Any]]) -> Dict[str, Any]:
     data = devices.serialize(row, parts)
     money = data["money"]
     # 整机没有单一的「出售日期」——部件是分批卖的。列表里显示最后成交的那天，
@@ -162,7 +163,8 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[str, 
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
-        "media": [],
+        # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
+        "media": media,
     }
     # 二级行。没有部件时**不带 children 这个键**——给个空数组的话 el-table 仍会画出
     # 一个点开是空的展开箭头。
@@ -258,8 +260,10 @@ def _fetch_devices(
         params.append(purchase_to)
 
     rows = db.query("SELECT * FROM devices WHERE " + " AND ".join(where), params)
-    parts_map = devices.load_parts([r["id"] for r in rows])
-    return [_device_item(r, parts_map.get(r["id"], [])) for r in rows]
+    ids = [r["id"] for r in rows]
+    parts_map = devices.load_parts(ids)
+    media_map = devices.load_media(ids)
+    return [_device_item(r, parts_map.get(r["id"], []), media_map.get(r["id"], [])) for r in rows]
 
 
 def _collect(

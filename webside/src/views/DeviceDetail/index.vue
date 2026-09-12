@@ -14,142 +14,239 @@
         <h2 class="model">{{ form.title || t('device.noTitle') }}</h2>
         <StatusTag :status="form.status" />
         <el-tag v-if="device.is_draft" size="small" type="warning" effect="plain">{{ t('common.draft') }}</el-tag>
-        <span class="pcr-dim parts-count">
-          {{ t('device.soldParts') }} <b class="pcr-mono">{{ money.sold_count }} / {{ money.part_count }}</b>
-        </span>
       </div>
 
-      <el-row :gutter="16">
-        <el-col :xs="24" :lg="9">
-          <!-- 采购侧。整机只有一笔总价，出售价在右边的部件里各自填 -->
-          <el-card shadow="never" class="info-card">
-            <template #header>{{ t('device.purchaseInfo') }}</template>
+      <!-- 摘要条。切到任何一个部件都还看得见这台机器的总账——部件的售价只有对着
+           「一共花了多少、还差多少回本」才有意义 -->
+      <div class="summary">
+        <div class="summary-item">
+          <span class="summary-label">{{ t('device.cost') }}</span>
+          <span class="pcr-mono summary-value">{{ cny(money.cost_total_cny) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">{{ t('device.revenue') }}</span>
+          <span class="pcr-mono summary-value">{{ cny(money.sale_cny) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">{{ t('device.profit') }}</span>
+          <span class="pcr-mono summary-value" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">{{ t('device.recovery') }}</span>
+          <span class="pcr-mono summary-value">{{ money.recovery === null ? '—' : money.recovery + '%' }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="summary-label">{{ t('device.soldParts') }}</span>
+          <span class="pcr-mono summary-value">{{ money.sold_count }} / {{ money.part_count }}</span>
+        </div>
+        <div v-if="money.settled" class="summary-flag done">{{ t('device.settledHint') }}</div>
+        <el-tooltip v-else-if="money.incomplete" :content="t('card.incomplete')">
+          <div class="summary-flag warn"><el-icon><WarningFilled /></el-icon>{{ t('card.incomplete') }}</div>
+        </el-tooltip>
+      </div>
 
-            <InlineField :label="t('device.name')">
-              <el-input v-model="form.title" :placeholder="t('device.noTitle')" />
-            </InlineField>
-            <InlineField :label="t('card.status')">
-              <el-select v-model="form.status">
-                <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
-              </el-select>
-            </InlineField>
-
-            <el-divider />
-
-            <InlineField :label="t('card.platform')">
-              <el-select v-model="form.source_platform" clearable :placeholder="t('common.unset')">
-                <el-option v-for="p in platforms" :key="p" :label="t('platform.' + p)" :value="p" />
-              </el-select>
-            </InlineField>
-            <InlineField :label="t('card.seller')">
-              <el-input v-model="form.seller" :placeholder="t('common.unset')" />
-            </InlineField>
-            <InlineField :label="t('card.orderNo')">
-              <el-input v-model="form.order_no" :placeholder="t('common.unset')" />
-            </InlineField>
-            <InlineField :label="t('card.itemUrl')">
-              <el-input v-model="form.item_url" placeholder="https://" />
-              <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
-                :title="t('common.detail')">↗</a>
-            </InlineField>
-
-            <el-divider />
-
-            <InlineField :label="t('card.purchaseDate')">
-              <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD"
-                :placeholder="t('common.unset')" />
-            </InlineField>
-            <InlineField :label="t('device.purchaseAmount')">
-              <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
-            </InlineField>
-            <InlineField :label="t('card.intlShipping')">
-              <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
-            </InlineField>
-            <!-- 汇率是按购入日取的快照，不给手改：改了日期，保存之后这一行自己就变了 -->
-            <InlineField :label="t('card.purchaseFx')" readonly>
-              <span class="pcr-mono">{{ device.purchase_fx_rate ? formatRate(device.purchase_fx_rate) : '—' }}<span
-                v-if="device.purchase_fx_date" class="pcr-dim"> · {{ device.purchase_fx_date }}</span></span>
-            </InlineField>
-            <InlineField :label="t('card.fundSource')">
-              <el-select v-model="form.fund_source">
-                <el-option :label="t('card.fundOwn')" value="own" />
-                <el-option :label="t('card.fundPool')" value="pool" />
-              </el-select>
-            </InlineField>
-            <div v-if="usePool" class="hint">
-              <div>{{ t('device.fundPoolHint') }}</div>
-              <div v-if="poolSummary">
-                {{ t('card.poolBalance') }} <b class="pcr-mono">{{ jpy(poolSummary.balance) }}</b>
-              </div>
-              <div v-if="poolCurrencyMismatch" class="warn">{{ t('card.poolCurrencyWarn') }}</div>
-              <div v-if="poolCost !== null">
-                {{ t('card.poolCost') }}: <b class="pcr-mono">{{ cny(poolCost) }}</b>
-                <span v-if="money.pool_fx_rate" class="pcr-dim">（{{ t('card.poolRate') }}
-                  {{ formatRate(money.pool_fx_rate) }}）</span>
-              </div>
-            </div>
-
-            <el-divider />
-
-            <InlineField :label="t('card.note')" stack>
-              <el-input v-model="form.note" type="textarea" :rows="2" :placeholder="t('common.unset')" />
-            </InlineField>
-
-            <div v-if="device.warnings?.length" class="hint warn">
-              <div v-for="(w, i) in device.warnings" :key="i">{{ w }}</div>
-            </div>
-          </el-card>
-
-          <!-- 合计。部件没卖完时「盈亏」只是目前收回了多少，所以回本率与它并列 -->
-          <el-card shadow="never" class="profit-card">
-            <div class="profit-row"><span>{{ t('device.cost') }}</span><b class="pcr-mono">{{ cny(money.cost_total_cny) }}</b></div>
-            <div class="profit-row"><span>{{ t('device.revenue') }}</span><b class="pcr-mono">{{ cny(money.sale_cny) }}</b></div>
-            <div class="profit-row big">
-              <span>{{ t('device.profit') }}</span>
-              <b class="pcr-mono" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</b>
-            </div>
-            <div class="profit-row"><span>{{ t('device.recovery') }}</span><b class="pcr-mono">{{ money.recovery === null ? '—' : money.recovery + '%' }}</b></div>
-            <div class="profit-row"><span>{{ t('device.soldParts') }}</span><b class="pcr-mono">{{ money.sold_count }} / {{ money.part_count }}</b></div>
-            <div v-if="money.settled" class="hint done">{{ t('device.settledHint') }}</div>
-            <el-alert v-if="money.incomplete" :title="t('card.incomplete')" type="warning" :closable="false" show-icon class="mt" />
-          </el-card>
-
-          <PoolBreakdown v-if="device.fund_draws?.length" :draws="device.fund_draws" class="block" />
-          <StatusTimeline v-if="device.status_logs?.length" :logs="device.status_logs" class="block" />
-        </el-col>
-
-        <el-col :xs="24" :lg="15">
-          <el-card shadow="never" class="parts-card">
-            <template #header>
-              <div class="parts-head">
-                <span>{{ t('device.parts') }}</span>
-                <span class="pcr-dim parts-hint">{{ t('device.partsHint') }}</span>
-              </div>
+      <!-- 二级菜单：整机 + 每个部件各一页。el-tabs 只当标签条用，内容自己在下面渲染
+           ——挂在 tab-pane 里的话十来个部件会一次性全部挂载，每个都去拉一遍图片 -->
+      <div class="tabs-row">
+        <el-tabs v-model="activeTab" class="part-tabs">
+          <el-tab-pane name="device">
+            <template #label>
+              <span class="tab-label">
+                {{ t('device.tabDevice') }}
+                <span v-if="deviceMediaCount" class="tab-badge">{{ deviceMediaCount }}</span>
+              </span>
             </template>
+          </el-tab-pane>
+          <el-tab-pane v-for="part in form.parts" :key="part._uid" :name="String(part._uid)">
+            <template #label>
+              <span class="tab-label" :class="{ 'tab-label--blank': !hasPartContent(part) }">
+                {{ tabLabel(part) }}
+                <span v-if="part._media_count" class="tab-badge">{{ part._media_count }}</span>
+              </span>
+            </template>
+          </el-tab-pane>
+        </el-tabs>
+        <!-- 类型只在添加时选一次：一行的类型换掉，它下面的品牌、规格、售价全都对不上，
+             与其允许改不如删掉重加一件 -->
+        <el-dropdown trigger="click" class="add-part" @command="addPart">
+          <el-button size="small" :icon="Plus" plain type="primary">{{ t('device.addPart') }}</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item v-for="type in partTypes" :key="type" :command="type">
+                {{ t('partType.' + type) }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+      </div>
 
-            <DevicePartCard
-              v-for="(part, index) in form.parts"
-              :key="part._uid"
-              :part="part"
-              :net="partNet(part)"
-              :hosting-configured="hostingConfigured"
-              @remove="removePart(index)"
-              @media-changed="(n) => onPartMediaChanged(part, n)"
-            />
+      <!-- ── 整机页 ────────────────────────────────────────────────────── -->
+      <template v-if="activeTab === 'device'">
+        <el-row :gutter="16">
+          <el-col :xs="24" :lg="14">
+            <el-card shadow="never" class="block">
+              <template #header>{{ t('device.purchaseInfo') }}</template>
 
-            <!-- 类型只在这里选一次，加进来之后那一行就不再能改类型了——一行的类型换掉，
-                 它下面的品牌、规格、售价全都对不上，与其允许改不如删掉重加一行 -->
-            <div class="add-part">
-              <el-select v-model="newPartType" class="add-part-select" :placeholder="t('device.choosePartType')">
-                <el-option v-for="type in partTypes" :key="type" :label="t('partType.' + type)" :value="type" />
-              </el-select>
-              <el-button type="primary" plain :icon="Plus" :disabled="!newPartType" @click="addChosenPart">
-                {{ t('device.addPart') }}
-              </el-button>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
+              <div class="fields">
+                <InlineField :label="t('device.name')">
+                  <el-input v-model="form.title" :placeholder="t('device.noTitle')" />
+                </InlineField>
+                <InlineField :label="t('card.status')">
+                  <el-select v-model="form.status">
+                    <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
+                  </el-select>
+                </InlineField>
+                <InlineField :label="t('card.platform')">
+                  <el-select v-model="form.source_platform" clearable :placeholder="t('common.unset')">
+                    <el-option v-for="p in platforms" :key="p" :label="t('platform.' + p)" :value="p" />
+                  </el-select>
+                </InlineField>
+                <InlineField :label="t('card.seller')">
+                  <el-input v-model="form.seller" :placeholder="t('common.unset')" />
+                </InlineField>
+                <InlineField :label="t('card.orderNo')">
+                  <el-input v-model="form.order_no" :placeholder="t('common.unset')" />
+                </InlineField>
+                <InlineField :label="t('card.itemUrl')">
+                  <el-input v-model="form.item_url" placeholder="https://" />
+                  <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
+                    :title="t('common.detail')">↗</a>
+                </InlineField>
+              </div>
+
+              <el-divider />
+
+              <div class="fields">
+                <InlineField :label="t('card.purchaseDate')">
+                  <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD"
+                    :placeholder="t('common.unset')" />
+                </InlineField>
+                <!-- 汇率是按购入日取的快照，不给手改：改了日期，保存之后这一行自己就变了 -->
+                <InlineField :label="t('card.purchaseFx')" readonly>
+                  <span class="pcr-mono">{{ device.purchase_fx_rate ? formatRate(device.purchase_fx_rate) : '—' }}<span
+                    v-if="device.purchase_fx_date" class="pcr-dim"> · {{ device.purchase_fx_date }}</span></span>
+                </InlineField>
+                <InlineField :label="t('device.purchaseAmount')">
+                  <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
+                </InlineField>
+                <InlineField :label="t('card.intlShipping')">
+                  <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
+                </InlineField>
+                <InlineField :label="t('card.fundSource')">
+                  <el-select v-model="form.fund_source">
+                    <el-option :label="t('card.fundOwn')" value="own" />
+                    <el-option :label="t('card.fundPool')" value="pool" />
+                  </el-select>
+                </InlineField>
+              </div>
+              <div v-if="usePool" class="hint">
+                <div>{{ t('device.fundPoolHint') }}</div>
+                <div v-if="poolSummary">
+                  {{ t('card.poolBalance') }} <b class="pcr-mono">{{ jpy(poolSummary.balance) }}</b>
+                </div>
+                <div v-if="poolCurrencyMismatch" class="warn">{{ t('card.poolCurrencyWarn') }}</div>
+                <div v-if="poolCost !== null">
+                  {{ t('card.poolCost') }}: <b class="pcr-mono">{{ cny(poolCost) }}</b>
+                  <span v-if="money.pool_fx_rate" class="pcr-dim">（{{ t('card.poolRate') }}
+                    {{ formatRate(money.pool_fx_rate) }}）</span>
+                </div>
+              </div>
+
+              <el-divider />
+
+              <InlineField :label="t('card.note')" stack>
+                <el-input v-model="form.note" type="textarea" :rows="2" :placeholder="t('common.unset')" />
+              </InlineField>
+
+              <div v-if="device.warnings?.length" class="hint warn">
+                <div v-for="(w, i) in device.warnings" :key="i">{{ w }}</div>
+              </div>
+            </el-card>
+          </el-col>
+
+          <el-col :xs="24" :lg="10">
+            <!-- 整机自己的照片：整机外观、铭牌、开机测试这类拍的是「这台机器」，
+                 不属于任何一个部件 -->
+            <el-card shadow="never" class="block">
+              <template #header>
+                {{ t('device.deviceMedia') }}
+                <span class="pcr-dim media-hint">{{ t('device.deviceMediaHint') }}</span>
+              </template>
+              <MediaGallery
+                owner="devices"
+                :owner-id="device.id"
+                :hosting-configured="hostingConfigured"
+                large
+                @changed="onDeviceMediaChanged"
+              />
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <!-- 部件一览：分页之后总得有一个地方能一眼看完「哪几件卖了、哪几件还空着」 -->
+        <el-card shadow="never" class="block">
+          <template #header>{{ t('device.partsOverview') }}</template>
+          <el-table :data="form.parts" class="parts-table" @row-click="(row) => (activeTab = String(row._uid))">
+            <el-table-column :label="t('inv.kind')" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" effect="plain" type="info">{{ tabLabel(row) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('inv.name')" min-width="200">
+              <template #default="{ row }">
+                <span v-if="hasPartContent(row)">{{ partTitle(row) }}</span>
+                <span v-else class="pcr-dim">{{ t('device.blankSlot') }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('card.media')" width="90" align="center">
+              <template #default="{ row }">
+                <span v-if="row._media_count" class="pcr-mono">{{ row._media_count }}</span>
+                <span v-else class="pcr-dim">—</span>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('card.saleDate')" width="120">
+              <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.sale_date || '—' }}</span></template>
+            </el-table-column>
+            <el-table-column :label="t('card.status')" width="110">
+              <template #default="{ row }">
+                <StatusTag v-if="isSold(row)" :status="row.status" />
+                <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('card.saleAmount')" width="130" align="right">
+              <template #default="{ row }">
+                <span class="pcr-mono">{{ isSold(row) ? formatMoney(row.sale_amount, row.sale_currency) : '—' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column :label="t('device.netIncome')" width="130" align="right">
+              <template #default="{ row }">
+                <span class="pcr-mono">{{ partNet(row) === null ? '—' : cny(partNet(row)) }}</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
+        <el-row :gutter="16">
+          <el-col :xs="24" :lg="12">
+            <PoolBreakdown v-if="device.fund_draws?.length" :draws="device.fund_draws" class="block" />
+          </el-col>
+          <el-col :xs="24" :lg="12">
+            <StatusTimeline v-if="device.status_logs?.length" :logs="device.status_logs" class="block" />
+          </el-col>
+        </el-row>
+      </template>
+
+      <!-- ── 某个部件的页 ──────────────────────────────────────────────── -->
+      <DevicePartPanel
+        v-else-if="activePart"
+        :key="activePart._uid"
+        :part="activePart"
+        :net="partNet(activePart)"
+        :ensure-id="() => ensurePartId(activePart)"
+        :hosting-configured="hostingConfigured"
+        @remove="removePart(activePart)"
+        @media-changed="(n) => onPartMediaChanged(activePart, n)"
+      />
     </template>
   </div>
 </template>
@@ -159,16 +256,17 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, Plus, Refresh } from '@element-plus/icons-vue'
-import { devicesApi, fundsApi, systemApi } from '@/api'
+import { ArrowLeft, Plus, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { devicesApi, fundsApi, mediaApi, systemApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
-import { DEFAULT_PART_TYPES, isBlankPart } from '@/constants/parts'
+import { DEFAULT_PART_TYPES, hasPartContent, isBlankPart } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
-import DevicePartCard from '@/components/DevicePartCard.vue'
+import DevicePartPanel from '@/components/DevicePartPanel.vue'
 import InlineField from '@/components/InlineField.vue'
+import MediaGallery from '@/components/MediaGallery.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -185,7 +283,9 @@ const device = ref(null)
 const loading = ref(false)
 const hostingConfigured = ref(true)
 const poolSummary = ref(null)
-const newPartType = ref(null)
+// 'device' 或某个部件的 _uid（字符串）
+const activeTab = ref('device')
+const deviceMediaCount = ref(0)
 
 const statuses = computed(() => meta.enums.statuses || [])
 const platforms = computed(() => meta.enums.source_platforms || [])
@@ -211,7 +311,9 @@ function blankPart(partType = 'other') {
     // 一路带回去，不能每次保存都当新行插一遍。
     id: null,
     _uid: ++uid,
-    // 下划线开头的字段只用于界面，不进提交载荷（见 buildPayload）
+    // 下划线开头的字段只用于界面，不进提交载荷（见 buildPayload）。
+    // _keep：这一行是真实存在的、不是摆出来的模板（见 constants/parts.js）
+    _keep: false,
     _media_count: 0,
     part_type: partType,
     brand: null, model: null, spec: null, serial_no: null,
@@ -235,6 +337,10 @@ function blankForm() {
 }
 const form = reactive(blankForm())
 
+const activePart = computed(() =>
+  form.parts.find((p) => String(p._uid) === activeTab.value) || null
+)
+
 const usePool = computed(() => form.fund_source === 'pool')
 const poolCurrencyMismatch = computed(() =>
   usePool.value && form.purchase_currency !== 'JPY' && form.purchase_amount
@@ -250,6 +356,20 @@ const jpy = (v) => formatMoney(v, 'JPY')
 
 const autosave = useAutoSave(doSave)
 watch(form, autosave.schedule, { deep: true })
+
+// 同类型有好几件时（两条内存、三块硬盘）标上序号，否则标签条上会出现一排同名的「内存」
+function tabLabel(part) {
+  const name = t('partType.' + part.part_type)
+  const same = form.parts.filter((p) => p.part_type === part.part_type)
+  return same.length < 2 ? name : `${name} ${same.indexOf(part) + 1}`
+}
+function partTitle(part) {
+  return [part.brand, part.model, part.spec].filter(Boolean).join(' ') || '—'
+}
+function isSold(part) {
+  const v = part.sale_amount
+  return v !== null && v !== undefined && v !== ''
+}
 
 function buildPayload(submittedParts) {
   const payload = {}
@@ -280,6 +400,7 @@ function mergePartIds(submittedParts, result) {
     const server = returned[index]
     if (!server) return
     part.id = server.id
+    part._keep = true   // 库里已经有它了，从此只有手动删除才会消失
     part._media_count = server.media_count ?? part._media_count ?? 0
   })
 }
@@ -320,6 +441,8 @@ function normalize(row) {
     item.domestic_shipping_currency = part.domestic_shipping_currency || 'CNY'
     item.status = part.status || 'purchased'
     item._media_count = part.media_count ?? 0
+    // 库里已经有这一行了：把字段清空也不该让它消失，只有点「删除该部件」才删
+    item._keep = true
     return item
   })
   // 详情页上也摆齐六个标准槽位：这台机器当初没录显卡，不代表之后不想补录，而空槽位
@@ -346,18 +469,35 @@ function onPartMediaChanged(part, count) {
   autosave.silently(() => { part._media_count = count })
 }
 
-function addChosenPart() {
-  if (!newPartType.value) return
-  form.parts.push(blankPart(newPartType.value))
-  newPartType.value = null
+function onDeviceMediaChanged(count) {
+  deviceMediaCount.value = count
+  // 只传了图、一个字都没改的新设备：它这时还是草稿，离开页面会被当空记录删掉，
+  // 刚传的图跟着一起没。所以传完图立刻存一次，把它转正。
+  if (device.value?.is_draft) doSave().catch(() => { /* 拦截器已提示 */ })
 }
 
-async function removePart(index) {
-  const part = form.parts[index]
-  if (!part) return
-  // 空槽位直接去掉（它本来就没存过）；有内容的要问一声——删掉这一行，挂在它上面的
-  // 图片会被数据库级联删除，点错了找不回来
-  if (!isBlankPart(part)) {
+// 给一个还没落盘的部件传图之前，先把这一行建出来拿到 id。
+// 「想先把照片存下来」是个正当诉求，不该被「你得先填点什么」挡住。
+async function ensurePartId(part) {
+  if (part.id) return part.id
+  part._keep = true          // 空槽位默认不提交，先钉住它
+  await autosave.saveNow()
+  return part.id || null
+}
+
+function addPart(type) {
+  const part = blankPart(type)
+  part._keep = true          // 手动加的就是要它，哪怕还一个字没填
+  form.parts.push(part)
+  activeTab.value = String(part._uid)
+}
+
+async function removePart(part) {
+  const index = form.parts.indexOf(part)
+  if (index < 0) return
+  // 摆出来的空槽位直接去掉（它本来就没存过）；真实存在的要问一声——删掉这一行，
+  // 挂在它上面的图片会被数据库级联删除，点错了找不回来
+  if (part.id || hasPartContent(part)) {
     try {
       await ElMessageBox.confirm(t('device.removePartConfirm'), t('device.removePart'), { type: 'warning' })
     } catch {
@@ -365,6 +505,7 @@ async function removePart(index) {
     }
   }
   form.parts.splice(index, 1)
+  activeTab.value = 'device'
 }
 
 async function load() {
@@ -374,11 +515,21 @@ async function load() {
     const res = await devicesApi.get(route.params.id)
     device.value = res
     Object.assign(form, normalize(res))
+    loadDeviceMediaCount()
   } finally {
     loading.value = false
   }
   // 等填充引起的那波 watch 冲刷完再开自动保存，否则一进页面就白存一遍
   await autosave.begin()
+}
+
+async function loadDeviceMediaCount() {
+  try {
+    const res = await mediaApi.flatList('devices', route.params.id)
+    deviceMediaCount.value = (res.items || []).length
+  } catch {
+    deviceMediaCount.value = 0
+  }
 }
 
 async function loadPoolSummary() {
@@ -420,16 +571,67 @@ onMounted(async () => {
 <style scoped>
 .detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .head-right { display: flex; align-items: center; gap: 12px; }
-.title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .mgmt { font-size: 13px; color: #8fb8ff; }
 .model { font-size: 20px; color: #e6edf7; margin: 0; }
-.parts-count { font-size: 12px; }
-.info-card, .profit-card, .parts-card { margin-bottom: 16px; }
+
+/* 摘要条 */
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 28px;
+  padding: 12px 16px;
+  margin-bottom: 4px;
+  border-radius: 8px;
+  background: var(--pcr-card);
+  border: 1px solid var(--pcr-border);
+}
+.summary-item { display: flex; flex-direction: column; gap: 2px; }
+.summary-label { font-size: 12px; color: #8a94a6; }
+.summary-value { font-size: 16px; color: #e6edf7; }
+.summary-flag {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+.summary-flag.done { color: #67c23a; background: rgba(103, 194, 58, 0.1); }
+.summary-flag.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.1); }
+
+/* 二级菜单 */
+.tabs-row { display: flex; align-items: center; gap: 12px; }
+.part-tabs { flex: 1 1 auto; min-width: 0; }
+/* el-tabs 只当标签条用，内容由下面自己渲染 */
+.part-tabs :deep(.el-tabs__content) { display: none; }
+.part-tabs :deep(.el-tabs__header) { margin-bottom: 0; }
+.part-tabs :deep(.el-tabs__nav-wrap::after) { background-color: var(--pcr-border); }
+.tab-label { display: inline-flex; align-items: center; gap: 6px; }
+/* 还没填过的槽位淡一档：一眼能看出哪几件是待填的模板 */
+.tab-label--blank { opacity: 0.55; }
+.tab-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #5b8cff;
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.add-part { flex: 0 0 auto; }
+
 .block { margin-bottom: 16px; }
-.info-card :deep(.el-divider) { margin: 10px 0; }
+.block:first-of-type { margin-top: 16px; }
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.block :deep(.el-divider) { margin: 10px 0; }
+.media-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .row-link { color: #8fb8ff; text-decoration: none; flex: 0 0 auto; padding: 0 4px; }
-.parts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.parts-hint { font-size: 12px; font-weight: 400; }
+.parts-table :deep(.el-table__row) { cursor: pointer; }
 .hint {
   margin: 4px 0 8px;
   padding: 6px 10px;
@@ -440,22 +642,13 @@ onMounted(async () => {
   border-radius: 6px;
 }
 .hint.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
-.hint.done { background: rgba(103, 194, 58, 0.1); }
 .hint .warn { color: #e6a23c; }
-.profit-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }
-.profit-row span { color: #8a94a6; }
-.profit-row b { color: #e6edf7; font-size: 15px; }
-.profit-row.big b { font-size: 22px; }
-.mt { margin-top: 10px; }
-.add-part {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  border: 1px dashed #3a4a66;
-  border-radius: 10px;
-  padding: 14px;
-  background: rgba(91, 140, 255, 0.03);
+
+@media (max-width: 1100px) {
+  .fields { grid-template-columns: minmax(0, 1fr); }
 }
-.add-part-select { width: 180px !important; flex: 0 0 180px; }
+@media (max-width: 768px) {
+  .tabs-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .summary-flag { margin-left: 0; }
+}
 </style>

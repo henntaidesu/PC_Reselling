@@ -53,6 +53,18 @@ export function useAutoSave(save, { delay = 600 } = {}) {
     inflight.value = false
   }
 
+  // 立刻存一次，不等防抖。给「必须先落盘才能继续」的操作用：比如要给一个还没存过的
+  // 部件传图，得先把那一行建出来拿到 id。
+  async function saveNow() {
+    if (timer) { clearTimeout(timer); timer = null }
+    dirty.value = true
+    await run()
+    // run() 撞上正在跑的那条链时会直接返回，这里等它跑完，调用方拿到的才是最新结果
+    while (inflight.value) {
+      await new Promise((r) => setTimeout(r, 40))
+    }
+  }
+
   // 离开页面前把还没落盘的改动彻底存完（含防抖里等着的和在途的那次）
   async function flush() {
     if (timer) { clearTimeout(timer); timer = null }
@@ -89,6 +101,7 @@ export function useAutoSave(save, { delay = 600 } = {}) {
     // 有改动还没落盘（等着存、或正在存）
     pending: computed(() => dirty.value || inflight.value),
     schedule,
+    saveNow,
     flush,
     silently,
     begin,

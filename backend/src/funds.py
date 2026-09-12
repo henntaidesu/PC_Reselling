@@ -44,6 +44,7 @@ log = logging.getLogger(__name__)
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0")
 _RATE_UNIT = Decimal(str(RATE_UNIT))
+_RATE_Q = Decimal("0.00000001")   # fund_injections.fx_rate 是 DECIMAL(18,8)
 
 # 由系统自动同步的两类扣款 → 回写到归属行上的哪一列
 _CARD_CATEGORIES = {
@@ -98,18 +99,36 @@ def _to_cny(amount: Optional[Decimal], rate: Optional[Decimal]) -> Optional[Deci
 
 # ── 注资的汇率 ──────────────────────────────────────────────────────────── #
 
+def manual_rate(amount: Any, cny_cost: Any) -> Optional[float]:
+    """由「换到多少日元」和「实际付了多少人民币」反推这批钱的汇率。
+
+    换汇的人手上有的就是这两个数，汇率是它们的商。让人自己先除一遍再填，既多一步，
+    又容易把 4.32 填成 0.0432 或 23.16——那种错算出来的成本差几百倍，页面上却看不出来。
+    """
+    jpy = _dec(amount)
+    cny = _dec(cny_cost)
+    if not jpy or not cny or jpy <= 0 or cny <= 0:
+        return None
+    return float((cny / jpy * _RATE_UNIT).quantize(_RATE_Q, rounding=ROUND_HALF_UP))
+
+
 def resolve_injection_fx(
     inject_date: dt.date,
-    manual_rate: Optional[float] = None,
+    amount: Any = None,
+    cny_cost: Any = None,
 ) -> Dict[str, Any]:
-    """定这批钱的汇率：手填优先（那才是真实换汇价），否则按注资日取牌价。
+    """定这批钱的汇率：手填的实付人民币优先，否则按注资日取牌价。
+
+    手工模式录的是实付人民币，汇率由 ``manual_rate`` 算出来。**存进去的仍然是汇率**：
+    FIFO 要把一个批次拆成几段分给不同的扣款，只有按汇率折才拆得开。
 
     取不到不抛异常——先把注资记下来，汇率留空之后再补；只是在它被补上之前，吃到这批
     钱的卡片成本会显示成「缺汇率」，而不是一个猜出来的数字。
     """
     out: Dict[str, Any] = {"fx_rate": None, "fx_date": None, "fx_manual": 0, "warnings": []}
-    if manual_rate:
-        out.update({"fx_rate": manual_rate, "fx_date": inject_date, "fx_manual": 1})
+    rate = manual_rate(amount, cny_cost)
+    if rate:
+        out.update({"fx_rate": rate, "fx_date": inject_date, "fx_manual": 1})
         return out
     try:
         result = get_rate(inject_date)

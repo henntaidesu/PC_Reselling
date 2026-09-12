@@ -53,24 +53,33 @@ export const PART_SCHEMA = {
   }
 }
 
-// 一行里「算填过了」的字段。数量、状态、币种这些一建行就有默认值的不算，否则六个
-// 默认槽位一摆出来就全成了「有内容」，会被原样存进库，部件数从此显示成 0/6。
+// 一行里「算填过了」的字段。状态、币种这些一建行就有默认值的不算，否则六个默认槽位
+// 一摆出来就全成了「有内容」，会被原样存进库，部件数从此显示成 0/6。
 const CONTENT_KEYS = [
   'brand', 'model', 'spec', 'serial_no', 'note',
   'sale_date', 'sale_amount', 'domestic_shipping_amount'
 ]
 
-// 完全没填过的槽位。详情页据此决定「这一行提交不提交」，部件卡据此把它画淡一档
-// ——两边必须是同一条判断：卡片显示「未填写」而保存时却提交了它（或反过来），
-// 表现就是部件莫名其妙地多出来或者消失。
-export function isBlankPart(part) {
-  // 传了图也算「有内容」：否则把文字清空的那一刻这一行会被当成空槽位不再提交，
-  // 后端随即删掉它，挂在上面的图片跟着级联消失。
-  if (part._media_count) return false
-  return !CONTENT_KEYS.some((key) => {
+// 这一行填过东西没有。**只看内容**，用于界面上标「未填写」。
+export function hasPartContent(part) {
+  return CONTENT_KEYS.some((key) => {
     const value = part[key]
     return value !== null && value !== undefined && value !== ''
   })
+}
+
+// 这一行要不要提交给后端。注意它和 hasPartContent 不是一回事：
+//
+//   _keep        —— 这一行是真实存在的：从服务端载入的（库里就有它）、用户自己点
+//                   「添加部件」加的、或为了传图刚建出来的。这类行只有用户点「删除
+//                   该部件」才会消失，清空文字不会——不然改着改着图片就被级联删了。
+//   _media_count —— 传过图，同上。
+//   有内容       —— 默认摆出来的六个槽位只是录入模板，填了才落库。
+//
+// 详情页据此决定提交不提交；判断只此一处，两边不一致就会出现部件莫名多出来或消失。
+export function isBlankPart(part) {
+  if (part._keep || part._media_count) return false
+  return !hasPartContent(part)
 }
 
 export function partSchema(partType) {

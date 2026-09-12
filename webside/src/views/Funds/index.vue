@@ -155,24 +155,27 @@
         </el-form-item>
         <el-form-item>
           <el-checkbox v-model="injectionForm.manual">{{ t('funds.rateManual') }}</el-checkbox>
-          <div class="pcr-dim hint">{{ t('funds.rateManualHint') }}</div>
         </el-form-item>
-        <el-form-item v-if="injectionForm.manual" :label="t('card.fxRate')">
-          <el-input-number v-model="injectionForm.fx_rate" :min="0.5" :max="20" :step="0.01"
-            :precision="4" :controls="false" class="full" />
-          <!-- 顺手把反向口径显示出来：填成每元 23.165 日元、或每日元 0.0432 元，这行都会立刻露馅 -->
-          <div v-if="manualInverse" class="pcr-dim hint">{{ t('funds.rateInverse', { rate: manualInverse }) }}</div>
+        <el-form-item v-if="injectionForm.manual"
+          :label="t('funds.cnyPaid') + '（' + t('currency.CNY_short') + '）'">
+          <el-input-number v-model="injectionForm.cny_cost" :min="0.01" :step="100" :precision="2"
+            :controls="false" class="full" />
         </el-form-item>
-        <div v-else-if="ratePreview" class="fx-hint">
+        <!-- 汇率不给人填，由「实付人民币 ÷ 换到的日元」现算并显示出来：金额填错了单位，
+             这行的数字会立刻离谱到一眼能看出来 -->
+        <div v-if="manualRate" class="fx-hint">
+          {{ t('funds.derivedRate') }}: {{ RATE_UNIT }} {{ t('currency.JPY_short') }} =
+          {{ formatRate(manualRate) }} {{ t('currency.CNY_short') }}
+          <span class="pcr-dim">（{{ t('funds.rateInverse', { rate: inverseRate(manualRate) }) }}）</span>
+        </div>
+        <!-- 手工模式下不显示市场牌价：它与这笔钱的真实成本无关，摆在那儿只会让人以为用的是它 -->
+        <div v-else-if="!injectionForm.manual && ratePreview" class="fx-hint">
           {{ t('card.fxPreview') }}: {{ RATE_UNIT }} {{ t('currency.JPY_short') }} = {{ formatRate(ratePreview.rate) }} {{ t('currency.CNY_short') }}
           <span class="pcr-dim">（{{ ratePreview.rate_date }}{{ ratePreview.stale ? ' *' : '' }}）</span>
         </div>
         <div v-if="injectionCostPreview" class="fx-hint">
           {{ t('funds.cnyCost') }}: {{ cny(injectionCostPreview) }}
         </div>
-        <el-form-item :label="t('funds.channel')">
-          <el-input v-model="injectionForm.channel" :placeholder="t('funds.channelPlaceholder')" />
-        </el-form-item>
         <el-form-item :label="t('card.note')">
           <el-input v-model="injectionForm.note" type="textarea" :rows="2" />
         </el-form-item>
@@ -268,17 +271,23 @@ async function rebuild() {
 // ── 注资 ────────────────────────────────────────────────────────────────
 const injectionVisible = ref(false)
 const ratePreview = ref(null)
-const injectionForm = reactive({ id: null, inject_date: null, amount: null, manual: false, fx_rate: null, channel: null, note: null })
+const injectionForm = reactive({ id: null, inject_date: null, amount: null, manual: false, cny_cost: null, note: null })
 
-// 存进去之前先让人看到「这笔钱花了多少人民币」——注资的意义就在这个数上
+// 自动取牌价时先让人看到「这笔钱花了多少人民币」——注资的意义就在这个数上。
+// 手工模式下这个数就是上面填的那个，不用再显示一遍。
 const injectionCostPreview = computed(() => {
-  const rate = injectionForm.manual ? injectionForm.fx_rate : ratePreview.value?.rate
+  if (injectionForm.manual) return null
+  const rate = ratePreview.value?.rate
   if (!rate || !injectionForm.amount) return null
   return injectionForm.amount * rate / RATE_UNIT
 })
 
-// 手填的汇率折回「1 人民币 = ? 日元」给人对一眼，不参与保存
-const manualInverse = computed(() => (injectionForm.manual ? inverseRate(injectionForm.fx_rate) : null))
+// 汇率不用人填：实付人民币 ÷ 换到的日元 × 100 就是这批钱的真实汇率，存进去的也是它。
+// 后端 funds.manual_rate 会照同一个算式再算一遍，这里只管让人在保存前看见。
+const manualRate = computed(() => {
+  if (!injectionForm.manual || !injectionForm.cny_cost || !injectionForm.amount) return null
+  return injectionForm.cny_cost / injectionForm.amount * RATE_UNIT
+})
 
 function openInjection(row = null) {
   Object.assign(injectionForm, {
@@ -286,8 +295,7 @@ function openInjection(row = null) {
     inject_date: row?.inject_date ?? new Date().toISOString().slice(0, 10),
     amount: row?.amount ?? null,
     manual: Boolean(row?.fx_manual),
-    fx_rate: row?.fx_manual ? row.fx_rate : null,
-    channel: row?.channel ?? null,
+    cny_cost: row?.fx_manual ? row.cny_cost : null,
     note: row?.note ?? null
   })
   ratePreview.value = null
@@ -309,11 +317,15 @@ async function saveInjection() {
     ElMessage.warning(t('funds.requireDateAmount'))
     return
   }
+  // 勾了手工却没填金额，存下去会静悄悄地退回按牌价折算，不如挡在这里
+  if (injectionForm.manual && !injectionForm.cny_cost) {
+    ElMessage.warning(t('funds.requireCnyPaid'))
+    return
+  }
   const payload = {
     inject_date: injectionForm.inject_date,
     amount: injectionForm.amount,
-    fx_rate: injectionForm.manual ? injectionForm.fx_rate : null,
-    channel: injectionForm.channel,
+    cny_cost: injectionForm.manual ? injectionForm.cny_cost : null,
     note: injectionForm.note
   }
   saving.value = true

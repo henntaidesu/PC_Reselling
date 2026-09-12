@@ -12,7 +12,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src import db, funds
 from src.auth import require_auth
@@ -22,20 +22,33 @@ log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/funds", tags=["funds"], dependencies=[Depends(require_auth)])
 
+# 由实付人民币折算出的汇率的合理区间（100 日元 = ? 人民币）。真实牌价这些年在 4~9 之间，
+# 这个区间留得很宽，够挡住「把日元金额填进了人民币格子」「小数点点错位」这类错——那种
+# 错存进去只是个大一点的数字，页面上看不出来，成本却差几百倍。
+_RATE_MIN, _RATE_MAX = 0.5, 20.0
+
 
 class InjectionPayload(BaseModel):
-    """一笔注资。金额恒为日元；汇率留空则按注资日自动取牌价。"""
+    """一笔注资。金额恒为日元；实付人民币留空则按注资日自动取牌价。"""
 
     inject_date: dt.date
     amount: float = Field(gt=0)
     currency: str = POOL_CURRENCY
-    # 手填汇率 = 实际换汇价（100 日元 = ? 人民币，约 4.32）。填了就以它为准，牌价只是个近似。
-    # 上下界是防呆：填成每 1 日元的价（0.0432）或填反方向（每元 23.16 日元）都会让成本
-    # 差出几百倍，而页面上只是数字变大，看不出是填错了——不如直接拒收。真实牌价这些年
-    # 在 4~9 之间，0.5~20 已经留得足够宽。
-    fx_rate: Optional[float] = Field(default=None, gt=0.5, lt=20)
-    channel: Optional[str] = Field(default=None, max_length=64)
+    # 这次换汇**实际付出去的人民币**。汇率不收——由它和 amount 自动算出来
+    # （funds.manual_rate）：换汇的人手上有的就是这两个数，汇率是它们的商，
+    # 让人自己先除一遍再填只会多一个填错的机会。留空则按注资日取牌价。
+    cny_cost: Optional[float] = Field(default=None, gt=0)
     note: Optional[str] = Field(default=None, max_length=500)
+
+    @model_validator(mode="after")
+    def _check_manual_rate(self) -> "InjectionPayload":
+        rate = funds.manual_rate(self.amount, self.cny_cost)
+        if rate is not None and not _RATE_MIN < rate < _RATE_MAX:
+            raise ValueError(
+                f"实付人民币与日元金额对不上：折合 {rate:.4f}（100 日元 = ? 人民币），"
+                f"正常在 {_RATE_MIN}~{_RATE_MAX} 之间，检查一下金额是不是填错了"
+            )
+        return self
 
     @field_validator("currency")
     @classmethod
@@ -98,12 +111,12 @@ def list_injections():
 
 @router.post("/injections")
 def create_injection(payload: InjectionPayload):
-    fx = funds.resolve_injection_fx(payload.inject_date, payload.fx_rate)
+    fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.insert(
         "INSERT INTO fund_injections (inject_date, amount, currency, fx_rate, fx_date, "
-        "fx_manual, channel, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        "fx_manual, note) VALUES (%s, %s, %s, %s, %s, %s, %s)",
         (payload.inject_date, payload.amount, payload.currency, fx["fx_rate"], fx["fx_date"],
-         fx["fx_manual"], _clean(payload.channel), _clean(payload.note)),
+         fx["fx_manual"], _clean(payload.note)),
     )
     return _state(fx["warnings"])
 
@@ -113,12 +126,12 @@ def update_injection(injection_id: int, payload: InjectionPayload):
     existing = db.query_one("SELECT id FROM fund_injections WHERE id = %s", (injection_id,))
     if not existing:
         raise HTTPException(status_code=404, detail="注资记录不存在")
-    fx = funds.resolve_injection_fx(payload.inject_date, payload.fx_rate)
+    fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.execute(
         "UPDATE fund_injections SET inject_date = %s, amount = %s, currency = %s, fx_rate = %s, "
-        "fx_date = %s, fx_manual = %s, channel = %s, note = %s WHERE id = %s",
+        "fx_date = %s, fx_manual = %s, note = %s WHERE id = %s",
         (payload.inject_date, payload.amount, payload.currency, fx["fx_rate"], fx["fx_date"],
-         fx["fx_manual"], _clean(payload.channel), _clean(payload.note), injection_id),
+         fx["fx_manual"], _clean(payload.note), injection_id),
     )
     return _state(fx["warnings"])
 

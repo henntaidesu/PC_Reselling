@@ -123,7 +123,11 @@ webside (Vue3 + Element Plus, hash 路由)
 - `main.py` 里 `mount_spa(app)` **必须最后调用**，它的根路径兜底会吃掉所有未匹配路由；`/api` 下
   未匹配的路径必须 404，回 index.html 会让前端拿到 200 + 一整页 HTML 当数据读。
 - 媒体表只存指针（`stored_name` / `public_url`），文件本体在图床；删除接口的 `purge` 参数决定是否
-  连图床上的文件一起删。
+  连图床上的文件一起删。图分两种形态：显卡按五个分类（`card_media` + `MediaManager.vue`），整机
+  部件与整机本身各是**平铺的一组**（`device_part_media` / `device_media` + `MediaGallery.vue`），
+  后端那套增删查按 `media_api._FLAT_OWNERS` 参数化，两种归属共用一份实现。要给一个还没落盘的
+  部件传图时，前端先 `useAutoSave.saveNow()` 把那一行建出来拿到 id（`ensurePartId`）——文件挂在
+  行上，行不存在就无处可挂，但这不该变成「你得先填点什么才能拍照」。
 - 鉴权：Bearer JWT，默认**永不过期**，靠 `users.token_version` 自增作废旧令牌（改密码 / 禁用账号）。
   新增受保护路由挂 `dependencies=[Depends(require_auth)]`（管理员用 `require_admin`）。
 
@@ -144,9 +148,16 @@ webside (Vue3 + Element Plus, hash 路由)
   再加类似的「先建后填」实体请沿用这套，而不是在前端缓存文件。
 - **整机的部件数组每次整体提交**，后端 `devices_api._write_parts` 按 **id 增量写**（带 id 更新 /
   无 id 插入 / 未提交的删除）——**绝不能改回「先全删再全插」**：行 id 一换，挂在部件上的图片会被
-  外键级联删掉。前端对应地要在保存后把返回的 id 贴回行上（`mergePartIds`），并且「这一行算不算空」
-  只有 `constants/parts.js` 的 `isBlankPart()` 一处判断：详情页据它决定提交不提交，部件卡据它画淡
-  一档，两边不一致就会出现部件莫名多出来或消失。
+  外键级联删掉。前端对应地要在保存后把返回的 id 贴回行上（`mergePartIds`）。「这一行提交不提交」
+  只有 `constants/parts.js` 一处判断，而且它和「填没填」是两回事，别合并：
+  `hasPartContent()` 只看内容，用来在界面上标「未填写」；`isBlankPart()` 决定提交，库里已经有的行
+  （载入时打上 `_keep`）、手动添加的行、传过图的行一律提交，**只有摆出来的六个模板槽位会因为没填
+  而被丢掉**。清空文字不再等于删除部件——那条老规矩会让人在改字段时把图片连带删掉。
+
+整机详情页的版式：顶部一条摘要（成本 / 已收回 / 盈亏 / 回本率 / 已售件数）+ 一排二级标签
+（整机 · CPU · 显卡 · …，标签上的角标是图片数），标签只当导航用，内容在下面单独渲染——挂进
+`el-tab-pane` 会把十来个部件一次性全挂载，每个都去拉一遍图片。「整机」页里有一张部件一览表，
+点一行跳到那个部件：分页之后总得有一个地方能一眼看完哪几件卖了、哪几件还空着。
 
 其余：`@` 别名指向 `webside/src`；全站强制暗色主题（`main.js`）；`api/http.js` 统一处理 401
 （清 token 跳 `#/login`）与断网（全屏遮罩 + 轮询 `/api/health` 恢复），所以各页面不用自己 catch 这两类错。
