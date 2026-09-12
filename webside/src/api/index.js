@@ -62,6 +62,11 @@ export const mediaApi = {
       { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 600000 }),
   flatRemove: (owner, mediaId, purge = true) =>
     http.delete(`/media/${owner}/items/${mediaId}`, { params: { purge } }),
+  // 平铺那组的重排。载荷和下面的 reorder 同形，但路径里要带归属 id：后端据此只动这一个
+  // 部件 / 这一台整机名下的行，混进来的别人家的 id 会被忽略而不是把那边也排了。
+  flatReorder: (owner, ownerId, mediaIds) =>
+    http.put(`/media/${owner}/${ownerId}/reorder`, { media_ids: mediaIds }),
+  // 显卡那份按分类各排各的，传的是某一个分类的完整顺序
   reorder: (mediaIds) => http.put('/media/reorder', { media_ids: mediaIds }),
   remove: (mediaId, purge = true) => http.delete(`/media/${mediaId}`, { params: { purge } })
 }

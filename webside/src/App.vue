@@ -85,6 +85,12 @@ html, body, #app {
 .pcr-split > * > .el-card { width: 100%; }
 .pcr-split-form { flex: 4 1 0; }
 .pcr-split-media { flex: 6 1 0; }
+/* 右栏那张图片卡：两栏等高是 align-items: stretch 撑出来的，但 el-card 不会把多出来的
+   高度分给 body——卡片下半截的空白于是不属于任何元素，拖文件到那儿松手毫无反应，而那里
+   看着恰恰最像「能往里丢东西」的地方。把高度一路传下去，让 MediaGallery 能撑满整张卡，
+   投放区也就覆盖整张卡而不只是缩略图那一行。 */
+.pcr-split-media > .el-card { display: flex; flex-direction: column; }
+.pcr-split-media > .el-card > .el-card__body { flex: 1 1 auto; display: flex; flex-direction: column; }
 @media (max-width: 1100px) {
   /* 窄屏并排都挤没了，改成上下排 */
   .pcr-split { flex-direction: column; }

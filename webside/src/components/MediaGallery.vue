@@ -4,9 +4,20 @@
 
     <div v-else class="drop-zone" :class="{ dropping: dragging }" v-on="dropHandlers">
       <div class="grid" :class="{ 'grid--lg': large }">
-        <div v-for="item in visibleItems" :key="item.id" class="cell">
+        <!-- draggable 挂在格子上，图片本身 draggable="false"：不然拖起来的是那张 img
+             自己（浏览器默认行为），我们的 dragstart 根本不会触发 -->
+        <div
+          v-for="item in visibleItems"
+          :key="item.id"
+          class="cell"
+          :class="sort.cellClass(item)"
+          draggable="true"
+          :title="t('media.dragToSort')"
+          v-on="sort.handlers(items, item)"
+        >
           <div class="thumb" @click="preview(item)">
-            <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
+            <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename"
+                 loading="lazy" draggable="false" />
             <div v-else class="video-thumb">
               <el-icon :size="20"><VideoPlay /></el-icon>
               <span class="video-tag">{{ t('media.video') }}</span>
@@ -68,6 +79,7 @@ import { Close, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { mediaApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { useFileDrop } from '@/composables/useFileDrop'
+import { useMediaSort } from '@/composables/useMediaSort'
 
 // 平铺一组图，不分类。两种归属共用这一个组件：owner='parts' 挂在某个部件上，
 // owner='devices' 挂在整机本身上（整机外观 / 铭牌 / 开机测试这类照片）。
@@ -192,6 +204,16 @@ async function flush() {
   }
 }
 
+// 拖拽排序。本地顺序已经改了，这里只负责落库；存不上就把服务端的顺序拉回来——
+// 界面上留着一个其实没生效的排序，比排序失败本身更糟。
+const sort = useMediaSort(async (ids) => {
+  try {
+    await mediaApi.flatReorder(props.owner, props.ownerId, ids)
+  } catch {
+    await load()   // 拦截器已提示
+  }
+})
+
 async function removeItem(item) {
   try {
     await mediaApi.flatRemove(props.owner, item.id, true)
@@ -233,6 +255,21 @@ defineExpose({ reload: load })
   background: #0e1830;
 }
 .thumb { width: 100%; height: 100%; cursor: pointer; }
+/* 拖动中的那张淡下去，插入位置在目标格子的对应一侧画一条竖线。
+   竖线画在格子**内侧**：.cell 是 overflow: hidden（圆角要靠它裁图），画在外面会被裁掉 */
+.cell.sorting { opacity: 0.35; }
+.cell.sort-before::after,
+.cell.sort-after::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #5b8cff;
+  z-index: 2;
+}
+.cell.sort-before::after { left: 0; }
+.cell.sort-after::after { right: 0; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .video-thumb {
   width: 100%;
@@ -282,8 +319,14 @@ defineExpose({ reload: load })
 .collapse-row { margin-top: 6px; text-align: center; }
 .uploader :deep(.el-upload) { width: 100%; display: block; }
 
-/* 投放区：平时完全看不出来，拖着文件进来才浮出边框 + 遮罩 */
-.drop-zone { position: relative; border-radius: 10px; }
+/* 撑满外面那张卡（配合 App.vue 里 .pcr-split-media 的两条规则）。父级不是 flex 时
+   flex 属性会被忽略，退回按内容高度排，所以放在别处用也不会错位 */
+.media-gallery { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+
+/* 投放区：平时完全看不出来，拖着文件进来才浮出边框 + 遮罩。
+   flex: 1 是为了让它吃掉卡片里剩余的空白——「整张卡都能拖进来」要的就是这一段，
+   否则能放的只有缩略图占住的那一行 */
+.drop-zone { position: relative; border-radius: 10px; flex: 1 1 auto; }
 .drop-zone.dropping { outline: 2px dashed #5b8cff; outline-offset: 4px; }
 .drop-mask {
   position: absolute;

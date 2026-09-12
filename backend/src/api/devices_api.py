@@ -100,9 +100,12 @@ class DevicePayload(BaseModel):
     """新增 / 编辑整机。字段全部可选——录入是渐进的：买的时候只有总价，
     拆机后才知道有几条内存，卖掉才有售价，不该强制一次填全。"""
 
-    # 整机名称是自己起的（「iiyama 工作站」这种），20 个字足够，再长在列表和标题行里
-    # 都会被挤断。列本身是 VARCHAR(128)，不动它——库里的列只加不改，收紧的是入口。
-    title: Optional[str] = Field(default=None, max_length=20)
+    # 整机名称是自己起的（「iiyama 工作站」这种），上限 100 字——列表和标题行里超长的
+    # 部分会被挤断，但那是显示问题，不该反过来限制人怎么记这台机器。列本身是
+    # VARCHAR(128)，够放 100 个汉字，所以不动它——库里的列只加不改，收紧的是入口。
+    # 改这里要同步改 DeviceDetail 的 TITLE_MAX：前端放得进、后端原地 422，而那一页是
+    # 自动保存的，表现成「怎么改都存不上」。
+    title: Optional[str] = Field(default=None, max_length=100)
 
     source_platform: Optional[str] = Field(default=None, max_length=32)
     seller: Optional[str] = Field(default=None, max_length=128)

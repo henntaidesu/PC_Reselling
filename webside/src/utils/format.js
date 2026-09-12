@@ -1,23 +1,39 @@
 // 金额、状态、颜色的展示辅助。所有文案走 i18n，这里只管数值格式和颜色。
 
-// 状态对应的 Element tag 主题色。测试不通过用 danger，成交类用 success，
-// 中间流转用 info/warning，让列表扫一眼就能分出「出问题的」和「快到手的」。
-// 只有「已打款」（生意最终完成）用绿色；其余状态一律不用绿色。
-export const STATUS_TAG_TYPE = {
-  purchased: 'info',
-  pending_test: 'warning',
-  test_passed: 'primary',
-  test_failed: 'danger',
-  returning: 'primary',
-  returned: 'primary',
-  forwarding: 'warning',
-  received: 'warning',
-  paid: 'success'
+// 状态色：一个状态一个固定颜色，列表里的标签、概览页的图共用这一份，改色只改这里。
+// 不用 el-tag 的 type：type 只有五种，状态有十个，用 type 会把「回国中 / 转寄中 / 已签收」
+// 挤成同一个颜色，而这几步之间的区别恰恰是最需要一眼看出来的。
+//
+// 取值的三条规则，加状态时照着挑：
+//   1. 红与绿是语义色，只有「测试不通过」和「已打款」能用——列表里扫一眼就分得出
+//      「出事的」和「钱到手的」，别的状态染了绿就没这个效果了。
+//   2. 「等人动手」的用暖色（待测试琥珀 / 转寄中橙），「只是在路上」的用冷色
+//      （测试通过蓝 / 回国中紫 / 已回国粉 / 已签收青）。
+//   3. 「意向购入」东西还不是自己的，用中性灰，并且标签画成描边（见 StatusTag.vue），
+//      跟所有「已经花了钱」的状态在视觉上隔开。
+export const STATUS_COLOR = {
+  intent: '#8892a4',
+  purchased: '#5a6a88',
+  pending_test: '#c98500',
+  test_passed: '#3987e5',
+  test_failed: '#d03b3b',
+  returning: '#7c5cff',
+  returned: '#d55181',
+  forwarding: '#d95926',
+  received: '#0e94a8',
+  paid: '#008300'
+}
+
+// 画成描边而不是实心的状态：东西还没买下来，不该和已经花了钱的那些长得一样重。
+export const STATUS_OUTLINED = new Set(['intent'])
+
+export function statusColor(status) {
+  return STATUS_COLOR[status] || STATUS_COLOR.purchased
 }
 
 // 状态在流程里的先后，用于按流程排序而不是字母序
 export const STATUS_ORDER = [
-  'purchased', 'pending_test', 'test_passed', 'test_failed',
+  'intent', 'purchased', 'pending_test', 'test_passed', 'test_failed',
   'returning', 'returned', 'forwarding', 'received', 'paid'
 ]
 

@@ -53,6 +53,7 @@ export default {
     defaultAccount: '默认账号：admin / admin'
   },
   status: {
+    intent: '意向购入',
     purchased: '已购入',
     pending_test: '待测试',
     test_passed: '测试通过',

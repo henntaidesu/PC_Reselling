@@ -23,9 +23,21 @@
       </div>
 
       <div class="grid drop-zone" :class="{ dropping: zone(cat).dragging.value }" v-on="zone(cat).handlers">
-        <div v-for="item in grouped[cat] || []" :key="item.id" class="cell">
+        <!-- draggable 挂在格子上，图片本身 draggable="false"：不然拖起来的是那张 img
+             自己（浏览器默认行为），我们的 dragstart 根本不会触发。
+             只在分类内部排序——拖到别的分类去还意味着换分类，那是另一件事 -->
+        <div
+          v-for="item in grouped[cat] || []"
+          :key="item.id"
+          class="cell"
+          :class="sort.cellClass(item)"
+          draggable="true"
+          :title="t('media.dragToSort')"
+          v-on="sort.handlers(grouped[cat], item)"
+        >
           <div class="thumb" @click="preview(item)">
-            <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
+            <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename"
+                 loading="lazy" draggable="false" />
             <div v-else class="video-thumb">
               <el-icon :size="30"><VideoPlay /></el-icon>
               <span class="video-tag">{{ t('media.video') }}</span>
@@ -78,6 +90,7 @@ import { useI18n } from 'vue-i18n'
 import { mediaApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { useFileDrop } from '@/composables/useFileDrop'
+import { useMediaSort } from '@/composables/useMediaSort'
 import { useMetaStore } from '@/stores/meta'
 
 const props = defineProps({
@@ -196,6 +209,16 @@ async function flush() {
   }
 }
 
+// 拖拽排序。整份 id 顺序一次提交，后端按下标重写 sort_order；一个分类一个数组，
+// 所以传过去的就是这一类的完整顺序。存不上就把服务端的顺序拉回来。
+const sort = useMediaSort(async (ids) => {
+  try {
+    await mediaApi.reorder(ids)
+  } catch {
+    await load()   // 拦截器已提示
+  }
+})
+
 async function removeItem(item) {
   try {
     await mediaApi.remove(item.id, true)
@@ -258,6 +281,21 @@ defineExpose({ reload: load })
   background: #0e1830;
 }
 .thumb { width: 100%; height: 100%; cursor: pointer; }
+/* 拖动中的那张淡下去，插入位置在目标格子的对应一侧画一条竖线。
+   竖线画在格子**内侧**：.cell 是 overflow: hidden（圆角要靠它裁图），画在外面会被裁掉 */
+.cell.sorting { opacity: 0.35; }
+.cell.sort-before::after,
+.cell.sort-after::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #5b8cff;
+  z-index: 2;
+}
+.cell.sort-before::after { left: 0; }
+.cell.sort-after::after { right: 0; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .video-thumb {
   width: 100%;

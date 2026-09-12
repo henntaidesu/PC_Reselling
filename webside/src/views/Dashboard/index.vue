@@ -307,7 +307,7 @@ import {
 } from '@element-plus/icons-vue'
 import { dashboardApi } from '@/api'
 import { usePlatforms } from '@/composables/usePlatforms'
-import { cny, profitClass, STATUS_ORDER } from '@/utils/format'
+import { cny, profitClass, STATUS_COLOR, STATUS_ORDER } from '@/utils/format'
 import EChart from '@/components/EChart.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { NEUTRAL, SERIES, STATUS, formatInt } from './chartTheme.js'
@@ -323,20 +323,6 @@ const router = useRouter()
 /** 区间预设：0 = 「全部」，起点由后端取全库最早的交易日 */
 const RANGE_PRESETS = [7, 14, 30, 90, 0]
 const SERIES0 = SERIES[0]
-
-/** 状态色：每个状态一个固定颜色，整页任何图里都不换。
- *  「测试不通过」用红、「已打款」用绿是语义色，其余取分类顺位里互相分得开的色。 */
-const STATUS_COLOR = {
-  purchased: '#5a6a88',
-  pending_test: '#c98500',
-  test_passed: '#3987e5',
-  test_failed: '#d03b3b',
-  returning: '#7c5cff',
-  returned: '#d55181',
-  forwarding: '#d95926',
-  received: '#199e70',
-  paid: '#008300'
-}
 
 /** 「待处理」面板的行：流程没走完、需要人推一把的状态 */
 const WORK_ROWS = [

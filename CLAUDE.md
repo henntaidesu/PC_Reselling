@@ -40,6 +40,23 @@ pyinstaller.bat           # 打包成单 exe，产物在 Releases\v1.0.0\
 
 端口：前端 dev 9911 / 后端 9910 / 图床（另一项目）9990。
 
+### 开发机对外开放（内网 / 公网）
+
+前后端本来就监听 `0.0.0.0`，Vite 也 `allowedHosts: true`，所以**代码侧不需要为外网改任何东西**。
+实际挡住外部设备的是另外三样，症状都不像是它们自己：
+
+- **Windows 防火墙**：入站默认丢弃，表现为连接超时且两个控制台一行日志都没有。以管理员身份
+  跑一次 `open_firewall.bat` 放行 9910 / 9911（`open_firewall.bat off` 撤销）。规则名同时被
+  `start.bat` 探测用来提示，改名两处一起改。
+- **HMR 的 WebSocket 连错地址**：页面能开、改代码不生效、控制台刷连接失败。浏览器默认按
+  「页面 host + 9911 + 页面协议」去连，公网 IP 直连时正好对；端口映射换了号、反代成 https、
+  内网穿透给了别的域名时对不上，用 `vite.config.js` 顶部那三个 `PCR_HMR_*` 环境变量指定。
+- **图片全裂**：`public_base`（系统配置 → 图床）是浏览器用的地址，填成内网 IP 的话外网打不开。
+
+前端 `/api` 一律经 dev server 代理到 `127.0.0.1:9910`，所以只放行 9911 也能完整使用；
+真要直连后端端口调接口再放行 9910。**对公网开放前把内置的 admin / admin 改掉**
+（`schema.py` 首次建库时会灌这个账号）。
+
 ## 架构
 
 ```
@@ -101,7 +118,9 @@ webside (Vue3 + Element Plus, hash 路由)
 `t('platform.' + v)`——自定义平台会被翻成一个裸 key。
 
 加一个状态要同时改：`schema.py` 的列表、三个 locale 文件、`webside/src/utils/format.js` 的
-`STATUS_TAG_TYPE` 与 `STATUS_ORDER`。少改一处的表现是页面上出现裸 key 或排序错位。
+`STATUS_COLOR` 与 `STATUS_ORDER`。少改一处的表现是页面上出现裸 key、排序错位，或标签退回默认色。
+状态色只有 `format.js` 那一份，标签（`StatusTag.vue`）、时间轴圆点、概览页的图全从它取；
+挑颜色的规则写在那份 map 的注释里（红绿是语义色、暖色表示等人动手、未购入的画描边）。
 
 ### 库存合并列表在 Python 侧做
 

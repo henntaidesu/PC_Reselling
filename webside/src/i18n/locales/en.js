@@ -53,6 +53,7 @@ export default {
     defaultAccount: 'Default account: admin / admin'
   },
   status: {
+    intent: 'Intent to buy',
     purchased: 'Purchased',
     pending_test: 'Pending test',
     test_passed: 'Test passed',

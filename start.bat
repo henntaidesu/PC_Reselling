@@ -63,6 +63,22 @@ echo.
 echo ========================================
 echo   Frontend:  http://localhost:9911
 echo   Backend :  http://localhost:9910   (backend + frontend logs share this window)
+rem Both servers bind 0.0.0.0, so every address of this machine serves them.
+rem Printing them saves an ipconfig round trip when opening the page on a phone.
+for /f "tokens=2 delims=:" %%i in ('ipconfig ^| findstr /c:"IPv4"') do (
+    set "LANIP=%%i"
+    set "LANIP=!LANIP: =!"
+    echo   LAN/WAN:  http://!LANIP!:9911
+)
+rem Listening is not the same as reachable: with no inbound rule Windows drops
+rem outside connections without a word in either console, which reads like the
+rem server is down rather than like a firewall. Probe the rule open_firewall.bat
+rem creates (same name -- keep the two in sync) and say so instead.
+netsh advfirewall firewall show rule name="PC Reselling dev frontend 9911" >nul 2>&1
+if errorlevel 1 (
+    echo   [^^!] No firewall rule yet - other devices will just time out.
+    echo       Run open_firewall.bat once as administrator to allow 9910/9911.
+)
 echo   Close this window to stop both.
 echo ========================================
 echo.

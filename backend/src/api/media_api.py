@@ -55,7 +55,7 @@ def _guess_content_type(filename: str, provided: Optional[str]) -> str:
 
 
 class ReorderPayload(BaseModel):
-    """按前端拖拽后的顺序提交 media id 列表。"""
+    """按前端拖拽后的顺序提交 media id 列表。显卡与平铺那两种归属共用这一个形状。"""
     media_ids: List[int]
 
 
@@ -237,6 +237,24 @@ def _list_flat(owner: str, owner_id: int) -> dict:
     return {"items": [_flat_row(owner, r) for r in rows]}
 
 
+def _reorder_flat(owner: str, owner_id: int, media_ids: List[int]) -> dict:
+    """按传入顺序重排某个归属名下的图。一次事务写完，不会留下「排到一半」的中间态。
+
+    WHERE 里带上归属列：请求里混进别的部件的 media id 时，它只会被忽略，而不是顺手把
+    那一组的顺序也改了。
+    """
+    table, fk, _owner_table, _label, _prefix = _FLAT_OWNERS[owner]
+    if not media_ids:
+        return {"ok": True, "updated": 0}
+    with db.transaction() as cur:
+        for order, media_id in enumerate(media_ids):
+            cur.execute(
+                f"UPDATE {table} SET sort_order = %s WHERE id = %s AND {fk} = %s",
+                (order, media_id, owner_id),
+            )
+    return {"ok": True, "updated": len(media_ids)}
+
+
 def _delete_flat(owner: str, media_id: int, purge: bool) -> dict:
     table, _fk, _owner_table, _label, _prefix = _FLAT_OWNERS[owner]
     row = db.query_one(f"SELECT id, stored_name FROM {table} WHERE id = %s", (media_id,))
@@ -260,6 +278,11 @@ def list_part_media(part_id: int):
     return _list_flat("parts", part_id)
 
 
+@router.put("/parts/{part_id}/reorder")
+def reorder_part_media(part_id: int, payload: ReorderPayload):
+    return _reorder_flat("parts", part_id, payload.media_ids)
+
+
 @router.delete("/parts/items/{media_id}")
 def delete_part_media(media_id: int, purge: bool = True):
     return _delete_flat("parts", media_id, purge)
@@ -273,6 +296,11 @@ async def upload_device_media(device_id: int, files: List[UploadFile] = File(...
 @router.get("/devices/{device_id}")
 def list_device_media(device_id: int):
     return _list_flat("devices", device_id)
+
+
+@router.put("/devices/{device_id}/reorder")
+def reorder_device_media(device_id: int, payload: ReorderPayload):
+    return _reorder_flat("devices", device_id, payload.media_ids)
 
 
 @router.delete("/devices/items/{media_id}")

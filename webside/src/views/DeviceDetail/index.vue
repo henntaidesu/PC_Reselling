@@ -72,18 +72,14 @@
         <el-tabs v-model="activeTab" class="part-tabs">
           <el-tab-pane name="device">
             <template #label>
-              <span class="tab-label">
-                {{ t('device.tabDevice') }}
-                <span v-if="deviceMediaCount" class="tab-badge">{{ deviceMediaCount }}</span>
-              </span>
+              <span class="tab-label">{{ t('device.tabDevice') }}</span>
             </template>
           </el-tab-pane>
           <el-tab-pane v-for="type in PART_TABS" :key="type" :name="type">
             <template #label>
-              <span class="tab-label" :class="{ 'tab-label--blank': !partsByTab[type].some(hasPartContent) }">
+              <span class="tab-label" :class="{ 'tab-label--blank': !tabPartCount(type) }">
                 {{ t('partType.' + type) }}
-                <span v-if="partsByTab[type].length > 1" class="tab-count">×{{ partsByTab[type].length }}</span>
-                <span v-if="tabMediaCount(type)" class="tab-badge">{{ tabMediaCount(type) }}</span>
+                <span v-if="tabPartCount(type)" class="tab-badge">{{ tabPartCount(type) }}</span>
               </span>
             </template>
           </el-tab-pane>
@@ -283,7 +279,7 @@ import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { ArrowLeft, EditPen, Plus, WarningFilled } from '@element-plus/icons-vue'
-import { devicesApi, mediaApi, systemApi } from '@/api'
+import { devicesApi, systemApi } from '@/api'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
@@ -311,11 +307,10 @@ const loading = ref(false)
 const hostingConfigured = ref(true)
 // 'device' 或某个部件类型（PART_TABS 里的一个）
 const activeTab = ref('device')
-const deviceMediaCount = ref(0)
 
 // 名称的长度上限。与后端 DevicePayload.title 的 max_length 一致——两边不一样的话，
 // 前端放进去的字后端会原地打回 422，而这一页是自动保存的，表现成「怎么改都存不上」。
-const TITLE_MAX = 20
+const TITLE_MAX = 100
 const editingTitle = ref(false)
 const titleInput = ref(null)
 
@@ -378,9 +373,12 @@ const partsByTab = computed(() => {
 })
 const tabParts = computed(() => partsByTab.value[activeTab.value] || [])
 
-// 标签上的角标是这一类**所有**部件的图片数之和，不是某一件的
-function tabMediaCount(type) {
-  return partsByTab.value[type].reduce((n, p) => n + (p._media_count || 0), 0)
+// 标签上的角标是这一类**填过内容**的部件件数，口径与下面那个「未填写」的淡化完全一致
+//（都走 hasPartContent），所以不会出现「标着未填写却带个角标」。刻意不跟 isBlankPart：
+// 那是「要不要提交给后端」的口径，库里存着的空行、只传了图的行都算数，可它们在人眼里
+// 就是还没录，显示成一件反而对不上。一件都没填的那一类不显示角标。
+function tabPartCount(type) {
+  return partsByTab.value[type].filter(hasPartContent).length
 }
 
 // 六个标准槽位每类至少留一件——一台机器不可能没有 CPU，而空槽位不落库，留着没成本。
@@ -520,8 +518,7 @@ function onPartMediaChanged(part, count) {
   autosave.silently(() => { part._media_count = count })
 }
 
-function onDeviceMediaChanged(count) {
-  deviceMediaCount.value = count
+function onDeviceMediaChanged() {
   // 只传了图、一个字都没改的新设备：它这时还是草稿，离开页面会被当空记录删掉，
   // 刚传的图跟着一起没。所以传完图立刻存一次，把它转正。
   if (device.value?.is_draft) doSave().catch(() => { /* 拦截器已提示 */ })
@@ -568,23 +565,12 @@ async function load() {
     const res = await devicesApi.get(route.params.id)
     device.value = res
     Object.assign(form, normalize(res))
-    loadDeviceMediaCount()
   } finally {
     loading.value = false
   }
   // 等填充引起的那波 watch 冲刷完再开自动保存，否则一进页面就白存一遍
   await autosave.begin()
 }
-
-async function loadDeviceMediaCount() {
-  try {
-    const res = await mediaApi.flatList('devices', route.params.id)
-    deviceMediaCount.value = (res.items || []).length
-  } catch {
-    deviceMediaCount.value = 0
-  }
-}
-
 
 // 离开前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这台空设备删掉
 onBeforeRouteLeave(async () => {
@@ -613,7 +599,9 @@ onMounted(async () => {
 /* 铅笔平时淡着，鼠标扫到标题那一片才亮起来——它是个随手可用的入口，不是要人注意的按钮 */
 .title-edit { color: #6f7b8e; padding: 4px; }
 .title-row:hover .title-edit { color: #8fb8ff; }
-.title-input { max-width: 320px; }
+/* 名称放宽到 100 字之后，320px 只能看到开头十来个字，改名时全靠横向滚——
+   宽一点是为了「看得见自己在改什么」，上限仍由 TITLE_MAX 管 */
+.title-input { max-width: 480px; }
 
 /* 摘要条 */
 .summary {
@@ -664,7 +652,6 @@ onMounted(async () => {
   line-height: 18px;
   text-align: center;
 }
-.tab-count { font-size: 11px; color: #8a94a6; }
 
 /* 末尾的「添加同类部件」卡。做成虚线框而不是一个按钮：它和上面那几张部件卡是同一列
    东西，看起来就该是「下一张还空着的卡」 */

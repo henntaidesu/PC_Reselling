@@ -53,6 +53,7 @@ export default {
     defaultAccount: 'デフォルトアカウント：admin / admin'
   },
   status: {
+    intent: '購入予定',
     purchased: '購入済み',
     pending_test: 'テスト待ち',
     test_passed: 'テスト合格',
