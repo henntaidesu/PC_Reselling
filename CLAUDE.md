@@ -119,7 +119,8 @@ webside (Vue3 + Element Plus, hash 路由)
 
 加一个状态要同时改：`schema.py` 的列表、三个 locale 文件、`webside/src/utils/format.js` 的
 `STATUS_COLOR` 与 `STATUS_ORDER`。少改一处的表现是页面上出现裸 key、排序错位，或标签退回默认色。
-状态色只有 `format.js` 那一份，标签（`StatusTag.vue`）、时间轴圆点、概览页的图全从它取；
+状态色只有 `format.js` 那一份，标签（`StatusTag.vue`）、下拉选项（`StatusSelect.vue`，四处状态
+下拉共用它，别再在页面里手写 `v-for el-option`）、时间轴圆点、概览页的图全从它取；
 挑颜色的规则写在那份 map 的注释里（红绿是语义色、暖色表示等人动手、未购入的画描边）。
 
 ### 库存合并列表在 Python 侧做

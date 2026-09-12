@@ -2,18 +2,6 @@
   <div class="cards-page">
     <div class="page-head">
       <h2 class="page-title">{{ t('route.cards') }}</h2>
-      <!-- 一个按钮两种货：下拉里选新增显卡还是整机 -->
-      <el-dropdown trigger="click" @command="onAdd">
-        <el-button type="primary" :icon="Plus">
-          {{ t('common.add') }}<el-icon class="el-icon--right"><ArrowDown /></el-icon>
-        </el-button>
-        <template #dropdown>
-          <el-dropdown-menu>
-            <el-dropdown-item command="card">{{ t('inv.addCard') }}</el-dropdown-item>
-            <el-dropdown-item command="device">{{ t('inv.addDevice') }}</el-dropdown-item>
-          </el-dropdown-menu>
-        </template>
-      </el-dropdown>
     </div>
 
     <!-- 统计模块：随下方筛选联动，覆盖整个筛选结果（不只当前页），显卡与整机合计。
@@ -25,6 +13,7 @@
             <StatCard
               :label="card.label"
               :value="card.value"
+              :sub="card.sub"
               :icon="card.icon"
               :color="card.color"
               :value-class="card.valueClass"
@@ -55,9 +44,8 @@
           <el-option :label="t('inv.card')" value="card" />
           <el-option :label="t('inv.device')" value="device" />
         </el-select>
-        <el-select v-model="filters.status" multiple collapse-tags :placeholder="t('card.status')" clearable class="f-status" @change="reload">
-          <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
-        </el-select>
+        <StatusSelect v-model="filters.status" multiple collapse-tags :placeholder="t('card.status')"
+          clearable class="f-status" @change="reload" />
         <el-select v-model="filters.brand" :placeholder="t('card.brand')" clearable filterable class="f-brand" @change="reload">
           <el-option v-for="b in usedBrands" :key="b.brand" :label="`${b.brand} (${b.count})`" :value="b.brand" />
         </el-select>
@@ -74,6 +62,9 @@
           @change="reload"
         />
         <el-button :icon="Refresh" @click="resetFilters">{{ t('common.reset') }}</el-button>
+        <!-- 新增挨着重置放：这一行是「对这张表做点什么」的地方，按钮都聚在同一处，
+             不用在标题栏和筛选行之间来回找 -->
+        <el-button type="primary" :icon="Plus" @click="addVisible = true">{{ t('common.add') }}</el-button>
       </div>
     </el-card>
 
@@ -126,11 +117,18 @@
             <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
           </template>
         </el-table-column>
+        <!-- 日期没有就空着，不画「—」：这两列里空白本身就是「还没到那一步」，
+             一列破折号只是噪音。金额列的「—」不一样，那是「缺汇率算不出来」，得留着。 -->
         <el-table-column :label="t('card.purchaseDate')" width="120">
-          <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.purchase_date || '—' }}</span></template>
+          <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.purchase_date }}</span></template>
         </el-table-column>
         <el-table-column :label="t('card.saleDate')" width="120">
-          <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.sale_date || '—' }}</span></template>
+          <template #default="{ row }">
+            <!-- 整机这一格空着：部件是分批卖的，「最后成交那天」既不是这台机器卖完的
+                 日子，也对不上任何一件的成交日，摆在顶层行上只会被当成前者。逐件的
+                 出售日期在展开后的二级行上，那才是实情。 -->
+            <span v-if="row.kind !== 'device'" class="pcr-mono pcr-dim">{{ row.sale_date }}</span>
+          </template>
         </el-table-column>
         <el-table-column :label="t('device.partsCount')" width="96" align="center">
           <template #default="{ row }">
@@ -159,11 +157,28 @@
                 </template>
                 <span class="pcr-mono cost-value">{{ cny(row.cost_total_cny) }}</span>
               </el-tooltip>
-              <!-- 成本是按资金池的注资汇率折的，不是买入当天的牌价——标出来，免得对不上账 -->
+              <!-- 这笔成本的钱从哪儿出的，用一个字标在金额后面：
+                   「池」= 按资金池的注资汇率折的，不是买入当天的牌价（不标出来对不上账）；
+                   「自」= 自有资金，按购入日牌价折。两者都标才有意义——只标「池」的话，
+                   没有标记的行到底是自有资金，还是选了池子但还没点「确认扣除」，看不出来。
+                   后一种两个标都不给，它的成本此刻仍按牌价算。 -->
               <el-tooltip v-if="row.from_pool" :content="t('card.poolDrawn')">
                 <el-tag size="small" type="primary" effect="plain" class="pool-tag">{{ t('card.poolTag') }}</el-tag>
               </el-tooltip>
+              <el-tooltip v-else-if="row.fund_source === 'own'" :content="t('card.fundOwn')">
+                <el-tag size="small" type="info" effect="plain" class="pool-tag">{{ t('card.ownTag') }}</el-tag>
+              </el-tooltip>
             </template>
+          </template>
+        </el-table-column>
+        <!-- 日元成本单独一列，挨着人民币那列：货是在日本买的，对着日站的成交价复核时
+             看日元才顺手。两列是同一笔账的两种说法（见 cards._to_jpy），不是两套口径——
+             所以不再重复悬浮明细，明细挂在左边那一列上。 -->
+        <el-table-column :label="t('inv.costJpy')" width="130" align="right">
+          <template #default="{ row }">
+            <span class="pcr-mono" :class="{ 'pcr-dim': row.cost_total_jpy === null }">
+              {{ jpy(row.cost_total_jpy) }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column :label="t('device.revenue')" width="130" align="right">
@@ -212,6 +227,27 @@
         />
       </div>
     </el-card>
+
+    <!-- 新增什么：显卡还是整机。两者的录入方式根本不同（一进一出 vs 一笔买进、拆成
+         部件分别卖），选错了只能删掉重来，所以这里摆两张把区别说清楚的卡片，
+         而不是下拉菜单里两行长得一样的字。 -->
+    <el-dialog v-model="addVisible" :title="t('inv.addPick')" width="520px" align-center>
+      <div class="add-picker">
+        <button
+          v-for="opt in ADD_OPTIONS"
+          :key="opt.kind"
+          class="add-option"
+          type="button"
+          :disabled="adding"
+          :style="{ '--opt-color': opt.color }"
+          @click="onAdd(opt.kind)"
+        >
+          <el-icon class="add-option-icon"><component :is="opt.icon" /></el-icon>
+          <span class="add-option-title">{{ t(opt.label) }}</span>
+          <span class="add-option-desc">{{ t(opt.desc) }}</span>
+        </button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -220,16 +256,17 @@ import { computed, onActivated, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  ArrowDown, Plus, Refresh, Search, WarningFilled
+  Cpu, Monitor, Plus, Refresh, Search, WarningFilled
 } from '@element-plus/icons-vue'
 import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
-import { cny, firstImage, profitClass } from '@/utils/format'
+import { cny, firstImage, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsMobile } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import StatusSelect from '@/components/StatusSelect.vue'
 
 defineOptions({ name: 'Cards' })
 
@@ -252,13 +289,12 @@ const dateRange = ref(null)
 
 const emptyStats = () => ({
   total: 0, cards: 0, devices: 0, in_stock: 0, settled: 0,
-  total_cost_cny: 0, total_revenue_cny: 0, total_profit_cny: 0,
+  total_cost_cny: 0, total_cost_jpy: 0, total_revenue_cny: 0, total_profit_cny: 0,
   recovery: null, incomplete: 0
 })
 const stats = ref(emptyStats())
 const statsLoading = ref(false)
 
-const statuses = computed(() => meta.enums.statuses || [])
 const { platforms } = usePlatforms()
 
 // 顶部统计卡。顺序固定：先数量、后金额，颜色跟着指标走，不随数值变化重排
@@ -271,7 +307,15 @@ const statCards = computed(() => {
     { key: 'devices', label: t('inv.devices'), value: s.devices, icon: 'Monitor', color: '#E6A23C' },
     { key: 'inStock', label: t('dashboard.inStock'), value: s.in_stock, icon: 'Goods', color: '#a78bfa' },
     { key: 'settled', label: t('inv.settled'), value: s.settled, icon: 'Sell', color: '#67C23A' },
-    { key: 'cost', label: t('dashboard.totalCost'), value: cny(s.total_cost_cny), icon: 'Coin', color: '#F56C6C' },
+    {
+      key: 'cost',
+      label: t('dashboard.totalCost'),
+      value: cny(s.total_cost_cny),
+      // 与列表里每一行同样的处理：日元是参考口径，压在主数字下面
+      sub: jpy(s.total_cost_jpy),
+      icon: 'Coin',
+      color: '#F56C6C'
+    },
     { key: 'revenue', label: t('dashboard.totalRevenue'), value: cny(s.total_revenue_cny), icon: 'Money', color: '#38bdf8' },
     {
       key: 'profit',
@@ -370,11 +414,28 @@ async function loadAux() {
 
 // 新增 = 先建一行空草稿，再进详情页填。详情页本身就是编辑界面，没有第二套「新增
 // 表单」要维护；草稿不进列表也不进统计，什么都没填就离开的话详情页会把它删掉。
+// 新增弹窗的两张卡片。图标与颜色跟顶部统计卡里的「显卡」「整机」一致——
+// 同一个东西在一个页面里换个地方就换套长相，只会让人多认一遍。
+const ADD_OPTIONS = [
+  { kind: 'card', icon: Cpu, color: '#5b8cff', label: 'inv.addCard', desc: 'inv.addCardDesc' },
+  { kind: 'device', icon: Monitor, color: '#E6A23C', label: 'inv.addDevice', desc: 'inv.addDeviceDesc' }
+]
+
+const addVisible = ref(false)
+const adding = ref(false)
+
+// 建一行空草稿再跳进详情页（见 CLAUDE.md 的「草稿行」）。建的过程中把两张卡片禁掉：
+// 手快点两下会建出两行草稿，其中一行没人管，只能等两小时后被清理掉。
 async function onAdd(kind) {
+  if (adding.value) return
+  adding.value = true
   try {
     const draft = kind === 'device' ? await devicesApi.createDraft() : await cardsApi.createDraft()
+    addVisible.value = false
     router.push(`/${kind === 'device' ? 'devices' : 'cards'}/${draft.id}`)
-  } catch { /* 拦截器已提示 */ }
+  } catch { /* 拦截器已提示 */ } finally {
+    adding.value = false
+  }
 }
 
 // 点一行就进它的详情页——看和改都在那里。部件行进的是它所属的那台整机：部件是整机
@@ -475,8 +536,41 @@ onActivated(() => {
 .warn-icon { color: #f5a623; margin-left: 4px; vertical-align: middle; }
 .pager { display: flex; justify-content: flex-end; margin-top: 16px; }
 
+/* ── 新增弹窗里的两张卡片 ──────────────────────────────────────────────
+   用原生 button 而不是 div：键盘能 Tab 到、能回车按下、禁用态是浏览器原生的，
+   这些在 div 上都得自己补一遍。 */
+.add-picker { display: flex; gap: 12px; }
+.add-option {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 18px 16px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--pcr-text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.add-option:hover:not(:disabled),
+.add-option:focus-visible {
+  /* 边框与图标本来就是这一类的代表色，悬浮时把边框点亮即可，不另配一套高亮色 */
+  border-color: var(--opt-color);
+  background: rgba(255, 255, 255, 0.05);
+  outline: none;
+}
+.add-option:disabled { opacity: 0.6; cursor: default; }
+.add-option-icon { font-size: 24px; color: var(--opt-color); }
+.add-option-title { font-size: 15px; font-weight: 600; }
+.add-option-desc { font-size: 12px; line-height: 1.5; color: var(--pcr-text-dim); }
+
 @media (max-width: 768px) {
   .f-keyword, .f-kind, .f-status, .f-brand, .f-platform, .f-date { width: 100% !important; }
   .filters { flex-direction: column; align-items: stretch; }
+  /* 两张卡片并排在手机上只剩半屏宽，说明文字会碎成每行两三个字 */
+  .add-picker { flex-direction: column; }
 }
 </style>

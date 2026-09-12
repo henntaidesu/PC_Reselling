@@ -56,6 +56,12 @@ export function cny(amount) {
   return formatMoney(amount, 'CNY')
 }
 
+// 日元专用。列表里成本会人民币、日元各显示一次——货是在日本买的，对着日站的
+// 成交价复核时看日元才顺手
+export function jpy(amount) {
+  return formatMoney(amount, 'JPY')
+}
+
 // 汇率的计价单位：多少人民币兑 RATE_UNIT 日元（约 4.32），与银行牌价的写法一致。
 // 后端 backend/src/fx/service.py 里也有一个 RATE_UNIT，两边必须一样；日元金额折人民币
 // 一律是 × rate ÷ RATE_UNIT。

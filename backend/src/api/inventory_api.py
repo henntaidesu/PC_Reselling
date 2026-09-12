@@ -71,6 +71,8 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         # 一张卡卖掉就没有后续了，所以「卖了 = 已结清」
         "settled": row.get("sale_amount") is not None,
         "cost_total_cny": money["cost_total_cny"],
+        # 同一笔成本的日元口径。货是在日本买的，对着日站的成交价复核时看日元才顺手
+        "cost_total_jpy": money["cost_total_jpy"],
         # 成本的三项拆开一起给：列表页要在「总成本」上悬浮出「购入 + 国际运费 + 国内运费」
         # 的明细。合计里本来就含着这两笔运费，但不摊开的话没人看得出利润是净的。
         "purchase_cny": money["purchase_cny"],
@@ -80,6 +82,10 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
+        # 这笔钱从哪儿出的。from_pool 只在**确认扣除之后**才为真，所以两者不是互为反面：
+        # 选了池子但还没点确认的行，fund_source 是 pool 而 from_pool 是 false，列表里
+        # 不该给它贴任何一个标（成本这会儿还是按购入日牌价折的）。
+        "fund_source": row.get("fund_source") or "own",
         "media": data["media"],
     }
 
@@ -115,6 +121,7 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "sold": money["sold"],
         "settled": money["sold"],
         "cost_total_cny": None,
+        "cost_total_jpy": None,
         "purchase_cny": None,
         "intl_shipping_cny": None,
         "sale_cny": money["sale_cny"],
@@ -125,6 +132,8 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "profit_cny": None,
         "incomplete": money["incomplete"],
         "from_pool": False,
+        # 部件不单独出钱：整机是一口价买的，资金来源在整机那一行上
+        "fund_source": None,
         "media": [],
     }
 
@@ -133,8 +142,9 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
                  media: List[Dict[str, Any]]) -> Dict[str, Any]:
     data = devices.serialize(row, parts)
     money = data["money"]
-    # 整机没有单一的「出售日期」——部件是分批卖的。列表里显示最后成交的那天，
-    # 它才是「这台机器进行到哪儿了」的答案。
+    # 整机没有单一的「出售日期」——部件是分批卖的，这里取最后成交的那天。
+    # **列表的顶层行不显示它**（逐件的出售日期在展开的二级行上，那才是实情），
+    # 这个值留着是给按出售日期排序用的：整机得有个可比的位置，不然排序时全落到末尾。
     sale_dates = [p["sale_date"] for p in data["parts"] if p["sale_date"]]
     item = {
         "row_key": f"{KIND_DEVICE}-{row['id']}",
@@ -154,6 +164,7 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "sold": money["sold_count"] > 0,
         "settled": money["settled"],
         "cost_total_cny": money["cost_total_cny"],
+        "cost_total_jpy": money["cost_total_jpy"],
         # 与显卡同一套明细。整机的国内运费是**各部件的合计**（部件分别发货，各按自己的
         # 出售汇率折算），已经计入 cost_total_cny，这里只是把它单独摆出来。
         "purchase_cny": money["purchase_cny"],
@@ -163,6 +174,7 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
+        "fund_source": row.get("fund_source") or "own",
         # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
         "media": media,
     }
@@ -332,8 +344,8 @@ def stats(
     # 宁可整行不算，也不能算出一个偏高的净利润。行数在 incomplete 里另外报。
     countable = [i for i in items if not i["incomplete"]]
 
-    def _sum(key: str) -> float:
-        return round(sum(i[key] for i in countable if i[key] is not None), 2)
+    def _sum(key: str, digits: int = 2) -> float:
+        return round(sum(i[key] for i in countable if i[key] is not None), digits)
 
     card_count = sum(1 for i in items if i["kind"] == KIND_CARD)
     settled = sum(1 for i in items if i["settled"])
@@ -347,6 +359,10 @@ def stats(
         "in_stock": len(items) - settled,
         "settled": settled,
         "total_cost_cny": total_cost,
+        # 日元合计取的是**同一批行**（countable）。不这样的话两个数字统计的行数不一样，
+        # 摆在一起看就是一笔对不上的账。日元侧自己折不出来的行按 0 计——它已经被上面
+        # 那一句排除在外了，剩下的只有「人民币算得出、日元算不出」这种边角情况。
+        "total_cost_jpy": _sum("cost_total_jpy", 0),
         "total_revenue_cny": total_revenue,
         # 已收回 − 已花出去。含未卖完的整机，所以是「到目前为止的盈亏」
         "total_profit_cny": round(total_revenue - total_cost, 2),

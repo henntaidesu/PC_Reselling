@@ -37,9 +37,7 @@
               <el-input v-model="form.core_no" />
             </InlineField>
             <InlineField :label="t('card.status')">
-              <el-select v-model="form.status">
-                <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
-              </el-select>
+              <StatusSelect v-model="form.status" />
             </InlineField>
 
             <el-divider />
@@ -177,6 +175,7 @@ import MediaManager from '@/components/MediaManager.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import StatusSelect from '@/components/StatusSelect.vue'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 
 const { t } = useI18n()
@@ -192,7 +191,6 @@ const hostingConfigured = ref(true)
 
 const brands = computed(() => meta.brands)
 const models = computed(() => meta.models)
-const statuses = computed(() => meta.enums.statuses || [])
 const { platforms } = usePlatforms()
 
 function blankForm() {

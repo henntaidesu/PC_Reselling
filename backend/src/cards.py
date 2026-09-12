@@ -129,10 +129,41 @@ def _to_cny(amount: Any, currency: str, rate: Any) -> Optional[Decimal]:
     return amount * rate / _RATE_UNIT
 
 
+def _to_jpy(amount: Any, currency: str, rate: Any) -> Optional[Decimal]:
+    """把一笔金额折成日元——_to_cny 的反向，口径是同一个（100 日元 = rate 人民币），
+    所以人民币折日元是 **× 100 ÷ rate**。
+
+    「日元总成本」和「人民币总成本」是同一笔账的两种说法，不是另一套口径。两点差别
+    值得记住：
+
+    - **资金池只影响人民币那一侧**。池子里装的就是日元，花了多少日元是行上填的原始
+      金额，与「用哪几批注资去折算」无关，所以这里不看 pool_* 那三列。
+    - **缺汇率的时机正好反过来**。全部以日元记账的行（常态）折日元一分汇率都不用，
+      人民币侧折不出来时它照样是个准数；反过来国内运费是人民币付的，它折日元才需要
+      出售汇率。
+    """
+    amount = _dec(amount)
+    if amount is None:
+        return None
+    if (currency or "CNY").upper() == "JPY":
+        return amount
+    rate = _dec(rate)
+    if rate is None or rate <= 0:
+        return None  # 同 _to_cny：宁可显示「—」，也不要拿一个错的数字去凑
+    return amount * _RATE_UNIT / rate
+
+
 def _round(value: Optional[Decimal]) -> Optional[float]:
     if value is None:
         return None
     return float(value.quantize(_CENT, rounding=ROUND_HALF_UP))
+
+
+def _round_jpy(value: Optional[Decimal]) -> Optional[float]:
+    # 日元没有「分」，留两位小数会让人把它当成人民币金额去读
+    if value is None:
+        return None
+    return float(value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
 def uses_pool(row: Dict[str, Any]) -> bool:
@@ -177,6 +208,12 @@ def compute_money(row: Dict[str, Any]) -> Dict[str, Any]:
     domestic = _to_cny(row.get("domestic_shipping_amount"), row.get("domestic_shipping_currency"), s_rate)
     revenue = _to_cny(row.get("sale_amount"), row.get("sale_currency"), s_rate)
 
+    # 同三项的日元口径。货是在日本买的，成本天然是笔日元账，列表上要能对着日站的价格看
+    purchase_jpy = _to_jpy(row.get("purchase_amount"), row.get("purchase_currency"), p_rate)
+    intl_jpy = _to_jpy(row.get("intl_shipping_amount"), row.get("intl_shipping_currency"), p_rate)
+    domestic_jpy = _to_jpy(
+        row.get("domestic_shipping_amount"), row.get("domestic_shipping_currency"), s_rate)
+
     # 只有「填了金额但折不出来」才算缺口；压根没填的项按 0 计入合计。
     def part(raw: Any, converted: Optional[Decimal]) -> tuple[Decimal, bool]:
         if _dec(raw) is None:
@@ -187,14 +224,20 @@ def compute_money(row: Dict[str, Any]) -> Dict[str, Any]:
 
     cost_total = Decimal("0")
     cost_incomplete = False
-    for raw, converted in (
-        (row.get("purchase_amount"), purchase),
-        (row.get("intl_shipping_amount"), intl),
-        (row.get("domestic_shipping_amount"), domestic),
+    cost_total_jpy = Decimal("0")
+    cost_jpy_incomplete = False
+    for raw, converted, converted_jpy in (
+        (row.get("purchase_amount"), purchase, purchase_jpy),
+        (row.get("intl_shipping_amount"), intl, intl_jpy),
+        (row.get("domestic_shipping_amount"), domestic, domestic_jpy),
     ):
         value, missing = part(raw, converted)
         cost_total += value
         cost_incomplete = cost_incomplete or missing
+        # 两种口径各算各的缺口：日元侧算得出来的时候不该被人民币侧的缺汇率拖成「—」
+        value_jpy, missing_jpy = part(raw, converted_jpy)
+        cost_total_jpy += value_jpy
+        cost_jpy_incomplete = cost_jpy_incomplete or missing_jpy
 
     revenue_value, revenue_missing = part(row.get("sale_amount"), revenue)
     has_revenue = _dec(row.get("sale_amount")) is not None
@@ -212,6 +255,7 @@ def compute_money(row: Dict[str, Any]) -> Dict[str, Any]:
         "domestic_shipping_cny": _round(domestic),
         "sale_cny": _round(revenue),
         "cost_total_cny": None if cost_incomplete else _round(cost_total),
+        "cost_total_jpy": None if cost_jpy_incomplete else _round_jpy(cost_total_jpy),
         "profit_cny": _round(profit),
         "profit_margin": margin,
         # 缺汇率导致算不出来时前端要显示提示，而不是一个空白格子

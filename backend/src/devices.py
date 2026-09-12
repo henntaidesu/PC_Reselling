@@ -40,7 +40,9 @@ from src import db
 from src.fx import FxError, get_rate
 # 金额换算与序列化的口径必须和显卡完全一致，共用同一份实现而不是再抄一遍：
 # 抄一份的下场是某天只改了其中一处，两个页面的合计从此对不上。
-from src.cards import _dec, _iso, _purchase_side, _round_rate, _to_cny, uses_pool
+from src.cards import (
+    _dec, _iso, _purchase_side, _round_jpy, _round_rate, _to_cny, _to_jpy, uses_pool
+)
 from src.schema import CARD_STATUSES, DEVICE_PART_TYPES
 
 log = logging.getLogger(__name__)
@@ -126,6 +128,11 @@ def part_money(part: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "sale_cny": _float(sale),
         "domestic_shipping_cny": _float(domestic),
+        # 国内运费的日元口径：整机的日元总成本要把各部件这一笔加进去，而用哪个汇率
+        # 折（本部件的出售汇率）只该在这里判断一次
+        "domestic_shipping_jpy": _round_jpy(_to_jpy(
+            part.get("domestic_shipping_amount"), part.get("domestic_shipping_currency"), rate
+        )),
         # 净收入 = 售价 − 国内运费。不减成本：整机只有一个总价，摊到单件是假精度。
         "net_cny": _float(net),
         "sold": _dec(part.get("sale_amount")) is not None,
@@ -158,16 +165,26 @@ def compute_money(device: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[s
         device, "purchase_amount", "purchase_currency", "pool_purchase_cny", p_rate)
     intl = _purchase_side(
         device, "intl_shipping_amount", "intl_shipping_currency", "pool_intl_cny", p_rate)
+    # 同两项的日元口径（与显卡同一个函数，资金池不影响日元侧——理由见 cards._to_jpy）
+    purchase_jpy = _to_jpy(
+        device.get("purchase_amount"), device.get("purchase_currency"), p_rate)
+    intl_jpy = _to_jpy(
+        device.get("intl_shipping_amount"), device.get("intl_shipping_currency"), p_rate)
 
     cost_total = _ZERO
     cost_incomplete = False
-    for raw, converted in (
-        (device.get("purchase_amount"), purchase),
-        (device.get("intl_shipping_amount"), intl),
+    cost_total_jpy = _ZERO
+    cost_jpy_incomplete = False
+    for raw, converted, converted_jpy in (
+        (device.get("purchase_amount"), purchase, purchase_jpy),
+        (device.get("intl_shipping_amount"), intl, intl_jpy),
     ):
         value, missing = _part_of(raw, converted)
         cost_total += value
         cost_incomplete = cost_incomplete or missing
+        value_jpy, missing_jpy = _part_of(raw, converted_jpy)
+        cost_total_jpy += value_jpy
+        cost_jpy_incomplete = cost_jpy_incomplete or missing_jpy
 
     revenue_total = _ZERO
     revenue_incomplete = False
@@ -181,10 +198,15 @@ def compute_money(device: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[s
         dom_value, dom_missing = _part_of(
             part.get("domestic_shipping_amount"), _dec(money["domestic_shipping_cny"])
         )
+        dom_jpy, dom_jpy_missing = _part_of(
+            part.get("domestic_shipping_amount"), _dec(money["domestic_shipping_jpy"])
+        )
         revenue_total += sale_value
         domestic_total += dom_value
+        cost_total_jpy += dom_jpy
         revenue_incomplete = revenue_incomplete or sale_missing
         cost_incomplete = cost_incomplete or dom_missing
+        cost_jpy_incomplete = cost_jpy_incomplete or dom_jpy_missing
     cost_total += domestic_total
 
     part_count = len(parts)
@@ -208,6 +230,7 @@ def compute_money(device: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[s
         "domestic_shipping_cny": _float(domestic_total),
         "sale_cny": _float(revenue_total) if has_revenue else None,
         "cost_total_cny": None if cost_incomplete else _float(cost_total),
+        "cost_total_jpy": None if cost_jpy_incomplete else _round_jpy(cost_total_jpy),
         "profit_cny": _float(profit),
         "profit_margin": margin,
         # 回本率 = 已收回 ÷ 总成本。部件没卖完时它比「利润」更有意义

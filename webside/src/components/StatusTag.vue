@@ -1,5 +1,5 @@
 <template>
-  <el-tag size="small" effect="dark" round :style="tagStyle">{{ t('status.' + status) }}</el-tag>
+  <el-tag size="small" effect="dark" :round="round" :style="tagStyle">{{ t('status.' + status) }}</el-tag>
 </template>
 
 <script setup>
@@ -7,7 +7,11 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { STATUS_OUTLINED, statusColor } from '@/utils/format'
 
-const props = defineProps({ status: { type: String, required: true } })
+// round=false 给下拉选项用：那里是一列等宽的块，圆角胶囊排在一起显得松散（见 StatusSelect.vue）
+const props = defineProps({
+  status: { type: String, required: true },
+  round: { type: Boolean, default: true }
+})
 const { t } = useI18n()
 
 // 颜色直接写成 el-tag 的三个 CSS 变量（行内样式盖得住组件自己那套 type 变量），

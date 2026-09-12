@@ -5,6 +5,9 @@
     </div>
     <div class="stat-info">
       <div class="stat-value" :class="valueClass">{{ display }}</div>
+      <!-- 同一个数的另一种说法（成本的日元口径）。压在主数字下面而不是并排：
+           它是参考值，不该和主数字抢同一个视觉层级 -->
+      <div v-if="sub" class="stat-sub">{{ sub }}</div>
       <div class="stat-label">{{ label }}</div>
     </div>
   </div>
@@ -20,7 +23,9 @@ const props = defineProps({
   icon: { type: String, default: 'DataLine' },
   // 顶边与图标底色都取这一个色，卡片之间靠它区分
   color: { type: String, default: '#409EFF' },
-  valueClass: { type: String, default: '' }
+  valueClass: { type: String, default: '' },
+  // 主数字下面的一行小字，留空就不渲染
+  sub: { type: String, default: '' }
 })
 
 // Element 图标里没有 Sell，做个兜底映射，避免整卡渲染不出来
@@ -65,5 +70,12 @@ const display = computed(() => (props.value === null || props.value === undefine
    没带 scoped 属性选择器，特异性比它低，不在这里重申一遍就会被吃掉 */
 .stat-value.pcr-profit { color: var(--pcr-profit); }
 .stat-value.pcr-loss { color: var(--pcr-loss); }
+.stat-sub {
+  font-size: 12px;
+  color: #8fa0bd;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
 .stat-label { font-size: 12px; color: #9ba8bf; margin-top: 2px; }
 </style>

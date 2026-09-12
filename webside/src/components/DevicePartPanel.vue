@@ -60,9 +60,7 @@
             <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" />
           </InlineField>
           <InlineField :label="t('card.status')">
-            <el-select v-model="part.status">
-              <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
-            </el-select>
+            <StatusSelect v-model="part.status" />
           </InlineField>
           <InlineField :label="t('card.domesticShipping')">
             <MoneyInput v-model:amount="part.domestic_shipping_amount"
@@ -113,6 +111,7 @@ import { useMetaStore } from '@/stores/meta'
 import InlineField from './InlineField.vue'
 import MediaGallery from './MediaGallery.vue'
 import MoneyInput from './MoneyInput.vue'
+import StatusSelect from './StatusSelect.vue'
 
 // 这里**直接改 part 上的字段**（v-model="part.brand"）。part 就是详情页 form.parts
 // 里的那个对象，改它正是目的：页面的深层 watch 会看到，600ms 后自动落盘。若改成
@@ -132,7 +131,6 @@ const emit = defineEmits(['remove', 'media-changed'])
 const { t } = useI18n()
 const meta = useMetaStore()
 
-const statuses = computed(() => meta.enums.statuses || [])
 const schema = computed(() => partSchema(props.part.part_type))
 
 const brandOptions = computed(() => {

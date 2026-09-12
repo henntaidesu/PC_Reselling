@@ -100,9 +100,7 @@
                   <el-input v-model="form.title" :maxlength="TITLE_MAX" />
                 </InlineField>
                 <InlineField :label="t('card.status')">
-                  <el-select v-model="form.status">
-                    <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
-                  </el-select>
+                  <StatusSelect v-model="form.status" />
                 </InlineField>
                 <InlineField :label="t('card.platform')">
                   <el-select v-model="form.source_platform" clearable>
@@ -293,6 +291,7 @@ import MediaGallery from '@/components/MediaGallery.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import StatusSelect from '@/components/StatusSelect.vue'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 
 const { t } = useI18n()
@@ -320,7 +319,6 @@ async function startEditTitle() {
   titleInput.value?.focus()
 }
 
-const statuses = computed(() => meta.enums.statuses || [])
 const { platforms } = usePlatforms()
 // 金额要按购入日 / 各部件出售日的汇率折算，只有后端算得准，前端不自己算一遍
 // （自己算必然和列表页对不上）
