@@ -1,16 +1,16 @@
 <template>
-  <!-- 详情页没有保存按钮，这里是「东西存进去了没有」的唯一反馈，所以它必须一直在，
-       不能只在保存的那一瞬间闪一下 -->
+  <!-- 详情页没有保存按钮，这里是「东西存进去了没有」的唯一反馈。存过一次之后就一直
+       挂着「已自动保存」，不只在保存的那一瞬间闪一下；但一个字都还没改时不出声——
+       页面一打开就贴一条「改动即时保存」，说的是一件还没发生的事。 -->
   <span class="autosave" :class="{ active: saving }">
     <template v-if="saving"><el-icon class="spin"><Loading /></el-icon>{{ t('card.saving') }}</template>
     <template v-else-if="savedOnce"><el-icon><Select /></el-icon>{{ t('card.autoSaved') }}</template>
-    <template v-else><el-icon><EditPen /></el-icon>{{ t('card.autoSaveHint') }}</template>
   </span>
 </template>
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { EditPen, Loading, Select } from '@element-plus/icons-vue'
+import { Loading, Select } from '@element-plus/icons-vue'
 
 defineProps({
   saving: { type: Boolean, default: false },

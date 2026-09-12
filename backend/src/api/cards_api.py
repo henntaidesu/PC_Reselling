@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from src import cards, db, funds
 from src.auth import require_auth
-from src.schema import CARD_STATUSES, CURRENCIES, FUND_SOURCES, SOURCE_PLATFORMS
+from src.schema import CARD_STATUSES, CURRENCIES, FUND_SOURCES
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class CardPayload(BaseModel):
     vram: Optional[str] = Field(default=None, max_length=32)
     serial_no: Optional[str] = Field(default=None, max_length=128)
 
-    source_platform: Optional[str] = Field(default=None, max_length=16)
+    source_platform: Optional[str] = Field(default=None, max_length=32)
     seller: Optional[str] = Field(default=None, max_length=128)
     item_url: Optional[str] = Field(default=None, max_length=1024)
     order_no: Optional[str] = Field(default=None, max_length=128)
@@ -96,12 +96,12 @@ class CardPayload(BaseModel):
     @field_validator("source_platform")
     @classmethod
     def _check_platform(cls, v: Optional[str]) -> Optional[str]:
+        # 平台已经是用户自己维护的字典（source_platforms 表），这里不再对着固定清单校验。
+        # 也不再 lower()：内置的三个是小写 key，用户起的名字可能带大小写和汉字，
+        # 强行转小写会让它和字典里、以及筛选条件里的写法对不上。
         if not v:
             return None
-        v = v.strip().lower()
-        if v not in SOURCE_PLATFORMS:
-            raise ValueError(f"购买平台只能是 {' / '.join(SOURCE_PLATFORMS)}")
-        return v
+        return v.strip() or None
 
 
 class StatusPayload(BaseModel):
@@ -174,7 +174,7 @@ def _list_filters(
         params.append(brand.strip())
     if source_platform:
         where.append("source_platform = %s")
-        params.append(source_platform.strip().lower())
+        params.append(source_platform.strip())
     if purchase_from:
         where.append("purchase_date >= %s")
         params.append(purchase_from)

@@ -139,9 +139,6 @@ export default {
     statusChanged: 'Status updated',
     saving: 'Saving…',
     autoSaved: 'Auto-saved',
-    fxRefreshed: 'Rate refreshed',
-    fxRefresh: 'Refresh rate',
-    autoSaveHint: 'Edits save automatically',
     newBrand: 'Add brand "{name}"',
     newModel: 'Add model "{name}"'
   },
@@ -183,6 +180,7 @@ export default {
   device: {
     name: 'System name',
     noTitle: 'Unnamed system',
+    rename: 'Rename',
     purchaseInfo: 'Purchase (one total price)',
     purchaseAmount: 'Purchase total',
     tabDevice: 'System',
@@ -204,6 +202,7 @@ export default {
     recovery: 'Recovery',
     settledHint: 'Every part is sold — this is the final P/L for the system.',
     addPart: 'Add part',
+    addPartOfType: 'Add {name}',
     fundPoolHint: 'This system is paid for out of the fund pool: its cost is converted batch by batch at the rate each injection was exchanged at, not the market rate on the purchase date.'
   },
   media: {
@@ -217,6 +216,8 @@ export default {
     image: 'Image',
     video: 'Video',
     view: 'View',
+    more: 'More photos',
+    collapse: 'Show less',
     notConfigured: 'Image hosting is not configured. Set it up in Settings → Image hosting.',
     dragToSort: 'Drag to reorder'
   },
@@ -334,6 +335,10 @@ export default {
     tabDatabase: 'Database',
     tabFx: 'Exchange rate',
     tabDict: 'Brands/Models',
+    tabPlatform: 'Source platforms',
+    platforms: 'Platform list',
+    platformName: 'Name',
+    platformHint: 'Deleting one only changes what you can pick from now on; existing records still display and count',
     tabAccount: 'Account',
     imageHosting: 'Image hosting connection',
     baseUrl: 'Backend URL',

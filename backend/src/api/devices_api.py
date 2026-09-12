@@ -22,7 +22,6 @@ from src.schema import (
     CURRENCIES,
     DEVICE_PART_TYPES,
     FUND_SOURCES,
-    SOURCE_PLATFORMS,
 )
 
 log = logging.getLogger(__name__)
@@ -101,9 +100,11 @@ class DevicePayload(BaseModel):
     """新增 / 编辑整机。字段全部可选——录入是渐进的：买的时候只有总价，
     拆机后才知道有几条内存，卖掉才有售价，不该强制一次填全。"""
 
-    title: Optional[str] = Field(default=None, max_length=128)
+    # 整机名称是自己起的（「iiyama 工作站」这种），20 个字足够，再长在列表和标题行里
+    # 都会被挤断。列本身是 VARCHAR(128)，不动它——库里的列只加不改，收紧的是入口。
+    title: Optional[str] = Field(default=None, max_length=20)
 
-    source_platform: Optional[str] = Field(default=None, max_length=16)
+    source_platform: Optional[str] = Field(default=None, max_length=32)
     seller: Optional[str] = Field(default=None, max_length=128)
     item_url: Optional[str] = Field(default=None, max_length=1024)
     order_no: Optional[str] = Field(default=None, max_length=128)
@@ -151,12 +152,12 @@ class DevicePayload(BaseModel):
     @field_validator("source_platform")
     @classmethod
     def _check_platform(cls, v: Optional[str]) -> Optional[str]:
+        # 平台已经是用户自己维护的字典（source_platforms 表），这里不再对着固定清单校验。
+        # 也不再 lower()：内置的三个是小写 key，用户起的名字可能带大小写和汉字，
+        # 强行转小写会让它和字典里、以及筛选条件里的写法对不上。
         if not v:
             return None
-        v = v.strip().lower()
-        if v not in SOURCE_PLATFORMS:
-            raise ValueError(f"购买平台只能是 {' / '.join(SOURCE_PLATFORMS)}")
-        return v
+        return v.strip() or None
 
 
 class StatusPayload(BaseModel):

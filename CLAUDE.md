@@ -90,9 +90,15 @@ webside (Vue3 + Element Plus, hash 路由)
 
 ### 枚举的单一事实来源在后端，文案在前端
 
-`schema.py` 顶部的 `CARD_STATUSES` / `MEDIA_CATEGORIES` / `DEVICE_PART_TYPES` / `SOURCE_PLATFORMS` /
+`schema.py` 顶部的 `CARD_STATUSES` / `MEDIA_CATEGORIES` / `DEVICE_PART_TYPES` /
 `CURRENCIES` / `FUND_SOURCES` / `FUND_DRAW_CATEGORIES` 是唯一定义，经 `/options/enums` 下发；
 后端只发 key，中日英三套文案在 `webside/src/i18n/locales/{zh-CN,ja,en}.js`。
+
+**购买平台不在其中**：它是字典表 `source_platforms`（用户在「系统配置 → 购买平台」里自己加减），
+走 `/options/platforms`，与品牌 / 型号同一套路。内置的 `yahoo` / `mercari` / `other` 由
+`schema.SOURCE_PLATFORM_SEEDS` 在建库时灌一次（库里存的就是这三个 key，前端对它们有译文），
+用户后加的没有译文，原样显示。前端一律走 `composables/usePlatforms.js`，别自己写
+`t('platform.' + v)`——自定义平台会被翻成一个裸 key。
 
 加一个状态要同时改：`schema.py` 的列表、三个 locale 文件、`webside/src/utils/format.js` 的
 `STATUS_TAG_TYPE` 与 `STATUS_ORDER`。少改一处的表现是页面上出现裸 key 或排序错位。

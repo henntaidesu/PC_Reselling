@@ -306,6 +306,7 @@ import {
   Bell, Connection, Goods, Histogram, PieChart, Refresh, Tickets, TrendCharts, Trophy
 } from '@element-plus/icons-vue'
 import { dashboardApi } from '@/api'
+import { usePlatforms } from '@/composables/usePlatforms'
 import { cny, profitClass, STATUS_ORDER } from '@/utils/format'
 import EChart from '@/components/EChart.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -315,6 +316,8 @@ import { buildCountOption, buildShareBarOption, buildTrendOption } from './chart
 defineOptions({ name: 'Dashboard' })
 
 const { t } = useI18n()
+// 平台名要走字典 + i18n 兜底：内置三个有译文，用户自己加的原样显示
+const { platformLabel } = usePlatforms()
 const router = useRouter()
 
 /** 区间预设：0 = 「全部」，起点由后端取全库最早的交易日 */
@@ -581,6 +584,8 @@ const stockTiles = computed(() => {
 })
 
 // ── 平台对比 ──────────────────────────────────────────────────────────────
+// 只有内置的三个定了配色，用户自己加的平台一律用中性色——为未知名字硬凑一个色板，
+// 加到第四个就会撞色，不如都用同一个灰
 const PLATFORM_COLOR = { yahoo: SERIES[0], mercari: SERIES[1], other: NEUTRAL }
 
 const platformRows = computed(() => {
@@ -590,7 +595,7 @@ const platformRows = computed(() => {
   return rows.map((r) => ({
     ...r,
     color: PLATFORM_COLOR[r.platform] || NEUTRAL,
-    label: t('platform.' + r.platform),
+    label: platformLabel(r.platform),
     widthPct: `${Math.max(2, (Number(r.cost || 0) / max) * 100).toFixed(1)}%`,
     sharePct: total ? `${((Number(r.cost || 0) / total) * 100).toFixed(1)}%` : '—'
   }))

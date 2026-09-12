@@ -30,24 +30,29 @@ defineProps({
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 3px 0;
+  padding: 5px 0;
   font-size: 14px;
-  min-height: 34px;
+  /* 与「padding + 32px 的控件」等高。只读行里没有控件，不给下限的话它会比上下两行
+     矮一截，一列字段的行距就时宽时窄 */
+  min-height: 42px;
 }
 .ifield-label {
   color: #8a94a6;
   flex: 0 0 auto;
+  /* 标签给一个下限宽度：中文标签 2~5 个字不等，不给下限的话每行输入框的左边缘都在
+     不同位置，一列字段看着像被揉过。比它长的标签（英文 / 日文里有）照旧把输入框往
+     右推，不截断——宁可那一行错开，也不要把标签切掉。 */
+  min-width: 76px;
   white-space: nowrap;
 }
 .ifield-value {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
   color: #e6edf7;
 }
 .ifield--stack { flex-direction: column; align-items: stretch; gap: 4px; }
-.ifield--stack .ifield-value { justify-content: flex-start; }
 
 /* ── 「像文本」的输入控件 ──────────────────────────────────────────────
    Element 的输入框用 inset box-shadow 画边框，所以要压掉的是 box-shadow 而不是
@@ -64,20 +69,25 @@ defineProps({
   padding-right: 8px;
   transition: border-color 0.15s, background-color 0.15s;
 }
+/* border-color 必须带 !important：App.vue 里有一条全局的
+   `.el-input__wrapper { border-color: #2a3446 !important }`，不压过它，
+   悬浮和聚焦时边框颜色根本不会变，鼠标点进哪个框全靠猜。 */
 .ifield-value :deep(.el-input__wrapper:hover),
 .ifield-value :deep(.el-select__wrapper:hover),
 .ifield-value :deep(.el-textarea__inner:hover) {
-  border-color: #2f3d55;
+  border-color: #3d4d6b !important;
   background-color: rgba(91, 140, 255, 0.05) !important;
 }
 .ifield-value :deep(.el-input__wrapper.is-focus),
 .ifield-value :deep(.el-select__wrapper.is-focused),
 .ifield-value :deep(.el-textarea__inner:focus) {
-  border-color: var(--pcr-accent);
+  border-color: var(--pcr-accent) !important;
   background-color: rgba(91, 140, 255, 0.07) !important;
 }
+/* 值一律左对齐，紧贴输入框的左内边距。一列字段扫下来，所有值的起点是同一条竖线，
+   长短不一的内容也不会各自从不同的位置往左散开 */
 .ifield-value :deep(.el-input__inner) {
-  text-align: right;
+  text-align: left;
   color: #e6edf7;
   font-weight: 500;
 }
@@ -87,17 +97,21 @@ defineProps({
 .ifield-value :deep(.el-select__suffix) { opacity: 0; transition: opacity 0.15s; }
 .ifield-value :deep(.el-select__wrapper:hover .el-select__suffix),
 .ifield-value :deep(.el-select__wrapper.is-focused .el-select__suffix) { opacity: 0.7; }
-/* 选中项右对齐，和输入框里的文字排成同一条竖线 */
-.ifield-value :deep(.el-select__selection) { justify-content: flex-end; }
+/* 下拉的值和输入框的文字排成同一条竖线。选中的值落在 .el-select__placeholder 里
+   （Element Plus 的新 select 就是这么渲染的，不是只有占位符才用这个类），它是个铺满
+   整格的 span，只给外面的 flex 容器设对齐管不到里面的文字，所以这里要直接给 text-align。 */
+.ifield-value :deep(.el-select__selection) { justify-content: flex-start; }
+.ifield-value :deep(.el-select__placeholder),
+.ifield-value :deep(.el-select__input) { text-align: left; }
 .ifield-value :deep(.el-select__selected-item) { color: #e6edf7; font-weight: 500; }
 .ifield-value :deep(.el-select__placeholder.is-transparent) { color: #5a6478; }
 .ifield-value :deep(.el-input.is-disabled .el-input__inner) {
   color: #a6adb4;
   -webkit-text-fill-color: #a6adb4;
 }
-.ifield--stack .ifield-value :deep(.el-input__inner),
-.ifield--stack .ifield-value :deep(.el-textarea__inner) { text-align: left; }
-.ifield--readonly .ifield-value { padding-right: 9px; font-weight: 500; }
+/* 只读行没有输入框，用同样的左内边距（8px 内边距 + 1px 透明边框）把文字顶到
+   和上下行的值一条线上 */
+.ifield--readonly .ifield-value { padding-left: 9px; font-weight: 500; }
 
 /* 控件一律撑满可用宽度，右对齐的文字才会和其它行对齐 */
 .ifield-value :deep(.el-input),

@@ -62,7 +62,7 @@
           <el-option v-for="b in usedBrands" :key="b.brand" :label="`${b.brand} (${b.count})`" :value="b.brand" />
         </el-select>
         <el-select v-model="filters.source_platform" :placeholder="t('card.platform')" clearable class="f-platform" @change="reload">
-          <el-option v-for="p in platforms" :key="p" :label="t('platform.' + p)" :value="p" />
+          <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
         </el-select>
         <el-date-picker
           v-model="dateRange"
@@ -226,6 +226,7 @@ import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
 import { cny, firstImage, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsMobile } from '@/composables/useIsMobile'
+import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -258,7 +259,7 @@ const stats = ref(emptyStats())
 const statsLoading = ref(false)
 
 const statuses = computed(() => meta.enums.statuses || [])
-const platforms = computed(() => meta.enums.source_platforms || [])
+const { platforms } = usePlatforms()
 
 // 顶部统计卡。顺序固定：先数量、后金额，颜色跟着指标走，不随数值变化重排
 const statCards = computed(() => {

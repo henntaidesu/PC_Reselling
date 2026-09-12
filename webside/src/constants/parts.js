@@ -8,9 +8,19 @@
 // 日本站上的原始标注对得上。除 CPU 外都允许现场输入清单外的值（filterable +
 // allow-create），清单只是省事的默认项，不是白名单。
 
-// 新建整机时默认列出的六个部件槽位，顺序即表单里的显示顺序。
-// 这六样是一台机器几乎必然有的东西，不该让人每次都点六下「快捷添加」。
+// 一台机器必然有的六个部件槽位，顺序即标签页顺序。它们**每类至少留一件**：
+// 不用每次点六下「添加」，也删不到零（详情页在只剩一件时不给删除按钮）。
+// 空槽位不会落库，摆着不会污染数据。
 export const DEFAULT_PART_TYPES = ['cpu', 'gpu', 'ram', 'disk', 'motherboard', 'psu']
+
+// 详情页的部件标签页 = 六个必有槽位 + 一个「其他」。散热 / 机箱这些历史类型没有自己的
+// 标签页，统一归到「其他」下面显示——与其为每个小类都挂一个多半是空的标签，不如给个兜底。
+export const PART_TABS = [...DEFAULT_PART_TYPES, 'other']
+
+// 这一行归哪个标签页。六个标准类型各归各的，其余一律算「其他」。
+export function partTab(partType) {
+  return DEFAULT_PART_TYPES.includes(partType) ? partType : 'other'
+}
 
 export const PART_SCHEMA = {
   cpu: {

@@ -4,9 +4,6 @@
       <el-button :icon="ArrowLeft" text @click="$router.back()">{{ t('common.close') }}</el-button>
       <div v-if="card" class="head-right">
         <AutoSaveBadge :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
-        <el-button :icon="Refresh" :disabled="Boolean(card.fx_manual)" @click="refreshFx">
-          {{ t('card.fxRefresh') }}
-        </el-button>
       </div>
     </div>
 
@@ -54,7 +51,7 @@
             </InlineField>
             <InlineField :label="t('card.platform')">
               <el-select v-model="form.source_platform" clearable :placeholder="t('common.unset')">
-                <el-option v-for="p in platforms" :key="p" :label="t('platform.' + p)" :value="p" />
+                <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
               </el-select>
             </InlineField>
             <InlineField :label="t('card.seller')">
@@ -166,11 +163,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Refresh } from '@element-plus/icons-vue'
+import { ArrowLeft } from '@element-plus/icons-vue'
 import { cardsApi, fundsApi, optionsApi, systemApi } from '@/api'
-import { ElMessage } from '@/utils/notify'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import InlineField from '@/components/InlineField.vue'
@@ -195,7 +192,7 @@ const poolSummary = ref(null)
 const brands = computed(() => meta.brands)
 const models = computed(() => meta.models)
 const statuses = computed(() => meta.enums.statuses || [])
-const platforms = computed(() => meta.enums.source_platforms || [])
+const { platforms } = usePlatforms()
 
 function blankForm() {
   return {
@@ -294,15 +291,6 @@ async function onMediaChanged() {
   if (card.value?.is_draft) {
     try { await doSave() } catch { /* 拦截器已提示 */ }
   }
-}
-
-async function refreshFx() {
-  try {
-    const res = await cardsApi.refreshFx(card.value.id)
-    card.value = res
-    if (res.warnings?.length) res.warnings.forEach((w) => ElMessage.warning(w))
-    else ElMessage.success(t('card.fxRefreshed'))
-  } catch { /* 拦截器已提示 */ }
 }
 
 // 离开前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这张空卡删掉

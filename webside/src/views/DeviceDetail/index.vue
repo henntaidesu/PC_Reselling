@@ -4,14 +4,34 @@
       <el-button :icon="ArrowLeft" text @click="$router.back()">{{ t('common.close') }}</el-button>
       <div v-if="device" class="head-right">
         <AutoSaveBadge :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
-        <el-button :icon="Refresh" @click="refreshFx">{{ t('card.fxRefresh') }}</el-button>
       </div>
     </div>
 
     <template v-if="device">
       <div class="title-row">
         <span class="pcr-mono mgmt">{{ device.mgmt_no }}</span>
-        <h2 class="model">{{ form.title || t('device.noTitle') }}</h2>
+        <!-- 整机名称是自己起的，不像显卡那样能用品牌 + 型号拼出来，所以标题本身就是个
+             可改的字段。平时是文字、点铅笔才变成输入框：这一行里还并着状态和草稿标记，
+             常驻一个输入框会把它们挤没。没有取消——这一页所有改动都是即时保存的，
+             留一个「取消」只会让人以为别处的改动也能撤回 -->
+        <el-input
+          v-if="editingTitle"
+          ref="titleInput"
+          v-model="form.title"
+          class="title-input"
+          size="large"
+          :maxlength="TITLE_MAX"
+          show-word-limit
+          :placeholder="t('device.noTitle')"
+          @keyup.enter="editingTitle = false"
+          @keyup.esc="editingTitle = false"
+          @blur="editingTitle = false"
+        />
+        <template v-else>
+          <h2 class="model">{{ form.title || t('device.noTitle') }}</h2>
+          <el-button class="title-edit" text :icon="EditPen" :title="t('device.rename')"
+            @click="startEditTitle" />
+        </template>
         <StatusTag :status="form.status" />
         <el-tag v-if="device.is_draft" size="small" type="warning" effect="plain">{{ t('common.draft') }}</el-tag>
       </div>
@@ -45,8 +65,10 @@
         </el-tooltip>
       </div>
 
-      <!-- 二级菜单：整机 + 每个部件各一页。el-tabs 只当标签条用，内容自己在下面渲染
-           ——挂在 tab-pane 里的话十来个部件会一次性全部挂载，每个都去拉一遍图片 -->
+      <!-- 二级菜单：整机 + 每个**部件类型**一页。按类型分而不是按行分，三条内存就是
+           同一页里的三张卡片，而不是三个都叫「内存」的标签。
+           el-tabs 只当标签条用，内容自己在下面渲染——挂在 tab-pane 里的话所有部件会
+           一次性全部挂载，每个都去拉一遍图片 -->
       <div class="tabs-row">
         <el-tabs v-model="activeTab" class="part-tabs">
           <el-tab-pane name="device">
@@ -57,27 +79,16 @@
               </span>
             </template>
           </el-tab-pane>
-          <el-tab-pane v-for="part in form.parts" :key="part._uid" :name="String(part._uid)">
+          <el-tab-pane v-for="type in PART_TABS" :key="type" :name="type">
             <template #label>
-              <span class="tab-label" :class="{ 'tab-label--blank': !hasPartContent(part) }">
-                {{ tabLabel(part) }}
-                <span v-if="part._media_count" class="tab-badge">{{ part._media_count }}</span>
+              <span class="tab-label" :class="{ 'tab-label--blank': !partsByTab[type].some(hasPartContent) }">
+                {{ t('partType.' + type) }}
+                <span v-if="partsByTab[type].length > 1" class="tab-count">×{{ partsByTab[type].length }}</span>
+                <span v-if="tabMediaCount(type)" class="tab-badge">{{ tabMediaCount(type) }}</span>
               </span>
             </template>
           </el-tab-pane>
         </el-tabs>
-        <!-- 类型只在添加时选一次：一行的类型换掉，它下面的品牌、规格、售价全都对不上，
-             与其允许改不如删掉重加一件 -->
-        <el-dropdown trigger="click" class="add-part" @command="addPart">
-          <el-button size="small" :icon="Plus" plain type="primary">{{ t('device.addPart') }}</el-button>
-          <template #dropdown>
-            <el-dropdown-menu>
-              <el-dropdown-item v-for="type in partTypes" :key="type" :command="type">
-                {{ t('partType.' + type) }}
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </template>
-        </el-dropdown>
       </div>
 
       <!-- ── 整机页 ────────────────────────────────────────────────────── -->
@@ -89,7 +100,7 @@
 
               <div class="fields">
                 <InlineField :label="t('device.name')">
-                  <el-input v-model="form.title" :placeholder="t('device.noTitle')" />
+                  <el-input v-model="form.title" :maxlength="TITLE_MAX" :placeholder="t('device.noTitle')" />
                 </InlineField>
                 <InlineField :label="t('card.status')">
                   <el-select v-model="form.status">
@@ -98,7 +109,7 @@
                 </InlineField>
                 <InlineField :label="t('card.platform')">
                   <el-select v-model="form.source_platform" clearable :placeholder="t('common.unset')">
-                    <el-option v-for="p in platforms" :key="p" :label="t('platform.' + p)" :value="p" />
+                    <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
                   </el-select>
                 </InlineField>
                 <InlineField :label="t('card.seller')">
@@ -186,10 +197,10 @@
         <!-- 部件一览：分页之后总得有一个地方能一眼看完「哪几件卖了、哪几件还空着」 -->
         <el-card shadow="never" class="block">
           <template #header>{{ t('device.partsOverview') }}</template>
-          <el-table :data="form.parts" class="parts-table" @row-click="(row) => (activeTab = String(row._uid))">
+          <el-table :data="form.parts" class="parts-table" @row-click="(row) => (activeTab = partTab(row.part_type))">
             <el-table-column :label="t('inv.kind')" width="110">
               <template #default="{ row }">
-                <el-tag size="small" effect="plain" type="info">{{ tabLabel(row) }}</el-tag>
+                <el-tag size="small" effect="plain" type="info">{{ t('partType.' + row.part_type) }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column :label="t('inv.name')" min-width="200">
@@ -236,32 +247,42 @@
         </el-row>
       </template>
 
-      <!-- ── 某个部件的页 ──────────────────────────────────────────────── -->
-      <DevicePartPanel
-        v-else-if="activePart"
-        :key="activePart._uid"
-        :part="activePart"
-        :net="partNet(activePart)"
-        :ensure-id="() => ensurePartId(activePart)"
-        :hosting-configured="hostingConfigured"
-        @remove="removePart(activePart)"
-        @media-changed="(n) => onPartMediaChanged(activePart, n)"
-      />
+      <!-- ── 某一类部件的页：这一类下面每件一张卡片 ────────────────────── -->
+      <template v-else>
+        <DevicePartPanel
+          v-for="part in tabParts"
+          :key="part._uid"
+          :part="part"
+          :net="partNet(part)"
+          :deletable="canRemovePart(part)"
+          :ensure-id="() => ensurePartId(part)"
+          :hosting-configured="hostingConfigured"
+          @remove="removePart(part)"
+          @media-changed="(n) => onPartMediaChanged(part, n)"
+        />
+        <!-- 加同类部件的入口放在这一类的末尾：插第二条内存时人正看着第一条，
+             不该再回到顶上的菜单里去找类型。类型只在添加时定一次，之后不给改——
+             类型换掉，下面的品牌、规格、售价全都对不上，不如删掉重加一件 -->
+        <el-card shadow="never" class="add-card" @click="addPart(activeTab)">
+          <el-icon><Plus /></el-icon>
+          <span>{{ t('device.addPartOfType', { name: t('partType.' + activeTab) }) }}</span>
+        </el-card>
+      </template>
     </template>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, Plus, Refresh, WarningFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, EditPen, Plus, WarningFilled } from '@element-plus/icons-vue'
 import { devicesApi, fundsApi, mediaApi, systemApi } from '@/api'
-import { ElMessage } from '@/utils/notify'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
-import { DEFAULT_PART_TYPES, hasPartContent, isBlankPart } from '@/constants/parts'
+import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import DevicePartPanel from '@/components/DevicePartPanel.vue'
@@ -283,17 +304,24 @@ const device = ref(null)
 const loading = ref(false)
 const hostingConfigured = ref(true)
 const poolSummary = ref(null)
-// 'device' 或某个部件的 _uid（字符串）
+// 'device' 或某个部件类型（PART_TABS 里的一个）
 const activeTab = ref('device')
 const deviceMediaCount = ref(0)
 
+// 名称的长度上限。与后端 DevicePayload.title 的 max_length 一致——两边不一样的话，
+// 前端放进去的字后端会原地打回 422，而这一页是自动保存的，表现成「怎么改都存不上」。
+const TITLE_MAX = 20
+const editingTitle = ref(false)
+const titleInput = ref(null)
+
+async function startEditTitle() {
+  editingTitle.value = true
+  await nextTick()
+  titleInput.value?.focus()
+}
+
 const statuses = computed(() => meta.enums.statuses || [])
-const platforms = computed(() => meta.enums.source_platforms || [])
-const partTypes = computed(() =>
-  meta.enums.device_part_types?.length
-    ? meta.enums.device_part_types
-    : ['cpu', 'gpu', 'ram', 'disk', 'motherboard', 'psu', 'cooler', 'case', 'other']
-)
+const { platforms } = usePlatforms()
 // 金额要按购入日 / 各部件出售日的汇率折算，只有后端算得准，前端不自己算一遍
 // （自己算必然和列表页对不上）
 const money = computed(() => device.value?.money || {
@@ -337,9 +365,25 @@ function blankForm() {
 }
 const form = reactive(blankForm())
 
-const activePart = computed(() =>
-  form.parts.find((p) => String(p._uid) === activeTab.value) || null
-)
+// 部件按标签页归组。散热 / 机箱这类没有自己标签页的历史类型都落在「其他」里。
+const partsByTab = computed(() => {
+  const map = Object.fromEntries(PART_TABS.map((type) => [type, []]))
+  for (const part of form.parts) map[partTab(part.part_type)].push(part)
+  return map
+})
+const tabParts = computed(() => partsByTab.value[activeTab.value] || [])
+
+// 标签上的角标是这一类**所有**部件的图片数之和，不是某一件的
+function tabMediaCount(type) {
+  return partsByTab.value[type].reduce((n, p) => n + (p._media_count || 0), 0)
+}
+
+// 六个标准槽位每类至少留一件——一台机器不可能没有 CPU，而空槽位不落库，留着没成本。
+// 「其他」是可选的，删到零也行。
+function canRemovePart(part) {
+  const type = partTab(part.part_type)
+  return type === 'other' || partsByTab.value[type].length > 1
+}
 
 const usePool = computed(() => form.fund_source === 'pool')
 const poolCurrencyMismatch = computed(() =>
@@ -357,12 +401,6 @@ const jpy = (v) => formatMoney(v, 'JPY')
 const autosave = useAutoSave(doSave)
 watch(form, autosave.schedule, { deep: true })
 
-// 同类型有好几件时（两条内存、三块硬盘）标上序号，否则标签条上会出现一排同名的「内存」
-function tabLabel(part) {
-  const name = t('partType.' + part.part_type)
-  const same = form.parts.filter((p) => p.part_type === part.part_type)
-  return same.length < 2 ? name : `${name} ${same.indexOf(part) + 1}`
-}
 function partTitle(part) {
   return [part.brand, part.model, part.spec].filter(Boolean).join(' ') || '—'
 }
@@ -485,16 +523,18 @@ async function ensurePartId(part) {
   return part.id || null
 }
 
+// 从某一类页面底部的「添加」卡进来，加的就是这一类；「其他」页加出来的是 other。
+// 新卡片直接接在这一页的末尾，不跳页。
 function addPart(type) {
   const part = blankPart(type)
   part._keep = true          // 手动加的就是要它，哪怕还一个字没填
   form.parts.push(part)
-  activeTab.value = String(part._uid)
 }
 
 async function removePart(part) {
   const index = form.parts.indexOf(part)
-  if (index < 0) return
+  // 按钮本来就不该出现，这里再挡一道：删掉最后一件 CPU，这台机器就再也补不回来了
+  if (index < 0 || !canRemovePart(part)) return
   // 摆出来的空槽位直接去掉（它本来就没存过）；真实存在的要问一声——删掉这一行，
   // 挂在它上面的图片会被数据库级联删除，点错了找不回来
   if (part.id || hasPartContent(part)) {
@@ -505,7 +545,7 @@ async function removePart(part) {
     }
   }
   form.parts.splice(index, 1)
-  activeTab.value = 'device'
+  // 留在当前这一页：删完接着看同类剩下的那几件，不用再点回来
 }
 
 async function load() {
@@ -540,15 +580,6 @@ async function loadPoolSummary() {
   }
 }
 
-async function refreshFx() {
-  try {
-    const res = await devicesApi.refreshFx(device.value.id)
-    device.value = res
-    if (res.warnings?.length) res.warnings.forEach((w) => ElMessage.warning(w))
-    else ElMessage.success(t('card.fxRefreshed'))
-  } catch { /* 拦截器已提示 */ }
-}
-
 // 离开前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这台空设备删掉
 onBeforeRouteLeave(async () => {
   autosave.pause()
@@ -574,6 +605,10 @@ onMounted(async () => {
 .title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
 .mgmt { font-size: 13px; color: #8fb8ff; }
 .model { font-size: 20px; color: #e6edf7; margin: 0; }
+/* 铅笔平时淡着，鼠标扫到标题那一片才亮起来——它是个随手可用的入口，不是要人注意的按钮 */
+.title-edit { color: #6f7b8e; padding: 4px; }
+.title-row:hover .title-edit { color: #8fb8ff; }
+.title-input { max-width: 320px; }
 
 /* 摘要条 */
 .summary {
@@ -623,11 +658,32 @@ onMounted(async () => {
   line-height: 18px;
   text-align: center;
 }
-.add-part { flex: 0 0 auto; }
+.tab-count { font-size: 11px; color: #8a94a6; }
+
+/* 末尾的「添加同类部件」卡。做成虚线框而不是一个按钮：它和上面那几张部件卡是同一列
+   东西，看起来就该是「下一张还空着的卡」 */
+.add-card {
+  margin-bottom: 16px;
+  cursor: pointer;
+  border-style: dashed;
+  transition: border-color 0.15s, color 0.15s;
+}
+.add-card :deep(.el-card__body) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px;
+  color: #8a94a6;
+  font-size: 13px;
+}
+.add-card:hover { border-color: #5b8cff; }
+.add-card:hover :deep(.el-card__body) { color: #8fb8ff; }
 
 .block { margin-bottom: 16px; }
 .block:first-of-type { margin-top: 16px; }
-.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+/* 两列字段。列间距比标签到输入框的 12px 明显宽，两列之间才不会糊成一片 */
+.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
 .block :deep(.el-divider) { margin: 10px 0; }
 .media-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .row-link { color: #8fb8ff; text-decoration: none; flex: 0 0 auto; padding: 0 4px; }

@@ -42,11 +42,13 @@ const currencies = computed(() => meta.enums.currencies?.length ? meta.enums.cur
 <style scoped>
 .money-input { display: flex; gap: 4px; width: 100%; align-items: center; }
 .amount { flex: 1 1 auto; min-width: 0; }
-.amount :deep(.el-input__inner) { text-align: right; }
+/* el-input-number 的输入框默认居中，这里跟着表单里其它字段一起改成左对齐 */
+.amount :deep(.el-input__inner) { text-align: left; }
 /* 币种这一格定宽。用 flex-basis 而不是 width：外面的 InlineField 会把所有控件
    刷成 width:100% !important，只有 flex-basis 压得住它 */
 .currency { flex: 0 0 74px; }
-.currency :deep(.el-select__wrapper) { padding-left: 4px; padding-right: 4px; }
-.currency :deep(.el-select__selection) { justify-content: flex-end; }
+.currency :deep(.el-select__wrapper) { padding-left: 8px; padding-right: 4px; }
+.currency :deep(.el-select__selection) { justify-content: flex-start; }
+.currency :deep(.el-select__placeholder) { text-align: left; }
 .money-input :deep(.el-input-number) { width: 100% !important; }
 </style>

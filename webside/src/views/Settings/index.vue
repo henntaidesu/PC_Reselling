@@ -120,6 +120,37 @@
         </el-row>
       </section>
 
+      <!-- 购买平台 -->
+      <section class="settings-section">
+        <h3 class="section-heading">{{ t('settings.tabPlatform') }}</h3>
+        <el-row :gutter="16">
+          <el-col :xs="24" :md="10">
+            <el-card shadow="never" class="pane-card">
+              <template #header>
+                {{ t('settings.platforms') }}
+                <span class="pcr-dim head-hint">{{ t('settings.platformHint') }}</span>
+              </template>
+              <div class="add-row">
+                <el-input v-model="newPlatform" maxlength="32" @keyup.enter="addPlatform" />
+                <el-button type="primary" :icon="Plus" @click="addPlatform" />
+              </div>
+              <el-table :data="platformRows" size="small" max-height="360">
+                <!-- 显示的是译名，存的是 name：内置的三个在库里是 yahoo / mercari / other -->
+                <el-table-column :label="t('settings.platformName')">
+                  <template #default="{ row }">{{ row.label }}</template>
+                </el-table-column>
+                <el-table-column width="60">
+                  <template #default="{ row }">
+                    <el-button size="small" text type="danger" :icon="Delete" @click="removePlatform(row)" />
+                  </template>
+                </el-table-column>
+                <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
+              </el-table>
+            </el-card>
+          </el-col>
+        </el-row>
+      </section>
+
       <!-- 账号 -->
       <section class="settings-section">
         <h3 class="section-heading">{{ t('settings.tabAccount') }}</h3>
@@ -153,12 +184,13 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import { authApi, optionsApi, systemApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { currentLocale, localeOptions, setLocale } from '@/i18n'
+import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import { useAuthStore } from '@/stores/auth'
 
@@ -227,6 +259,26 @@ async function reconnect() {
   } catch { /* 拦截器已提示 */ } finally {
     reconnecting.value = false
   }
+}
+
+// ---- 购买平台 ----
+// 内置的 yahoo / mercari / other 在库里存的是 key，表里要显示译名，所以过一遍 platformLabel
+const newPlatform = ref('')
+const { platformLabel } = usePlatforms()
+const platformRows = computed(() =>
+  meta.platforms.map((p) => ({ ...p, label: platformLabel(p.name) }))
+)
+
+async function addPlatform() {
+  const name = newPlatform.value.trim()
+  if (!name) return
+  await optionsApi.createPlatform({ name })
+  newPlatform.value = ''
+  await meta.reloadPlatforms()
+}
+async function removePlatform(p) {
+  await optionsApi.removePlatform(p.id)
+  await meta.reloadPlatforms()
 }
 
 // ---- 品牌 / 型号（两者相互独立）----
@@ -317,6 +369,7 @@ onMounted(async () => {
 .kv span { color: #8a94a6; }
 .kv b { color: #e6edf7; font-weight: 500; word-break: break-all; text-align: right; }
 .add-row { display: flex; gap: 8px; margin-bottom: 14px; }
+.head-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .model-add { flex-wrap: wrap; }
 .mb-select { width: 130px !important; }
 .vram-in { width: 110px !important; flex: 0 0 110px; }

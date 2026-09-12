@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, Query
 from src import cards, db
 from src.auth import require_auth
 from src.cards import SOLD_STATUSES
-from src.schema import CARD_STATUSES, SOURCE_PLATFORMS
+from src.schema import CARD_STATUSES
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"], dependencies=[Depends(require_auth)])
 
@@ -120,7 +120,9 @@ def _platforms(rows: List[Dict[str, Any]], money: Dict[int, Dict[str, Any]],
         return {"platform": name, "count": 0, "sold": 0,
                 "cost": 0.0, "revenue": 0.0, "profit": 0.0}
 
-    grouped: Dict[str, Dict[str, Any]] = {p: _blank(p) for p in SOURCE_PLATFORMS}
+    # 不预置任何平台：平台是用户自己维护的字典，预置一份只会和字典不同步。
+    # 反正最后只留 count > 0 的桶，没买过的平台本来就不该出现在对比里。
+    grouped: Dict[str, Dict[str, Any]] = {}
     for row in rows:
         purchase_date = row.get("purchase_date")
         if not purchase_date or not (start <= purchase_date <= end):

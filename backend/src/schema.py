@@ -60,7 +60,10 @@ DEVICE_PART_TYPES: List[str] = [
     "other",        # 其他
 ]
 
-SOURCE_PLATFORMS: List[str] = ["yahoo", "mercari", "other"]
+# 购买平台**不是枚举**，是 source_platforms 字典表（用户在系统配置里自己加）。这份清单
+# 只是首次建库时的初始内容：库里存的就是这三个 key，前端对它们有中日英三套文案；
+# 用户后加的平台没有文案，原样显示名字即可（见 webside 的 usePlatforms）。
+SOURCE_PLATFORM_SEEDS: List[str] = ["yahoo", "mercari", "other"]
 
 CURRENCIES: List[str] = ["JPY", "CNY"]
 
@@ -140,6 +143,21 @@ _TABLES: List[Tuple[str, str]] = [
         """,
     ),
     (
+        "source_platforms",
+        """
+        CREATE TABLE IF NOT EXISTS source_platforms (
+            id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name       VARCHAR(32) NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uk_source_platforms_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='购买平台字典。原来是写死的三个枚举，改成表是因为买的渠道会变
+                   （多一个駿河屋、少一个某某），那不该是一次改代码重新打包'
+        """,
+    ),
+    (
         "cards",
         """
         CREATE TABLE IF NOT EXISTS cards (
@@ -150,7 +168,7 @@ _TABLES: List[Tuple[str, str]] = [
             vram          VARCHAR(32) NULL,
             serial_no     VARCHAR(128) NULL COMMENT '显卡实体序列号',
 
-            source_platform VARCHAR(16) NULL COMMENT 'yahoo / mercari / other',
+            source_platform VARCHAR(32) NULL COMMENT 'source_platforms 字典里的 name',
             seller          VARCHAR(128) NULL,
             item_url        VARCHAR(1024) NULL,
             order_no        VARCHAR(128) NULL,
@@ -251,7 +269,7 @@ _TABLES: List[Tuple[str, str]] = [
             mgmt_no  VARCHAR(32) NOT NULL COMMENT '系统管理编号 DEV-2026-0001',
             title    VARCHAR(128) NULL COMMENT '整机名称，如「戴尔 T7920 工作站」',
 
-            source_platform VARCHAR(16) NULL COMMENT 'yahoo / mercari / other',
+            source_platform VARCHAR(32) NULL COMMENT 'source_platforms 字典里的 name',
             seller          VARCHAR(128) NULL,
             item_url        VARCHAR(1024) NULL,
             order_no        VARCHAR(128) NULL,
@@ -672,6 +690,30 @@ def _migrate_fx_rate_direction() -> None:
         )
 
 
+def _migrate_platform_column_width() -> None:
+    """把 cards / devices 的 source_platform 从 VARCHAR(16) 放宽到 32。
+
+    原来只存 yahoo / mercari / other 三个 key，16 够用；改成字典表之后名字由用户自己起，
+    16 个字符会把「Yahoo! Auction Japan」这种截断。加宽是无损的，跑多少遍都一样
+    （已经 >= 32 就跳过），所以不用像换汇率口径那样记标记。
+    """
+    for table in ("cards", "devices"):
+        width = db.query_scalar(
+            "SELECT CHARACTER_MAXIMUM_LENGTH AS n FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = 'source_platform'",
+            (table,),
+            default=0,
+        )
+        if not width or int(width) >= 32:
+            continue
+        log.info("迁移：%s.source_platform 放宽到 VARCHAR(32)", table)
+        # 表名来自上面这个固定的元组，不是外部输入
+        db.execute(
+            "ALTER TABLE `{t}` MODIFY COLUMN source_platform VARCHAR(32) NULL "
+            "COMMENT 'source_platforms 字典里的 name'".format(t=table)
+        )
+
+
 def init() -> None:
     """建库 → 建表 → 补列 → 结构迁移 → 数据迁移 → 灌入首次运行的种子数据。可重复执行。"""
     db.ensure_database()
@@ -682,6 +724,7 @@ def init() -> None:
         _ensure_column(table, column, ddl)
     _migrate_gpu_models_standalone()
     _migrate_fund_draws_devices()
+    _migrate_platform_column_width()
     _migrate_fx_rate_direction()
     _cleanup_stale_drafts()
     _seed()
@@ -717,8 +760,19 @@ def _cleanup_stale_drafts() -> None:
 
 
 def _seed() -> None:
-    """首次运行的种子数据：只建默认管理员。品牌与型号一律由用户手动添加，不预置。"""
+    """首次运行的种子数据：默认管理员 + 购买平台字典。品牌与型号一律由用户手动添加，不预置。"""
     from src.security import hash_password
+
+    # 平台和品牌不一样，必须预置：库里已有的卡片存的就是 yahoo / mercari / other，
+    # 字典空着的话那些行在下拉里选不中，看着像数据丢了。只在表为空时灌一次，
+    # 用户后来删掉哪个都不会被重新塞回来。
+    if not db.query_scalar("SELECT COUNT(*) AS c FROM source_platforms", default=0):
+        db.execute(
+            "INSERT INTO source_platforms (name, sort_order) VALUES " +
+            ", ".join(["(%s, %s)"] * len(SOURCE_PLATFORM_SEEDS)),
+            [x for i, name in enumerate(SOURCE_PLATFORM_SEEDS) for x in (name, i)],
+        )
+        log.info("已灌入默认购买平台：%s", " / ".join(SOURCE_PLATFORM_SEEDS))
 
     # 按用户名判断而不是 COUNT==0：库里若已有一张旧的 users 表（有其他行、但没有 admin），
     # 用 COUNT 判断会以为「已初始化」而跳过，导致没有可登录的账号。

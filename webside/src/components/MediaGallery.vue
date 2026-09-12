@@ -3,7 +3,7 @@
     <div v-if="!hostingConfigured" class="hint warn">{{ t('media.notConfigured') }}</div>
 
     <div v-else class="grid" :class="{ 'grid--lg': large }">
-      <div v-for="item in items" :key="item.id" class="cell">
+      <div v-for="item in visibleItems" :key="item.id" class="cell">
         <div class="thumb" @click="preview(item)">
           <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
           <div v-else class="video-thumb">
@@ -14,6 +14,12 @@
         <button class="del-btn" type="button" :title="t('common.delete')" @click.stop="removeItem(item)">
           <el-icon><Close /></el-icon>
         </button>
+      </div>
+
+      <!-- 装不下的那些收在这里：让缩略图把卡片撑到比表单还长，不如点一下再展开 -->
+      <div v-if="hiddenCount" class="more-cell" @click="expanded = true">
+        <span class="more-n">+{{ hiddenCount }}</span>
+        <span>{{ t('media.more') }}</span>
       </div>
 
       <el-upload
@@ -32,6 +38,10 @@
       </el-upload>
     </div>
 
+    <div v-if="expanded && overLimit" class="collapse-row">
+      <el-button link size="small" @click="expanded = false">{{ t('media.collapse') }}</el-button>
+    </div>
+
     <el-image-viewer
       v-if="viewerUrls.length"
       :url-list="viewerUrls"
@@ -46,7 +56,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Close, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { mediaApi } from '@/api'
@@ -62,14 +72,25 @@ const props = defineProps({
   ownerId: { type: [Number, null], default: null },
   ensureId: { type: Function, default: null },
   hostingConfigured: { type: Boolean, default: true },
-  large: { type: Boolean, default: false }
+  large: { type: Boolean, default: false },
+  // 最多平铺几张，多出来的收进「更多图片」。0 = 不限制（整机那份图就不限）。
+  limit: { type: Number, default: 0 }
 })
 const emit = defineEmits(['changed'])
 
 const { t } = useI18n()
 
 const items = ref([])
+const expanded = ref(false)
 const uploading = ref(false)
+
+const overLimit = computed(() => props.limit > 0 && items.value.length > props.limit)
+const hiddenCount = computed(() =>
+  overLimit.value && !expanded.value ? items.value.length - props.limit : 0
+)
+const visibleItems = computed(() =>
+  hiddenCount.value ? items.value.slice(0, props.limit) : items.value
+)
 const viewerUrls = ref([])
 const viewerIndex = ref(0)
 const videoDialog = ref(false)
@@ -221,6 +242,24 @@ defineExpose({ reload: load })
   font-size: 12px;
 }
 .del-btn:hover { background: #f87171; }
+/* 「更多图片」和上传格子长一个样：它俩都是格子，不是按钮 */
+.more-cell {
+  aspect-ratio: 4 / 3;
+  border: 1px dashed #3a4a66;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  color: #8a94a6;
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+.more-cell:hover { border-color: #5b8cff; color: #8fb8ff; }
+.more-n { font-size: 15px; color: #8fb8ff; }
+.collapse-row { margin-top: 6px; text-align: center; }
 .uploader :deep(.el-upload) { width: 100%; display: block; }
 .add-cell {
   aspect-ratio: 4 / 3;

@@ -139,9 +139,6 @@ export default {
     statusChanged: '状态已更新',
     saving: '保存中…',
     autoSaved: '已自动保存',
-    fxRefreshed: '汇率已刷新',
-    fxRefresh: '刷新汇率',
-    autoSaveHint: '改动即时保存',
     newBrand: '新增品牌「{name}」',
     newModel: '新增型号「{name}」'
   },
@@ -183,6 +180,7 @@ export default {
   device: {
     name: '设备名称',
     noTitle: '未命名设备',
+    rename: '修改名称',
     purchaseInfo: '采购信息（整机一笔总价）',
     purchaseAmount: '购入总价',
     tabDevice: '整机',
@@ -204,6 +202,7 @@ export default {
     recovery: '回本率',
     settledHint: '部件已全部售出，这就是这台设备的最终盈亏。',
     addPart: '添加部件',
+    addPartOfType: '添加{name}',
     fundPoolHint: '这台设备的日元从资金池支出：成本按被用掉的那几批注资各自的换汇汇率分段折算，不再使用购入日的市场牌价。'
   },
   media: {
@@ -217,6 +216,8 @@ export default {
     image: '图片',
     video: '视频',
     view: '查看',
+    more: '更多图片',
+    collapse: '收起',
     notConfigured: '图床尚未配置，请先到「系统配置 → 图床」中填写连接信息',
     dragToSort: '拖拽可调整顺序'
   },
@@ -334,6 +335,10 @@ export default {
     tabDatabase: '数据库',
     tabFx: '汇率',
     tabDict: '品牌/型号',
+    tabPlatform: '购买平台',
+    platforms: '平台清单',
+    platformName: '平台名称',
+    platformHint: '删掉只影响以后能选什么，已经录进去的记录照旧显示与统计',
     tabAccount: '账号',
     imageHosting: '图床连接',
     baseUrl: '后端连接地址',

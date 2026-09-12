@@ -139,9 +139,6 @@ export default {
     statusChanged: 'ステータスを更新しました',
     saving: '保存中…',
     autoSaved: '自動保存しました',
-    fxRefreshed: 'レートを更新しました',
-    fxRefresh: 'レート更新',
-    autoSaveHint: '変更は自動保存されます',
     newBrand: 'ブランド「{name}」を追加',
     newModel: 'モデル「{name}」を追加'
   },
@@ -183,6 +180,7 @@ export default {
   device: {
     name: '機器名',
     noTitle: '名称未設定',
+    rename: '名称を変更',
     purchaseInfo: '仕入情報（1 台につき 1 つの総額）',
     purchaseAmount: '仕入総額',
     tabDevice: '本体',
@@ -204,6 +202,7 @@ export default {
     recovery: '回収率',
     settledHint: '全パーツが売れました。これがこの機器の最終損益です。',
     addPart: 'パーツを追加',
+    addPartOfType: '{name}を追加',
     fundPoolHint: 'この機器の日本円は資金プールから支出します：コストは消費した各注入バッチの両替レートで区間ごとに換算され、仕入日の市場レートは使いません。'
   },
   media: {
@@ -217,6 +216,8 @@ export default {
     image: '画像',
     video: '動画',
     view: '表示',
+    more: 'もっと見る',
+    collapse: '折りたたむ',
     notConfigured: '画像ホスティングが未設定です。「システム設定 → 画像ホスティング」で設定してください',
     dragToSort: 'ドラッグで並び替え'
   },
@@ -334,6 +335,10 @@ export default {
     tabDatabase: 'データベース',
     tabFx: '為替',
     tabDict: 'ブランド/モデル',
+    tabPlatform: '購入プラットフォーム',
+    platforms: 'プラットフォーム一覧',
+    platformName: '名称',
+    platformHint: '削除しても影響するのは今後の選択肢だけで、既存の記録の表示と集計はそのままです',
     tabAccount: 'アカウント',
     imageHosting: '画像ホスティング接続',
     baseUrl: 'バックエンド接続先',

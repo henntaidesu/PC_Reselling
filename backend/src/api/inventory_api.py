@@ -206,7 +206,7 @@ def _fetch_cards(
         params.append(brand.strip())
     if source_platform:
         where.append("source_platform = %s")
-        params.append(source_platform.strip().lower())
+        params.append(source_platform.strip())
     if purchase_from:
         where.append("purchase_date >= %s")
         params.append(purchase_from)
@@ -251,7 +251,7 @@ def _fetch_devices(
         params.append(brand.strip())
     if source_platform:
         where.append("source_platform = %s")
-        params.append(source_platform.strip().lower())
+        params.append(source_platform.strip())
     if purchase_from:
         where.append("purchase_date >= %s")
         params.append(purchase_from)

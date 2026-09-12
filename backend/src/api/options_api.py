@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""枚举与字典：状态、分类、币种、品牌、型号。
+"""枚举与字典：状态、分类、币种、品牌、型号、购买平台。
 
 枚举的中日英三套文案在**前端** i18n 里，后端只发 key。理由：加一门语言不该需要
 改后端并重启；而后端发中文、前端再翻译，等于同一份文案维护两遍。
@@ -22,7 +22,6 @@ from src.schema import (
     FUND_SOURCES,
     MEDIA_CATEGORIES,
     POOL_CURRENCY,
-    SOURCE_PLATFORMS,
 )
 
 router = APIRouter(prefix="/options", tags=["options"], dependencies=[Depends(require_auth)])
@@ -30,6 +29,11 @@ router = APIRouter(prefix="/options", tags=["options"], dependencies=[Depends(re
 
 class BrandPayload(BaseModel):
     name: str = Field(min_length=1, max_length=64)
+    sort_order: int = 0
+
+
+class PlatformPayload(BaseModel):
+    name: str = Field(min_length=1, max_length=32)
     sort_order: int = 0
 
 
@@ -46,7 +50,7 @@ def enums():
         "statuses": CARD_STATUSES,
         "media_categories": MEDIA_CATEGORIES,
         "device_part_types": DEVICE_PART_TYPES,
-        "source_platforms": SOURCE_PLATFORMS,
+        # 购买平台不在这里：它已经是字典表，走 /options/platforms
         "currencies": CURRENCIES,
         "fund_sources": FUND_SOURCES,
         "fund_draw_categories": FUND_DRAW_CATEGORIES,
@@ -117,6 +121,48 @@ def create_model(payload: ModelPayload):
 @router.delete("/models/{model_id}")
 def delete_model(model_id: int):
     db.execute("DELETE FROM gpu_models WHERE id = %s", (model_id,))
+    return {"ok": True}
+
+
+@router.get("/platforms")
+def list_platforms():
+    """购买平台字典。和品牌一样是用户自己维护的清单，不是写死的枚举。"""
+    return {
+        "items": db.query(
+            "SELECT id, name, sort_order FROM source_platforms ORDER BY sort_order, name"
+        )
+    }
+
+
+@router.post("/platforms")
+def create_platform(payload: PlatformPayload):
+    name = payload.name.strip()
+    existing = db.query_one(
+        "SELECT id, name, sort_order FROM source_platforms WHERE name = %s", (name,)
+    )
+    if existing:
+        # 重复添加不报错，把已有那条还回去——与品牌 / 型号同一套处理
+        return existing
+    # 不指定顺序就排到最后。内置的三个占了 0/1/2，新加的若也用 0，排序时会按名字插到
+    # 它们中间——刚加完的平台出现在列表当中，看着像加错了地方。
+    sort_order = payload.sort_order or int(
+        db.query_scalar("SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM source_platforms", default=0) or 0
+    )
+    platform_id = db.insert(
+        "INSERT INTO source_platforms (name, sort_order) VALUES (%s, %s)",
+        (name, sort_order),
+    )
+    return {"id": platform_id, "name": name, "sort_order": sort_order}
+
+
+@router.delete("/platforms/{platform_id}")
+def delete_platform(platform_id: int):
+    """删平台只动字典，不碰已经录进卡片 / 整机的那个值。
+
+    那些行上存的是平台名字符串，字典里没有它了也照常显示、照常统计——删掉的含义是
+    「以后不再从这儿买」，不是「过去那些交易不算数」。
+    """
+    db.execute("DELETE FROM source_platforms WHERE id = %s", (platform_id,))
     return {"ok": True}
 
 
