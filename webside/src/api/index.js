@@ -101,6 +101,7 @@ export const optionsApi = {
   createBrand: (payload) => http.post('/options/brands', payload),
   removeBrand: (id) => http.delete(`/options/brands/${id}`),
   platforms: () => http.get('/options/platforms'),
+  fundContributors: () => http.get('/options/fund-contributors'),
   createPlatform: (payload) => http.post('/options/platforms', payload),
   removePlatform: (id) => http.delete(`/options/platforms/${id}`),
   models: () => http.get('/options/models'),

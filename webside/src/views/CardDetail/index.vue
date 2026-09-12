@@ -84,6 +84,11 @@
                 <el-option :label="t('card.fundPool')" value="pool" />
               </el-select>
             </InlineField>
+            <!-- 这张卡的钱由谁出。填了之后 FIFO 只在这几个人的注资批次里扣，
+                 卖出后的利润也按同一个比例分（见利润卡下面那几行） -->
+            <InlineField v-if="usePool" :label="t('card.fundShares')" stack>
+              <FundShares v-model="form.fund_shares" :options="contributorOptions" />
+            </InlineField>
             <!-- 池子要点了这里才真的少钱。详情页是边填边自动保存的，没有这道闸门，
                  购入价刚敲了两位数就已经从池里扣走一笔了 -->
             <InlineField v-if="usePool" :label="t('card.poolDraw')" readonly>
@@ -140,6 +145,16 @@
               <b class="pcr-mono" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
             </div>
             <div class="profit-row"><span>{{ t('card.margin') }}</span><b class="pcr-mono">{{ card.money.profit_margin === null ? '—' : card.money.profit_margin + '%' }}</b></div>
+            <!-- 分红：利润全额按出资比例分。没卖出去时利润本身就是空的，这里跟着显示「—」，
+                 不拿成本当亏损分下去 -->
+            <template v-if="card.dividends?.length">
+              <el-divider class="thin" />
+              <div class="profit-row label"><span>{{ t('card.dividends') }}</span></div>
+              <div v-for="d in card.dividends" :key="d.contributor" class="profit-row">
+                <span>{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
+                <b class="pcr-mono" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</b>
+              </div>
+            </template>
             <el-alert v-if="card.money.incomplete" :title="t('card.incomplete')" type="warning" :closable="false" show-icon class="mt" />
           </el-card>
 
@@ -173,6 +188,7 @@ import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import InlineField from '@/components/InlineField.vue'
 import MediaManager from '@/components/MediaManager.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
+import FundShares from '@/components/FundShares.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
@@ -192,6 +208,7 @@ const hostingConfigured = ref(true)
 const brands = computed(() => meta.brands)
 const models = computed(() => meta.models)
 const { platforms } = usePlatforms()
+const contributorOptions = computed(() => meta.contributors)
 
 function blankForm() {
   return {
@@ -203,6 +220,8 @@ function blankForm() {
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
     fund_source: 'own',
+    // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
+    fund_shares: [],
     status: 'purchased', note: null
     // 汇率一律按日期自动获取，不在这里填
   }
@@ -255,6 +274,9 @@ function normalize(row) {
   out.sale_currency = row.sale_currency || 'CNY'
   out.domestic_shipping_currency = row.domestic_shipping_currency || 'CNY'
   out.fund_source = row.fund_source || 'own'
+  // 拷一份而不是直接引用：直接引用的话，组件改了这个数组等于改了 card 快照里的同一个
+  // 对象，「服务端返回的是什么」和「表单里现在是什么」就分不开了
+  out.fund_shares = (row.fund_shares || []).map((x) => ({ ...x }))
   out.status = row.status || 'purchased'
   return out
 }
@@ -281,6 +303,11 @@ async function persistDict() {
     if (form.model && !models.value.some((m) => m.name === form.model)) {
       await optionsApi.createModel({ name: form.model })
       meta.reloadModels()
+    }
+    // 出资人不用在这里建：后端存比例时已经顺手把新名字落进字典了，这里只把候选刷新一下，
+    // 否则同一次会话里换一张卡，刚敲的那个名字又不在下拉里了
+    if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor))) {
+      meta.reloadContributors()
     }
   } catch { /* 字典写入失败不影响卡片本身 */ }
 }

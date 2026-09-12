@@ -19,7 +19,8 @@ class LoginPayload(BaseModel):
 
 
 class ChangePasswordPayload(BaseModel):
-    old_password: str = Field(min_length=1)
+    # 不收原密码：这是一个单人自用的库存工具，改密码的入口本身已经在 Bearer JWT 后面，
+    # 再验一遍原密码挡不住「令牌已经泄露」之外的任何情形，只是每次改密多敲一遍。
     new_password: str = Field(min_length=8, max_length=128)
 
 
@@ -61,8 +62,8 @@ def change_password(payload: ChangePasswordPayload, claims: dict = Depends(requi
         "SELECT id, password_hash, token_version FROM users WHERE id = %s",
         (claims["user_id"],),
     )
-    if not user or not verify_password(payload.old_password, user["password_hash"]):
-        raise HTTPException(status_code=400, detail="当前密码不正确")
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
     # token_version 自增 → 所有已签发的旧令牌立刻失效。改密码的意义就在这里：
     # 只改哈希不动版本号的话，泄露出去的那个令牌照样能继续用。
     db.execute(

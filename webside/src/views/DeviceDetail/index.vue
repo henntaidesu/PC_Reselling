@@ -58,6 +58,12 @@
           <span class="summary-label">{{ t('device.soldParts') }}</span>
           <span class="pcr-mono summary-value">{{ money.sold_count }} / {{ money.part_count }}</span>
         </div>
+        <!-- 分红：盈亏全额按出资比例分。整机是一进多出，没卖完的时候这个数是「到目前
+             为止各人分到多少」，会随着部件陆续卖出往上走 -->
+        <div v-for="d in (device?.dividends || [])" :key="d.contributor" class="summary-item">
+          <span class="summary-label">{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
+          <span class="pcr-mono summary-value" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</span>
+        </div>
         <div v-if="money.settled" class="summary-flag done">{{ t('device.settledHint') }}</div>
         <el-tooltip v-else-if="money.incomplete" :content="t('card.incomplete')">
           <div class="summary-flag warn"><el-icon><WarningFilled /></el-icon>{{ t('card.incomplete') }}</div>
@@ -144,6 +150,11 @@
                   </el-select>
                 </InlineField>
               </div>
+                <!-- 这台机器的钱由谁出。填了之后 FIFO 只在这几个人的注资批次里扣，
+                     卖出后的利润也按同一个比例分（见摘要条下面的分红行） -->
+                <InlineField v-if="usePool" :label="t('card.fundShares')" stack>
+                  <FundShares v-model="form.fund_shares" :options="contributorOptions" />
+                </InlineField>
                 <!-- 池子要点了这里才真的少钱。详情页是边填边自动保存的，没有这道闸门，
                      购入总价刚敲了两位数就已经从池里扣走一笔了 -->
                 <InlineField v-if="usePool" :label="t('card.poolDraw')" readonly>
@@ -308,6 +319,7 @@ import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import DevicePartPanel from '@/components/DevicePartPanel.vue'
+import FundShares from '@/components/FundShares.vue'
 import InlineField from '@/components/InlineField.vue'
 import MediaGallery from '@/components/MediaGallery.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
@@ -320,6 +332,7 @@ import StatusTimeline from '@/components/StatusTimeline.vue'
 const { t } = useI18n()
 const route = useRoute()
 const meta = useMetaStore()
+const contributorOptions = computed(() => meta.contributors)
 
 // device = 服务端快照（金额、汇率、分摊、时间线、草稿标记），form = 可编辑的那些列。
 // 与显卡详情页同一套：保存的返回值只用来刷新展示部分，绝不回灌 form——请求往返的
@@ -381,6 +394,8 @@ function blankForm() {
     purchase_date: null, purchase_amount: null, purchase_currency: 'JPY',
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
     fund_source: 'own',
+    // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
+    fund_shares: [],
     status: 'purchased', note: null,
     parts: []
   }
@@ -484,15 +499,23 @@ async function doSave() {
   const res = await devicesApi.update(form.id, buildPayload(submitted))
   device.value = res
   await autosave.silently(() => mergePartIds(submitted, res))
+  // 出资人不用在这里建：后端存比例时已经顺手把新名字落进字典了，这里只把候选刷新一下，
+  // 否则同一次会话里换一台机器，刚敲的那个名字又不在下拉里了
+  if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor))) {
+    meta.reloadContributors()
+  }
 }
 
 function normalize(row) {
   const out = blankForm()
   for (const key of Object.keys(out)) {
-    if (key === 'parts') continue
+    if (key === 'parts' || key === 'fund_shares') continue
     out[key] = row[key] ?? out[key]
   }
   out.id = row.id
+  // 拷一份而不是直接引用：直接引用的话，组件改了这个数组等于改了 device 快照里的
+  // 同一个对象，「服务端返回的是什么」和「表单里现在是什么」就分不开了
+  out.fund_shares = (row.fund_shares || []).map((x) => ({ ...x }))
   // 币种与状态在库里是 NOT NULL，仍兜一层：null 传回后端会被校验器打回，
   // 于是整条保存链失败，表现成「这台机器怎么改都存不进去」
   out.purchase_currency = row.purchase_currency || 'JPY'

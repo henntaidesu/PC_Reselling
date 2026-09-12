@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src import db
+from src import db, funds
 from src.auth import require_auth
 from src.schema import (
     CARD_STATUSES,
@@ -159,6 +159,16 @@ def delete_platform(platform_id: int):
     """
     db.execute("DELETE FROM source_platforms WHERE id = %s", (platform_id,))
     return {"ok": True}
+
+
+@router.get("/fund-contributors")
+def list_fund_contributors():
+    """出资人字典。和品牌一样是用户自己维护的清单。
+
+    这里只读不写：新出资人是在**用到的地方**现敲出来的（注资弹窗、显卡 / 整机的出资
+    比例），由 funds.ensure_contributor 顺手落进字典，没有「先去建人」这一步。
+    """
+    return {"items": [{"name": n} for n in funds.contributor_names()]}
 
 
 @router.get("/used-brands")

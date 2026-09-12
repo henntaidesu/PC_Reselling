@@ -23,6 +23,66 @@
         :title="t('funds.incompleteWarn')" />
     </el-card>
 
+    <!-- 按出资人：池子里的钱是谁出的、被花掉多少、还剩多少。
+         全部由注资与分摊反算，没有单独的「账户」——余额有第二个地方存着就一定会对不上。 -->
+    <el-card v-if="contributors.length" class="table-card" shadow="never">
+      <template #header>
+        <div class="card-head">
+          <span>{{ t('funds.contributors') }}</span>
+          <span class="pcr-dim count">
+            {{ t('funds.contributorHint') }}
+            <el-button v-if="contributorFilter !== null" link type="primary" @click="contributorFilter = null">
+              {{ t('funds.clearFilter') }}
+            </el-button>
+          </span>
+        </div>
+      </template>
+      <el-table :data="contributors" class="pcr-table contrib-table" size="small" empty-text=" "
+        :row-class-name="contributorRowClass" @row-click="toggleContributorFilter">
+        <el-table-column :label="t('funds.contributor')" min-width="120">
+          <template #default="{ row }">
+            <el-tag size="small" :type="row.name ? 'primary' : 'info'" effect="plain">
+              {{ row.name || t('funds.noContributor') }}
+            </el-tag>
+            <span v-if="row.incomplete" class="pcr-dim sub"> · {{ t('funds.rateMissingTag') }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('funds.injected')" align="right" min-width="120">
+          <template #default="{ row }">
+            <div class="pcr-mono">{{ jpy(row.injected) }}</div>
+            <div class="pcr-dim sub pcr-mono">{{ cny(row.injected_cny) }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('funds.used')" align="right" min-width="110">
+          <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.used) }}</span></template>
+        </el-table-column>
+        <el-table-column :label="t('funds.remaining')" align="right" min-width="110">
+          <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.remaining) }}</span></template>
+        </el-table-column>
+        <!-- 分红与在库本金分两列，不合成一个数：一台刚买回来还没拆卖的整机，合起来看
+             就是「亏了一整台的钱」，而它只是还没卖 -->
+        <el-table-column :label="t('funds.dividend')" align="right" min-width="110">
+          <template #default="{ row }">
+            <span class="pcr-mono" :class="profitClass(row.dividend_cny)">{{ cny(row.dividend_cny) }}</span>
+            <span v-if="row.pnl_incomplete" class="pcr-dim sub"> *</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('funds.stockCost')" align="right" min-width="110">
+          <template #default="{ row }"><span class="pcr-mono">{{ cny(row.stock_cost_cny) }}</span></template>
+        </el-table-column>
+        <el-table-column :label="t('funds.share')" align="right" width="92">
+          <template #default="{ row }">
+            <span class="pcr-mono">{{ percent(row.share) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('funds.avgRate')" align="right" width="96">
+          <template #default="{ row }">
+            <span class="pcr-mono">{{ row.avg_rate ? formatRate(row.avg_rate) : '—' }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-card>
+
     <el-row :gutter="16">
       <!-- 注资批次 -->
       <el-col :xs="24" :lg="12">
@@ -30,12 +90,18 @@
           <template #header>
             <div class="card-head">
               <span>{{ t('funds.injections') }}</span>
-              <span class="pcr-dim count">{{ t('common.total', { n: injections.length }) }}</span>
+              <span class="pcr-dim count">{{ t('common.total', { n: shownInjections.length }) }}</span>
             </div>
           </template>
-          <el-table :data="injections" class="pcr-table" size="small" empty-text=" ">
+          <el-table :data="shownInjections" class="pcr-table" size="small" empty-text=" ">
             <el-table-column :label="t('funds.injectDate')" width="104">
               <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.inject_date }}</span></template>
+            </el-table-column>
+            <el-table-column :label="t('funds.contributor')" min-width="90">
+              <template #default="{ row }">
+                <el-tag v-if="row.contributor" size="small" type="primary" effect="plain">{{ row.contributor }}</el-tag>
+                <span v-else class="pcr-dim">—</span>
+              </template>
             </el-table-column>
             <el-table-column :label="t('funds.amount')" align="right" min-width="110">
               <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.amount) }}</span></template>
@@ -55,14 +121,13 @@
                 <div class="pcr-dim sub">{{ t('funds.used') }} {{ jpy(row.used_amount) }}</div>
               </template>
             </el-table-column>
-            <el-table-column :label="t('common.actions')" width="86" align="center">
+            <el-table-column :label="t('common.actions')" width="62" align="center">
               <template #default="{ row }">
                 <el-button link :icon="EditPen" @click="openInjection(row)" />
-                <el-button link type="danger" :icon="Delete" @click="removeInjection(row)" />
               </template>
             </el-table-column>
           </el-table>
-          <el-empty v-if="!injections.length" :description="t('funds.noInjections')" :image-size="60" />
+          <el-empty v-if="!shownInjections.length" :description="t('funds.noInjections')" :image-size="60" />
         </el-card>
       </el-col>
 
@@ -82,6 +147,7 @@
                 <div class="alloc">
                   <div v-for="(a, i) in row.allocations" :key="i" class="alloc-line">
                     <span class="pcr-mono pcr-dim">{{ a.inject_date }}</span>
+                    <el-tag v-if="a.contributor" size="small" type="primary" effect="plain">{{ a.contributor }}</el-tag>
                     <span class="pcr-mono">{{ jpy(a.amount) }}</span>
                     <span class="pcr-dim">× {{ formatRate(a.fx_rate) }}/{{ RATE_UNIT }} =</span>
                     <span class="pcr-mono">{{ cny(a.cny_amount) }}</span>
@@ -127,11 +193,10 @@
                 <div v-if="row.effective_rate" class="pcr-dim sub pcr-mono">@{{ formatRate(row.effective_rate) }}</div>
               </template>
             </el-table-column>
-            <el-table-column :label="t('common.actions')" width="86" align="center">
+            <el-table-column :label="t('common.actions')" width="62" align="center">
               <template #default="{ row }">
                 <template v-if="!row.owner_kind">
                   <el-button link :icon="EditPen" @click="openDraw(row)" />
-                  <el-button link type="danger" :icon="Delete" @click="removeDraw(row)" />
                 </template>
                 <el-tooltip v-else :content="t('funds.ownerDrawLocked')">
                   <el-icon class="pcr-dim"><Lock /></el-icon>
@@ -152,6 +217,14 @@
         </el-form-item>
         <el-form-item :label="t('funds.amount') + '（' + t('currency.JPY_short') + '）'">
           <el-input-number v-model="injectionForm.amount" :min="1" :step="10000" :precision="0" :controls="false" class="full" />
+        </el-form-item>
+        <!-- 出资人可以现敲一个新名字：录注资的时候才想起「这笔是老李的」，不该被打断去
+             别处先把人建好。后端按名字 upsert 进字典，下次就在候选里了。 -->
+        <el-form-item :label="t('funds.contributor')">
+          <el-select v-model="injectionForm.contributor" filterable allow-create default-first-option
+            clearable class="full" :placeholder="t('funds.contributorPlaceholder')">
+            <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
+          </el-select>
         </el-form-item>
         <el-form-item>
           <el-checkbox v-model="injectionForm.manual">{{ t('funds.rateManual') }}</el-checkbox>
@@ -211,11 +284,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, EditPen, Lock, Minus, Plus, Refresh } from '@element-plus/icons-vue'
-import { ElMessageBox } from 'element-plus'
+import { EditPen, Lock, Minus, Plus, Refresh } from '@element-plus/icons-vue'
 import { fundsApi, fxApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
-import { RATE_UNIT, cny, formatMoney, formatRate, inverseRate } from '@/utils/format'
+import { RATE_UNIT, cny, formatMoney, formatRate, inverseRate, profitClass } from '@/utils/format'
 import StatCard from '@/components/StatCard.vue'
 
 const { t } = useI18n()
@@ -226,8 +298,32 @@ const rebuilding = ref(false)
 const summary = ref({})
 const injections = ref([])
 const draws = ref([])
+// 按人汇总（派生自注资与分摊）与字典里的候选名字是两份：一个刚建好还没注过资的人
+// 只在候选里，只看汇总的话他在下拉中就不见了。
+const contributors = ref([])
+const contributorNames = ref([])
+// 点「按出资人」里的一行，右边的注资批次只看那个人的。null = 不筛。
+// 注意 null 和 '' 不是一回事：'' 是「未指定出资人」那一档，它也能被筛。
+const contributorFilter = ref(null)
 
 const jpy = (v) => formatMoney(v, 'JPY')
+const percent = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%')
+
+const shownInjections = computed(() => {
+  if (contributorFilter.value === null) return injections.value
+  return injections.value.filter((r) => (r.contributor || '') === contributorFilter.value)
+})
+
+// 再点一次同一行就取消筛选——这一列没有别的点击含义，不给一个「取消」的出口
+// 就只能去找表头那个链接
+function toggleContributorFilter(row) {
+  const key = row.name || ''
+  contributorFilter.value = contributorFilter.value === key ? null : key
+}
+
+function contributorRowClass({ row }) {
+  return contributorFilter.value === (row.name || '') ? 'row-active' : ''
+}
 
 const statCards = computed(() => {
   const s = summary.value
@@ -246,6 +342,8 @@ function apply(data, warnings) {
   summary.value = data.summary || {}
   injections.value = data.injections || []
   draws.value = data.draws || []
+  contributors.value = data.contributors || []
+  contributorNames.value = data.contributor_names || []
   ;(warnings || data.warnings || []).forEach((w) => ElMessage.warning(w))
 }
 
@@ -271,7 +369,7 @@ async function rebuild() {
 // ── 注资 ────────────────────────────────────────────────────────────────
 const injectionVisible = ref(false)
 const ratePreview = ref(null)
-const injectionForm = reactive({ id: null, inject_date: null, amount: null, manual: false, cny_cost: null, note: null })
+const injectionForm = reactive({ id: null, inject_date: null, amount: null, manual: false, cny_cost: null, contributor: null, note: null })
 
 // 自动取牌价时先让人看到「这笔钱花了多少人民币」——注资的意义就在这个数上。
 // 手工模式下这个数就是上面填的那个，不用再显示一遍。
@@ -296,6 +394,7 @@ function openInjection(row = null) {
     amount: row?.amount ?? null,
     manual: Boolean(row?.fx_manual),
     cny_cost: row?.fx_manual ? row.cny_cost : null,
+    contributor: row?.contributor ?? null,
     note: row?.note ?? null
   })
   ratePreview.value = null
@@ -326,6 +425,7 @@ async function saveInjection() {
     inject_date: injectionForm.inject_date,
     amount: injectionForm.amount,
     cny_cost: injectionForm.manual ? injectionForm.cny_cost : null,
+    contributor: injectionForm.contributor || null,
     note: injectionForm.note
   }
   saving.value = true
@@ -339,16 +439,6 @@ async function saveInjection() {
   } catch { /* 拦截器已提示 */ } finally {
     saving.value = false
   }
-}
-
-async function removeInjection(row) {
-  try {
-    await ElMessageBox.confirm(t('funds.deleteInjectionConfirm'), t('common.delete'), { type: 'warning' })
-  } catch { return }
-  try {
-    apply(await fundsApi.removeInjection(row.id))
-    ElMessage.success(t('common.deleted'))
-  } catch { /* 拦截器已提示 */ }
 }
 
 // ── 手工支出 ────────────────────────────────────────────────────────────
@@ -384,16 +474,6 @@ async function saveDraw() {
   }
 }
 
-async function removeDraw(row) {
-  try {
-    await ElMessageBox.confirm(t('funds.deleteDrawConfirm'), t('common.delete'), { type: 'warning' })
-  } catch { return }
-  try {
-    apply(await fundsApi.removeDraw(row.id))
-    ElMessage.success(t('common.deleted'))
-  } catch { /* 拦截器已提示 */ }
-}
-
 onMounted(reload)
 </script>
 
@@ -424,6 +504,10 @@ onMounted(reload)
   background: rgba(91, 140, 255, 0.08);
   border-radius: 6px;
 }
+/* 「按出资人」整行可点（点了筛注资），所以要有手型和选中态——否则那张表看着只是个
+   报表，没人会去点它 */
+.contrib-table :deep(.el-table__row) { cursor: pointer; }
+.contrib-table :deep(.el-table__row.row-active) { background: rgba(91, 140, 255, 0.14); }
 .alloc { padding: 4px 12px 8px 46px; }
 .alloc-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; }
 .alloc-line.short { color: #e6a23c; }
@@ -433,8 +517,8 @@ onMounted(reload)
   /* 三个操作按钮在窄屏上换行后会一长一短地错开，各占一行反而齐整，热区也够大 */
   .head-actions { width: 100%; }
   .head-actions .el-button { flex: 1 1 40%; margin-left: 0; }
-  /* 这两张表六列都是必看的（日期 / 金额 / 汇率 / 人民币 / 余额 / 操作），砍掉哪一列都
-     会让人为了核一个数再点进别的地方，所以宁可让它横向滚——el-table 自带滚动容器，
+  /* 这几张表每一列都是必看的（日期 / 出资人 / 金额 / 汇率 / 人民币 / 余额 / 操作），砍掉
+     哪一列都会让人为了核一个数再点进别的地方，所以宁可让它横向滚——el-table 自带滚动容器，
      卡片内边距收窄一档，能多露出小半列，一眼就看得出「右边还有」。 */
   .table-card :deep(.el-card__body) { padding: 8px 6px; }
   /* 展开行里那 46px 的左缩进是对齐桌面端展开箭头用的，窄屏上等于白扔掉八分之一行宽，

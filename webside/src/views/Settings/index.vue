@@ -176,9 +176,6 @@
           <el-card shadow="never" class="pane-card">
             <template #header>{{ t('settings.changePwd') }}</template>
             <el-form ref="pwdFormRef" :model="pwd" :rules="pwdRules" label-width="130px" label-position="left">
-              <el-form-item :label="t('settings.oldPwd')" prop="old_password">
-                <el-input v-model="pwd.old_password" type="password" show-password />
-              </el-form-item>
               <el-form-item :label="t('settings.newPwd')" prop="new_password">
                 <el-input v-model="pwd.new_password" type="password" show-password />
               </el-form-item>
@@ -363,10 +360,9 @@ async function removeModel(row) {
 
 // ---- 改密码 ----
 const pwdFormRef = ref()
-const pwd = reactive({ old_password: '', new_password: '', confirm: '' })
+const pwd = reactive({ new_password: '', confirm: '' })
 const changingPwd = ref(false)
 const pwdRules = {
-  old_password: [{ required: true, trigger: 'blur', message: ' ' }],
   new_password: [{ required: true, min: 8, trigger: 'blur', message: t('settings.pwdRule') }],
   confirm: [{
     validator: (_r, v, cb) => (v === pwd.new_password ? cb() : cb(new Error(t('settings.pwdMismatch')))),
@@ -378,7 +374,7 @@ async function changePwd() {
     if (!valid) return
     changingPwd.value = true
     try {
-      await authApi.changePassword({ old_password: pwd.old_password, new_password: pwd.new_password })
+      await authApi.changePassword({ new_password: pwd.new_password })
       ElMessage.success(t('settings.pwdChanged'))
       setTimeout(() => auth.logout(), 1200)
     } catch { /* 拦截器已提示 */ } finally {

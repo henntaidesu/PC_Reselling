@@ -11,6 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
 from src import cards, db, funds
+# 出资比例的载荷与校验只有 funds_api 那一份，显卡和整机都从那儿取
+from src.api import funds_api
 from src.auth import require_auth
 from src.schema import CARD_STATUSES, CURRENCIES, FUND_SOURCES
 
@@ -60,6 +62,9 @@ class CardPayload(BaseModel):
     # 采购资金来源：own = 自有资金；pool = 从资金池扣。选 pool 后这张卡的日元支出会
     # 在资金池里生成对应扣款，成本改由被消耗的注资批次的汇率分段折算。
     fund_source: str = "own"
+    # 这张卡的钱由哪几位出资人按什么比例出。None = 本次请求没提交，保持原样；
+    # [] = 明确清空（不指定出资人，回到全池 FIFO）。校验与写入都在 funds_api 那一份。
+    fund_shares: Optional[List[funds_api.SharePayload]] = None
 
     status: str = "purchased"
     note: Optional[str] = None
@@ -85,6 +90,11 @@ class CardPayload(BaseModel):
         if v not in CARD_STATUSES:
             raise ValueError(f"未知状态：{v}")
         return v
+
+    @field_validator("fund_shares")
+    @classmethod
+    def _check_shares(cls, v):
+        return funds_api.validate_shares(v)
 
     @field_validator("fund_source")
     @classmethod
@@ -284,6 +294,12 @@ def _result(card_id: int, warnings: List[str]) -> Dict[str, Any]:
     data = cards.serialize(row, media)
     # 走资金池的卡要能看到「这笔钱是从哪几批注资里出的、各按什么汇率折的」
     data["fund_draws"] = funds.card_draws(card_id) if cards.uses_pool(row) else []
+    # 出资比例与按它分出来的成本 / 分红。比例本身跟资金池确认无关（没确认扣除也能先填），
+    # 所以不套在 uses_pool 里——套进去的话，填了比例却看不见，像是没存上。
+    data["fund_shares"] = (
+        funds.owner_shares("card", card_id) if (row.get("fund_source") or "own") == "pool" else []
+    )
+    data["dividends"] = funds.split_dividends(data["fund_shares"], data["money"])
     data["status_logs"] = [
         {
             "from_status": log_row["from_status"],
@@ -342,8 +358,10 @@ def create_card(payload: CardPayload):
         [values[c] for c in columns],
     )
     cards.log_status(card_id, None, values["status"], "创建")
+    # 比例要先落库：它决定这笔扣款在谁的批次里扣，写晚了这一轮重算用的还是旧的
+    shares_changed = funds_api.apply_shares("card", card_id, payload.fund_shares)
     # 先同步资金池扣款再读回：分摊结果是写在卡片行上的，读早了成本还是空的
-    funds.sync_card_and_rebuild(card_id)
+    funds.sync_card_and_rebuild(card_id, force=shares_changed)
     return _result(card_id, fx["warnings"])
 
 
@@ -371,7 +389,8 @@ def update_card(card_id: int, payload: CardPayload):
         list(values.values()) + [card_id],
     )
     cards.log_status(card_id, existing["status"], values["status"], "编辑")
-    funds.sync_card_and_rebuild(card_id)
+    shares_changed = funds_api.apply_shares("card", card_id, payload.fund_shares)
+    funds.sync_card_and_rebuild(card_id, force=shares_changed)
     return _result(card_id, fx["warnings"])
 
 

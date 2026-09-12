@@ -15,6 +15,8 @@
       </div>
       <div v-for="(a, i) in d.allocations" :key="i" class="pool-alloc">
         <span class="pcr-dim pcr-mono">{{ a.inject_date }}</span>
+        <!-- 这一段吃的是谁的钱。池子是几个人凑的时候，「这张卡花了谁的钱」就在这一行上 -->
+        <el-tag v-if="a.contributor" size="small" type="primary" effect="plain">{{ a.contributor }}</el-tag>
         <span class="pcr-mono">{{ jpy(a.amount) }}</span>
         <span class="pcr-dim">× {{ formatRate(a.fx_rate) }}/{{ RATE_UNIT }} =</span>
         <span class="pcr-mono">{{ cny(a.cny_amount) }}</span>

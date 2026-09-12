@@ -81,6 +81,11 @@ POOL_CURRENCY: str = "JPY"
 # pool = 从资金池扣，成本按被消耗的那几笔注资各自的汇率分段折算。
 FUND_SOURCES: List[str] = ["own", "pool"]
 
+# 出资比例的单位：``fund_shares.share_pct`` 存的是**百分数**（60 表示 60%），一个归属方
+# 上的各项加起来必须等于 100。存百分数而不是 0~1 的小数，是为了让页面上填的数、接口上
+# 传的数、库里存的数完全一致——只有真正做乘法的地方（funds 里分金额、分利润）除这一次。
+SHARE_UNIT: int = 100
+
 # 资金池扣款的用途。purchase / intl_shipping 两类由卡片自动同步（跟着卡上的金额走），
 # other 是手工记的池内杂项支出（手续费、代购费…），不计入任何一张卡的成本。
 FUND_DRAW_CATEGORIES: List[str] = ["purchase", "intl_shipping", "other"]
@@ -449,6 +454,21 @@ _TABLES: List[Tuple[str, str]] = [
         """,
     ),
     (
+        "fund_contributors",
+        """
+        CREATE TABLE IF NOT EXISTS fund_contributors (
+            id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            name       VARCHAR(64) NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            note       VARCHAR(200) NULL COMMENT '备注，比如联系方式或分成约定',
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            UNIQUE KEY uk_fund_contributors_name (name)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='出资人字典（池子里的钱是谁出的），注资时下拉选，可现场新增'
+        """,
+    ),
+    (
         "fund_injections",
         """
         CREATE TABLE IF NOT EXISTS fund_injections (
@@ -462,6 +482,10 @@ _TABLES: List[Tuple[str, str]] = [
             fx_rate     DECIMAL(18,8) NULL,
             fx_date     DATE NULL COMMENT '实际取到的牌价日（非交易日会回退）',
             fx_manual   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=汇率手工填写（真实换汇价），不自动覆盖',
+            -- 这批钱是谁出的。存**名字**而不是指向 fund_contributors 的外键，与品牌 / 购买
+            -- 平台同一套路：字典只是候选清单，把某个出资人从清单里删掉不该动到历史账目。
+            -- 空 = 没指定（旧数据、或自己出的），统计里单列一档「未指定」。
+            contributor VARCHAR(64) NULL COMMENT '出资人名字，取值来自 fund_contributors 字典',
             -- 换汇渠道。界面上已经不录了（渠道对算账没有任何影响），列留着不删：
             -- 老数据里还有值，而这个库的迁移规矩是只加不改。
             channel     VARCHAR(64) NULL COMMENT '换汇渠道，已停用，不再写入',
@@ -508,6 +532,35 @@ _TABLES: List[Tuple[str, str]] = [
                 REFERENCES devices (id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           COMMENT='从资金池扣款。卡片/整机侧的两类跟着各自的金额自动同步，删除时级联清掉'
+        """,
+    ),
+    (
+        "fund_shares",
+        """
+        CREATE TABLE IF NOT EXISTS fund_shares (
+            id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            -- 与 fund_draws 同构：要么挂在一张卡上，要么挂在一台整机上，两列互斥。
+            -- 比例是「这一件货的钱由谁出」，所以挂在货上而不是挂在每一笔扣款上——
+            -- 购入价和国际运费出自同一批人的钱，分两处填只会填出两个不一样的比例。
+            card_id     INT UNSIGNED NULL COMMENT '归属卡片',
+            device_id   INT UNSIGNED NULL COMMENT '归属整机设备',
+            contributor VARCHAR(64) NOT NULL COMMENT '出资人名字，与 fund_injections.contributor 同一套写法',
+            -- 百分数（60 表示六成），同一件货上加起来必须是 100。见 schema.SHARE_UNIT。
+            share_pct   DECIMAL(9,4) NOT NULL COMMENT '出资比例，百分数',
+            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                            ON UPDATE CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            -- 一件货上一个人只能出现一次。含 NULL 的行不受唯一键约束，所以两种归属互不干扰
+            UNIQUE KEY uk_fund_shares_card (card_id, contributor),
+            UNIQUE KEY uk_fund_shares_device (device_id, contributor),
+            CONSTRAINT fk_fund_shares_card FOREIGN KEY (card_id)
+                REFERENCES cards (id) ON DELETE CASCADE,
+            CONSTRAINT fk_fund_shares_device FOREIGN KEY (device_id)
+                REFERENCES devices (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='一件货的钱由哪几位出资人按什么比例出。决定 FIFO 只在谁的注资批次里扣，
+                   也决定卖出后的利润怎么分。没有记录 = 不指定出资人，按全池 FIFO 扣'
         """,
     ),
     (
@@ -559,6 +612,7 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("devices", "pool_fx_rate", "pool_fx_rate DECIMAL(18,8) NULL"),
     ("devices", "pool_confirmed_at", "pool_confirmed_at DATETIME NULL"),
     ("fund_draws", "device_id", "device_id INT UNSIGNED NULL"),
+    ("fund_injections", "contributor", "contributor VARCHAR(64) NULL"),
 ]
 
 

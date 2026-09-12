@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src import db, funds
 from src.auth import require_auth
-from src.schema import POOL_CURRENCY
+from src.schema import POOL_CURRENCY, SHARE_UNIT
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +38,8 @@ class InjectionPayload(BaseModel):
     # （funds.manual_rate）：换汇的人手上有的就是这两个数，汇率是它们的商，
     # 让人自己先除一遍再填只会多一个填错的机会。留空则按注资日取牌价。
     cny_cost: Optional[float] = Field(default=None, gt=0)
+    # 这批钱是谁出的。收名字而不是字典 id：下拉允许现敲一个新名字，见 funds.ensure_contributor。
+    contributor: Optional[str] = Field(default=None, max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
 
     @model_validator(mode="after")
@@ -71,6 +73,58 @@ class DrawPayload(BaseModel):
     note: Optional[str] = Field(default=None, max_length=500)
 
 
+class SharePayload(BaseModel):
+    """一件货（显卡 / 整机）上某个出资人占的比例。
+
+    定义在这里、由 cards_api 和 devices_api 共同 import：两边是同一件事，各写一份的
+    下场是某天只给其中一边加了校验，另一边能存进一组加起来 97% 的比例。
+    """
+
+    contributor: str = Field(min_length=1, max_length=64)
+    # 百分数（60 = 60%），见 schema.SHARE_UNIT
+    share_pct: float = Field(gt=0, le=SHARE_UNIT)
+
+
+def validate_shares(shares: Optional[List[SharePayload]]) -> Optional[List[SharePayload]]:
+    """校验一组出资比例：不能重名，加起来必须正好是 100。
+
+    ``None`` = 这次请求没提交这一项，保持原样；``[]`` = 明确清空（不指定出资人，
+    回到全池 FIFO）。两者必须分开：详情页是逐字段自动保存的，把「没提交」当成「清空」
+    会让改一次备注就把出资比例抹掉。
+
+    合计必须是 100 而不是「按填的归一化」：填了 60 和 30 的人，想的多半是还有一个人
+    没填完，而不是「那就按 2:1 分」。当场拦住，比事后发现分红少算一个人强。
+    """
+    if shares is None:
+        return None
+    names = [sh.contributor.strip() for sh in shares]
+    if any(not n for n in names):
+        raise ValueError("出资人不能为空")
+    if len(set(names)) != len(names):
+        raise ValueError("同一个出资人只能出现一次")
+    if not shares:
+        return []
+    total = round(sum(sh.share_pct for sh in shares), 4)
+    if abs(total - SHARE_UNIT) > 0.01:
+        raise ValueError(f"出资比例加起来要等于 {SHARE_UNIT}%，现在是 {total:g}%")
+    return shares
+
+
+def apply_shares(kind: str, owner_id: int, shares: Optional[List[SharePayload]]) -> bool:
+    """把出资比例写到一件货上，返回是否真的变了（变了要重算池子）。
+
+    顺带把名字落进出资人字典（与注资那头同一个 upsert），所以在显卡详情页现敲一个
+    新出资人也能用，不必先跑一趟资金池页面。
+    """
+    if shares is None:
+        return False
+    rows = [
+        {"contributor": funds.ensure_contributor(sh.contributor), "share_pct": sh.share_pct}
+        for sh in shares
+    ]
+    return funds.write_shares(kind, owner_id, [r for r in rows if r["contributor"]])
+
+
 def _clean(value):
     if isinstance(value, str):
         value = value.strip()
@@ -85,6 +139,8 @@ def _state(warnings=None):
         "summary": funds.summary(),
         "injections": funds.list_injections(),
         "draws": funds.list_draws(),
+        "contributors": funds.contributor_totals(),
+        "contributor_names": funds.contributor_names(),
         "warnings": list(warnings or []) + result["warnings"],
     }
 
@@ -96,11 +152,18 @@ def summary():
 
 @router.get("")
 def overview():
-    """页面首屏一次拿全：总账 + 注资列表 + 扣款列表。"""
+    """页面首屏一次拿全：总账 + 注资列表 + 扣款列表 + 出资人。
+
+    出资人给两份：``contributors`` 是按人汇总的结果（派生自注资与分摊），
+    ``contributor_names`` 是字典里的候选清单——一个刚建好还没注过资的人只在后者里，
+    只发汇总的话他在下拉里就不见了。
+    """
     return {
         "summary": funds.summary(),
         "injections": funds.list_injections(),
         "draws": funds.list_draws(),
+        "contributors": funds.contributor_totals(),
+        "contributor_names": funds.contributor_names(),
     }
 
 
@@ -114,9 +177,9 @@ def create_injection(payload: InjectionPayload):
     fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.insert(
         "INSERT INTO fund_injections (inject_date, amount, currency, fx_rate, fx_date, "
-        "fx_manual, note) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        "fx_manual, contributor, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
         (payload.inject_date, payload.amount, payload.currency, fx["fx_rate"], fx["fx_date"],
-         fx["fx_manual"], _clean(payload.note)),
+         fx["fx_manual"], funds.ensure_contributor(payload.contributor), _clean(payload.note)),
     )
     return _state(fx["warnings"])
 
@@ -129,9 +192,10 @@ def update_injection(injection_id: int, payload: InjectionPayload):
     fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.execute(
         "UPDATE fund_injections SET inject_date = %s, amount = %s, currency = %s, fx_rate = %s, "
-        "fx_date = %s, fx_manual = %s, note = %s WHERE id = %s",
+        "fx_date = %s, fx_manual = %s, contributor = %s, note = %s WHERE id = %s",
         (payload.inject_date, payload.amount, payload.currency, fx["fx_rate"], fx["fx_date"],
-         fx["fx_manual"], _clean(payload.note), injection_id),
+         fx["fx_manual"], funds.ensure_contributor(payload.contributor), _clean(payload.note),
+         injection_id),
     )
     return _state(fx["warnings"])
 
