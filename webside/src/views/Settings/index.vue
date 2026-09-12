@@ -2,191 +2,217 @@
   <div class="settings-page">
     <h2 class="page-title">{{ t('settings.title') }}</h2>
 
-    <div class="settings-stack">
-      <!-- 图床 -->
-      <section class="settings-section">
-        <h3 class="section-heading">{{ t('settings.tabImageHosting') }}</h3>
-        <el-card shadow="never" class="pane-card">
-          <el-form label-width="150px" label-position="left" class="cfg-form">
-            <el-form-item :label="t('settings.baseUrl')">
-              <el-input v-model="hosting.base_url" />
-            </el-form-item>
-            <el-form-item :label="t('settings.publicBase')">
-              <el-input v-model="hosting.public_base" />
-            </el-form-item>
-            <el-form-item :label="t('settings.project')">
-              <el-input v-model="hosting.project" />
-            </el-form-item>
-            <el-form-item :label="t('settings.token')">
-              <el-input v-model="hosting.token" type="password" show-password
-                :placeholder="hosting.token_set ? '••••••（' + t('settings.tokenSet') + '）' : ''" />
-            </el-form-item>
-            <el-row :gutter="16">
-              <el-col :span="12">
-                <el-form-item :label="t('settings.timeout')">
-                  <el-input-number v-model="hosting.timeout" :min="5" :max="600" :controls="false" class="full" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item :label="t('settings.verifyTls')">
-                  <el-switch v-model="hosting.verify_tls" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-            <div class="form-actions">
-              <el-button type="primary" :loading="savingHosting" @click="saveHosting">{{ t('common.save') }}</el-button>
-              <el-button :loading="testing" @click="testHosting">{{ t('settings.test') }}</el-button>
-            </div>
-            <el-alert v-if="testResult" :type="testResult.ok ? 'success' : 'error'" :closable="false" show-icon class="mt">
-              <template v-if="testResult.ok">
-                {{ t('settings.testOk') }} · {{ t('settings.allowedExt') }}: {{ (testResult.allowed_extensions || []).join(', ') }}
-                <template v-if="testResult.max_upload_bytes"> · {{ t('settings.maxUpload') }}: {{ prettySize(testResult.max_upload_bytes) }}</template>
-              </template>
-              <template v-else>{{ testResult.message }}</template>
-            </el-alert>
-          </el-form>
-        </el-card>
-      </section>
-
-      <!-- 数据库 -->
-      <section class="settings-section">
-        <h3 class="section-heading">{{ t('settings.tabDatabase') }}</h3>
-        <el-card shadow="never" class="pane-card">
-          <el-alert :title="t('settings.dbHint')" type="info" :closable="false" show-icon class="mb" />
-          <div class="kv"><span>{{ t('settings.dbConf') }}</span><b class="pcr-mono">{{ db.conf_path }}</b></div>
-          <div class="kv"><span>{{ t('settings.dbHost') }}</span><b class="pcr-mono">{{ db.host }}:{{ db.port }}</b></div>
-          <div class="kv"><span>{{ t('settings.dbName') }}</span><b class="pcr-mono">{{ db.database }}</b></div>
-          <div class="kv"><span>{{ t('settings.dbUser') }}</span><b class="pcr-mono">{{ db.user }}</b></div>
-          <div class="kv">
-            <span>{{ t('settings.database') }}</span>
-            <el-tag :type="db.ok ? 'success' : 'danger'" effect="dark" size="small">
-              {{ db.ok ? t('settings.dbConnected') : t('settings.dbDisconnected') }}
-            </el-tag>
-          </div>
-          <div class="kv" v-if="db.version"><span>{{ t('settings.dbVersion') }}</span><b class="pcr-mono">{{ db.version }}</b></div>
-          <div class="kv" v-if="db.error"><span class="pcr-loss">Error</span><b class="pcr-loss">{{ db.error }}</b></div>
-          <div class="form-actions">
-            <el-button :icon="Refresh" :loading="reconnecting" @click="reconnect">{{ t('settings.dbReconnect') }}</el-button>
-          </div>
-          <el-table v-if="db.tables?.length" :data="db.tables" size="small" class="mt">
-            <el-table-column prop="name" :label="t('settings.dbTables')" />
-            <el-table-column align="right" width="140">
-              <template #default="{ row }"><span class="pcr-dim pcr-mono">{{ t('settings.dbRows', { n: row.approx_rows ?? 0 }) }}</span></template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </section>
-
-      <!-- 品牌 / 型号 -->
-      <section class="settings-section">
-        <h3 class="section-heading">{{ t('settings.tabDict') }}</h3>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="10">
-            <el-card shadow="never" class="pane-card">
-              <template #header>{{ t('settings.brands') }}</template>
-              <div class="add-row">
-                <el-input v-model="newBrand" @keyup.enter="addBrand" />
-                <el-button type="primary" :icon="Plus" @click="addBrand" />
-              </div>
-              <el-table :data="meta.brands" size="small" max-height="360">
-                <el-table-column prop="name" :label="t('settings.brandName')" />
-                <el-table-column width="60">
-                  <template #default="{ row }">
-                    <el-button size="small" text type="danger" :icon="Delete" @click="removeBrand(row)" />
-                  </template>
-                </el-table-column>
-                <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
-              </el-table>
-            </el-card>
-          </el-col>
-          <el-col :xs="24" :md="14">
-            <el-card shadow="never" class="pane-card">
-              <template #header>{{ t('settings.models') }}</template>
-              <div class="add-row">
-                <el-input v-model="newModel" @keyup.enter="addModel" />
-                <el-button type="primary" :icon="Plus" @click="addModel" />
-              </div>
-              <el-table :data="models" size="small" max-height="360">
-                <el-table-column prop="name" :label="t('settings.modelName')" />
-                <el-table-column width="60">
-                  <template #default="{ row }">
-                    <el-button size="small" text type="danger" :icon="Delete" @click="removeModel(row)" />
-                  </template>
-                </el-table-column>
-                <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
-              </el-table>
-            </el-card>
-          </el-col>
-        </el-row>
-      </section>
-
-      <!-- 购买平台 -->
-      <section class="settings-section">
-        <h3 class="section-heading">{{ t('settings.tabPlatform') }}</h3>
-        <el-row :gutter="16">
-          <el-col :xs="24" :md="10">
-            <el-card shadow="never" class="pane-card">
-              <template #header>
-                {{ t('settings.platforms') }}
-                <span class="pcr-dim head-hint">{{ t('settings.platformHint') }}</span>
-              </template>
-              <div class="add-row">
-                <el-input v-model="newPlatform" maxlength="32" @keyup.enter="addPlatform" />
-                <el-button type="primary" :icon="Plus" @click="addPlatform" />
-              </div>
-              <el-table :data="platformRows" size="small" max-height="360">
-                <!-- 显示的是译名，存的是 name：内置的三个在库里是 yahoo / mercari / other -->
-                <el-table-column :label="t('settings.platformName')">
-                  <template #default="{ row }">{{ row.label }}</template>
-                </el-table-column>
-                <el-table-column width="60">
-                  <template #default="{ row }">
-                    <el-button size="small" text type="danger" :icon="Delete" @click="removePlatform(row)" />
-                  </template>
-                </el-table-column>
-                <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
-              </el-table>
-            </el-card>
-          </el-col>
-        </el-row>
-      </section>
-
-      <!-- 账号 -->
-      <section class="settings-section">
-        <h3 class="section-heading">{{ t('settings.tabAccount') }}</h3>
-        <el-card shadow="never" class="pane-card account-card">
-          <template #header>{{ t('settings.changePwd') }}</template>
-          <el-form ref="pwdFormRef" :model="pwd" :rules="pwdRules" label-width="130px" label-position="left">
-            <el-form-item :label="t('settings.oldPwd')" prop="old_password">
-              <el-input v-model="pwd.old_password" type="password" show-password />
-            </el-form-item>
-            <el-form-item :label="t('settings.newPwd')" prop="new_password">
-              <el-input v-model="pwd.new_password" type="password" show-password />
-            </el-form-item>
-            <el-form-item :label="t('settings.confirmPwd')" prop="confirm">
-              <el-input v-model="pwd.confirm" type="password" show-password @keyup.enter="changePwd" />
-            </el-form-item>
-            <el-button type="primary" :loading="changingPwd" @click="changePwd">{{ t('settings.changePwd') }}</el-button>
-          </el-form>
-
-          <el-divider />
-          <el-form label-width="130px" label-position="left">
-            <el-form-item :label="t('settings.language')">
-              <el-select :model-value="locale" @change="setLocale">
-                <el-option v-for="opt in localeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-              </el-select>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </section>
+    <!-- 二级菜单：el-tabs 只当标签条用，内容在下面按 activeTab 自己渲染。
+         挂进 el-tab-pane 的话五块会一次性全挂载，图床配置与数据库状态（含整库表清单）
+         每次进页面都要白拉一遍——配 ensureSection 的按需加载，把这两发请求推迟到真点开 -->
+    <div class="tabs-row">
+      <el-tabs v-model="activeTab" class="settings-tabs">
+        <el-tab-pane v-for="s in SECTIONS" :key="s.name" :name="s.name">
+          <template #label>
+            <span class="tab-label">
+              <el-icon><component :is="s.icon" /></el-icon>{{ t(s.labelKey) }}
+            </span>
+          </template>
+        </el-tab-pane>
+      </el-tabs>
     </div>
+
+    <!-- ── 图床 ──────────────────────────────────────────────────────── -->
+    <template v-if="activeTab === 'hosting'">
+      <el-card shadow="never" class="pane-card form-pane">
+        <template #header>{{ t('settings.imageHosting') }}</template>
+        <el-form label-width="150px" label-position="left">
+          <el-form-item :label="t('settings.baseUrl')">
+            <el-input v-model="hosting.base_url" />
+          </el-form-item>
+          <el-form-item :label="t('settings.publicBase')">
+            <el-input v-model="hosting.public_base" />
+          </el-form-item>
+          <el-form-item :label="t('settings.project')">
+            <el-input v-model="hosting.project" />
+          </el-form-item>
+          <el-form-item :label="t('settings.token')">
+            <el-input v-model="hosting.token" type="password" show-password />
+          </el-form-item>
+          <el-row :gutter="16">
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="t('settings.timeout')">
+                <el-input-number v-model="hosting.timeout" :min="5" :max="600" :controls="false" class="full" />
+              </el-form-item>
+            </el-col>
+            <el-col :xs="24" :sm="12">
+              <el-form-item :label="t('settings.verifyTls')" label-width="120px">
+                <el-switch v-model="hosting.verify_tls" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <div class="form-actions">
+            <el-button type="primary" :loading="savingHosting" @click="saveHosting">{{ t('common.save') }}</el-button>
+            <el-button :loading="testing" @click="testHosting">{{ t('settings.test') }}</el-button>
+          </div>
+          <el-alert v-if="testResult" :type="testResult.ok ? 'success' : 'error'" :closable="false" show-icon class="mt">
+            <template v-if="testResult.ok">
+              {{ t('settings.testOk') }} · {{ t('settings.allowedExt') }}: {{ (testResult.allowed_extensions || []).join(', ') }}
+              <template v-if="testResult.max_upload_bytes"> · {{ t('settings.maxUpload') }}: {{ prettySize(testResult.max_upload_bytes) }}</template>
+            </template>
+            <template v-else>{{ testResult.message }}</template>
+          </el-alert>
+        </el-form>
+      </el-card>
+    </template>
+
+    <!-- ── 数据库 ────────────────────────────────────────────────────── -->
+    <template v-else-if="activeTab === 'db'">
+      <el-row :gutter="16">
+        <el-col :xs="24" :md="12">
+          <el-card shadow="never" class="pane-card">
+            <template #header>
+              {{ t('settings.database') }}
+              <el-tag :type="db.ok ? 'success' : 'danger'" effect="dark" size="small" class="head-tag">
+                {{ db.ok ? t('settings.dbConnected') : t('settings.dbDisconnected') }}
+              </el-tag>
+            </template>
+            <div class="kv"><span>{{ t('settings.dbConf') }}</span><b class="pcr-mono">{{ db.conf_path }}</b></div>
+            <div class="kv"><span>{{ t('settings.dbHost') }}</span><b class="pcr-mono">{{ db.host }}:{{ db.port }}</b></div>
+            <div class="kv"><span>{{ t('settings.dbName') }}</span><b class="pcr-mono">{{ db.database }}</b></div>
+            <div class="kv"><span>{{ t('settings.dbUser') }}</span><b class="pcr-mono">{{ db.user }}</b></div>
+            <div class="kv" v-if="db.version"><span>{{ t('settings.dbVersion') }}</span><b class="pcr-mono">{{ db.version }}</b></div>
+            <div class="kv" v-if="db.error"><span class="pcr-loss">Error</span><b class="pcr-loss">{{ db.error }}</b></div>
+            <div class="form-actions">
+              <el-button :icon="Refresh" :loading="reconnecting" @click="reconnect">{{ t('settings.dbReconnect') }}</el-button>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="12">
+          <el-card shadow="never" class="pane-card">
+            <template #header>{{ t('settings.dbTables') }}</template>
+            <el-table :data="db.tables || []" size="small" max-height="420">
+              <el-table-column prop="name" :label="t('settings.dbTables')" />
+              <el-table-column align="right" width="140">
+                <template #default="{ row }"><span class="pcr-dim pcr-mono">{{ t('settings.dbRows', { n: row.approx_rows ?? 0 }) }}</span></template>
+              </el-table-column>
+              <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
+            </el-table>
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
+
+    <!-- ── 品牌 / 型号 ───────────────────────────────────────────────── -->
+    <template v-else-if="activeTab === 'dict'">
+      <el-row :gutter="16">
+        <el-col :xs="24" :md="10">
+          <el-card shadow="never" class="pane-card">
+            <template #header>
+              {{ t('settings.brands') }}
+              <span class="pcr-dim head-count">{{ meta.brands.length }}</span>
+            </template>
+            <div class="add-row">
+              <el-input v-model="newBrand" @keyup.enter="addBrand" />
+              <el-button type="primary" :icon="Plus" @click="addBrand" />
+            </div>
+            <el-table :data="meta.brands" size="small" max-height="420">
+              <el-table-column prop="name" :label="t('settings.brandName')" />
+              <el-table-column width="60">
+                <template #default="{ row }">
+                  <el-button size="small" text type="danger" :icon="Delete" @click="removeBrand(row)" />
+                </template>
+              </el-table-column>
+              <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
+            </el-table>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="14">
+          <el-card shadow="never" class="pane-card">
+            <template #header>
+              {{ t('settings.models') }}
+              <span class="pcr-dim head-count">{{ meta.models.length }}</span>
+            </template>
+            <div class="add-row">
+              <el-input v-model="newModel" @keyup.enter="addModel" />
+              <el-button type="primary" :icon="Plus" @click="addModel" />
+            </div>
+            <el-table :data="meta.models" size="small" max-height="420">
+              <el-table-column prop="name" :label="t('settings.modelName')" />
+              <el-table-column width="60">
+                <template #default="{ row }">
+                  <el-button size="small" text type="danger" :icon="Delete" @click="removeModel(row)" />
+                </template>
+              </el-table-column>
+              <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
+            </el-table>
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
+
+    <!-- ── 购买平台 ──────────────────────────────────────────────────── -->
+    <template v-else-if="activeTab === 'platform'">
+      <el-card shadow="never" class="pane-card form-pane">
+        <template #header>{{ t('settings.platforms') }}</template>
+        <div class="add-row">
+          <el-input v-model="newPlatform" maxlength="32" @keyup.enter="addPlatform" />
+          <el-button type="primary" :icon="Plus" @click="addPlatform" />
+        </div>
+        <el-table :data="platformRows" size="small" max-height="420">
+          <!-- 显示的是译名，存的是 name：内置的三个在库里是 yahoo / mercari / other -->
+          <el-table-column :label="t('settings.platformName')">
+            <template #default="{ row }">{{ row.label }}</template>
+          </el-table-column>
+          <el-table-column width="60">
+            <template #default="{ row }">
+              <el-button size="small" text type="danger" :icon="Delete" @click="removePlatform(row)" />
+            </template>
+          </el-table-column>
+          <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
+        </el-table>
+      </el-card>
+    </template>
+
+    <!-- ── 账号 ──────────────────────────────────────────────────────── -->
+    <template v-else-if="activeTab === 'account'">
+      <el-row :gutter="16">
+        <el-col :xs="24" :md="12">
+          <el-card shadow="never" class="pane-card">
+            <template #header>{{ t('settings.changePwd') }}</template>
+            <el-form ref="pwdFormRef" :model="pwd" :rules="pwdRules" label-width="130px" label-position="left">
+              <el-form-item :label="t('settings.oldPwd')" prop="old_password">
+                <el-input v-model="pwd.old_password" type="password" show-password />
+              </el-form-item>
+              <el-form-item :label="t('settings.newPwd')" prop="new_password">
+                <el-input v-model="pwd.new_password" type="password" show-password />
+              </el-form-item>
+              <el-form-item :label="t('settings.confirmPwd')" prop="confirm">
+                <el-input v-model="pwd.confirm" type="password" show-password @keyup.enter="changePwd" />
+              </el-form-item>
+              <div class="form-actions">
+                <el-button type="primary" :loading="changingPwd" @click="changePwd">{{ t('settings.changePwd') }}</el-button>
+              </div>
+            </el-form>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :md="12">
+          <el-card shadow="never" class="pane-card">
+            <template #header>{{ t('settings.preferences') }}</template>
+            <el-form label-width="130px" label-position="left">
+              <el-form-item :label="t('settings.language')">
+                <el-select :model-value="locale" @change="setLocale">
+                  <el-option v-for="opt in localeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+                </el-select>
+              </el-form-item>
+            </el-form>
+          </el-card>
+        </el-col>
+      </el-row>
+    </template>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Coin, Collection, Delete, Picture, Plus, Refresh, Shop, User } from '@element-plus/icons-vue'
 import { authApi, optionsApi, systemApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { currentLocale, localeOptions, setLocale } from '@/i18n'
@@ -195,9 +221,36 @@ import { useMetaStore } from '@/stores/meta'
 import { useAuthStore } from '@/stores/auth'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const meta = useMetaStore()
 const auth = useAuthStore()
 const locale = currentLocale
+
+// 二级菜单的定义：顺序即标签条的顺序，name 同时是 URL 上的 ?tab=
+const SECTIONS = [
+  { name: 'hosting', labelKey: 'settings.tabImageHosting', icon: Picture },
+  { name: 'db', labelKey: 'settings.tabDatabase', icon: Coin },
+  { name: 'dict', labelKey: 'settings.tabDict', icon: Collection },
+  { name: 'platform', labelKey: 'settings.tabPlatform', icon: Shop },
+  { name: 'account', labelKey: 'settings.tabAccount', icon: User }
+]
+
+// 当前在哪一块记在 URL 上：刷新（或从别处贴链接进来）还停在同一块，
+// 改完图床配置刷新页面不会被甩回第一页
+const activeTab = ref(SECTIONS.some((s) => s.name === route.query.tab) ? route.query.tab : 'hosting')
+
+// 每块的数据只在第一次点开时拉一次，切回来不重复请求
+// 品牌 / 型号 / 平台在 meta.ensure() 里已经一次带回，这里只管另外两块
+const loaded = reactive({ hosting: false, db: false })
+function ensureSection(name) {
+  if (name === 'hosting' && !loaded.hosting) { loaded.hosting = true; loadHosting() }
+  if (name === 'db' && !loaded.db) { loaded.db = true; loadDb() }
+}
+watch(activeTab, (v) => {
+  ensureSection(v)
+  router.replace({ query: { ...route.query, tab: v } })
+})
 
 // ---- 图床 ----
 const hosting = reactive({ base_url: '', public_base: '', project: '', token: '', token_set: false, timeout: 30, verify_tls: true })
@@ -284,7 +337,6 @@ async function removePlatform(p) {
 // ---- 品牌 / 型号（两者相互独立）----
 const newBrand = ref('')
 const newModel = ref('')
-const models = ref([])
 
 async function addBrand() {
   const name = newBrand.value.trim()
@@ -297,20 +349,16 @@ async function removeBrand(b) {
   await optionsApi.removeBrand(b.id)
   await meta.reloadBrands()
 }
-async function loadModels() {
-  const res = await optionsApi.models()
-  models.value = res.items || []
-}
 async function addModel() {
   const name = newModel.value.trim()
   if (!name) return
   await optionsApi.createModel({ name })
   newModel.value = ''
-  await loadModels()
+  await meta.reloadModels()
 }
 async function removeModel(row) {
   await optionsApi.removeModel(row.id)
-  await loadModels()
+  await meta.reloadModels()
 }
 
 // ---- 改密码 ----
@@ -340,39 +388,31 @@ async function changePwd() {
 }
 
 onMounted(async () => {
-  await meta.ensure()
-  loadHosting()
-  loadDb()
-  loadModels()
+  ensureSection(activeTab.value)
+  await meta.ensure()   // 品牌与平台清单全站共用，进页面就先备好
 })
 </script>
 
 <style scoped>
 .page-title { font-size: 20px; margin-bottom: 16px; }
-.settings-stack { display: flex; flex-direction: column; gap: 22px; }
-.settings-section { display: block; }
-.section-heading {
-  font-size: 15px;
-  font-weight: 600;
-  color: #8fb8ff;
-  margin: 0 0 10px;
-  padding-left: 10px;
-  border-left: 3px solid #5b8cff;
-}
+
+/* el-tabs 只当二级标签条用，内容由下面自己渲染 */
+.tabs-row { margin-bottom: 18px; }
+.settings-tabs :deep(.el-tabs__content) { display: none; }
+.settings-tabs :deep(.el-tabs__header) { margin-bottom: 0; }
+.settings-tabs :deep(.el-tabs__nav-wrap::after) { background-color: var(--pcr-border); }
+.tab-label { display: inline-flex; align-items: center; gap: 6px; }
+
 .pane-card { margin-bottom: 16px; }
-.cfg-form .hint { font-size: 12px; color: #7b8698; margin-top: 4px; line-height: 1.5; }
+/* 单栏的那两块（图床表单、平台清单）不铺满整屏——一行拉到 1900px 宽读起来很累 */
+.form-pane { max-width: 760px; }
 .full { width: 100% !important; }
 .form-actions { margin-top: 12px; }
 .mt { margin-top: 12px; }
-.mb { margin-bottom: 12px; }
-.kv { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1c2740; font-size: 14px; }
-.kv span { color: #8a94a6; }
+.kv { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 8px 0; border-bottom: 1px solid #1c2740; font-size: 14px; }
+.kv span { color: #8a94a6; white-space: nowrap; }
 .kv b { color: #e6edf7; font-weight: 500; word-break: break-all; text-align: right; }
 .add-row { display: flex; gap: 8px; margin-bottom: 14px; }
-.head-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
-.model-add { flex-wrap: wrap; }
-.mb-select { width: 130px !important; }
-.chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip { margin: 0; }
-.account-card { max-width: 520px; }
+.head-count { font-size: 12px; font-weight: 400; margin-left: 6px; }
+.head-tag { margin-left: 8px; }
 </style>
