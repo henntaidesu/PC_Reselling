@@ -26,6 +26,12 @@
           <button class="del-btn" type="button" :title="t('common.delete')" @click.stop="removeItem(item)">
             <el-icon><Close /></el-icon>
           </button>
+          <!-- 「设为封面」只在触屏上出现（样式里的 @media (hover: none)）：那边没有拖拽
+               排序，而第一张图就是列表里的封面。桌面端拖一下就行，不用多这个按钮。 -->
+          <button class="cover-btn" type="button" :title="t('media.setCover')"
+            @click.stop="sort.moveToFront(items, item)">
+            <el-icon><Star /></el-icon>
+          </button>
         </div>
 
         <!-- 装不下的那些收在这里：让缩略图把卡片撑到比表单还长，不如点一下再展开 -->
@@ -75,7 +81,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Close, Plus, VideoPlay } from '@element-plus/icons-vue'
+import { Close, Plus, Star, VideoPlay } from '@element-plus/icons-vue'
 import { mediaApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { useFileDrop } from '@/composables/useFileDrop'
@@ -299,6 +305,32 @@ defineExpose({ reload: load })
   font-size: 12px;
 }
 .del-btn:hover { background: #f87171; }
+/* 「设为封面」。平时不存在：桌面端拖一下就换了封面，多一个按钮只是噪点。 */
+.cover-btn {
+  display: none;
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffd66b;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (hover: none) {
+  /* 触屏上这两个角标都要能按得中。18~22px 见方在手机上是「点三次中一次」的尺寸，
+     而它俩紧挨着缩略图——点空了就落到下面那层 .thumb 上，本想删一张图，结果弹出了
+     全屏预览；反过来想看大图却把它删了。撑到 28px，两个角各占一边，不再打架。 */
+  .del-btn, .cover-btn { width: 28px; height: 28px; }
+  .cover-btn { display: flex; }
+  /* 第一张本来就是封面，不给按钮——按了什么也不会变，反而让人以为没生效 */
+  .cell:first-child .cover-btn { display: none; }
+}
+
 /* 「更多图片」和上传格子长一个样：它俩都是格子，不是按钮 */
 .more-cell {
   aspect-ratio: 4 / 3;

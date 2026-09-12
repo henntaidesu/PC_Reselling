@@ -37,6 +37,24 @@ def _dist_dir() -> Path | None:
     return None
 
 
+class _HashedStatic(StaticFiles):
+    """/assets 下的文件名都带内容哈希（Vite 产物），可以让浏览器永久缓存。
+
+    默认只有 ETag / Last-Modified：文件没变也要先发一次请求才知道，回来一个 304。
+    十来个资源就是十来个往返——在局域网里看不出来，手机上（尤其移动网络，一个往返
+    动辄一两百毫秒）每次回访都要白等一两秒。
+
+    只对 /assets 这么干。/static 下的 logo.svg 文件名是固定的，同样缓存一年的话，
+    换了图标一年之内都刷不出来；index.html 更不能缓存——它记着该加载哪几个哈希文件名，
+    缓存住了就等于前端永远停在旧版本（它走的是下面的 SPA 兜底，本来也不经过这里）。
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["cache-control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 def register_health(app: FastAPI) -> None:
     @app.get("/api/health", include_in_schema=False)
     def health():
@@ -61,7 +79,7 @@ def mount_spa(app: FastAPI) -> None:
         log.info("未找到 webside/dist，跳过前端托管（开发模式下由 Vite 提供前端）")
         return
 
-    app.mount("/assets", StaticFiles(directory=dist / "assets"), name="assets")
+    app.mount("/assets", _HashedStatic(directory=dist / "assets"), name="assets")
     static_dir = dist / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")

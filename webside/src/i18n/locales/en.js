@@ -18,6 +18,7 @@ export default {
     edit: 'Edit',
     add: 'Add',
     search: 'Search',
+    filter: 'Filter',
     reset: 'Reset',
     refresh: 'Refresh',
     close: 'Close',
@@ -154,6 +155,8 @@ export default {
     addCard: 'Add GPU',
     addDevice: 'Add system',
     addPick: 'What are you adding?',
+    dateFrom: 'Bought from',
+    dateTo: 'Bought to',
     costJpy: 'Cost (JPY)',
     addCardDesc: 'One in, one out: a single buy price and a single sale price',
     addDeviceDesc: 'One in, many out: bought as a whole, sold as CPU / GPU / RAM parts',
@@ -227,7 +230,8 @@ export default {
     more: 'More photos',
     collapse: 'Show less',
     notConfigured: 'Image hosting is not configured. Set it up in Settings → Image hosting.',
-    dragToSort: 'Drag to reorder'
+    dragToSort: 'Drag to reorder',
+    setCover: 'Set as cover'
   },
   dashboard: {
     title: 'Dashboard',

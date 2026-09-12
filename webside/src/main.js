@@ -19,6 +19,10 @@ window.addEventListener('drop', (e) => e.preventDefault())
 
 const app = createApp(App)
 
+// 图标整包注册。看着像浪费，实测不是：Rollup 会把没用到的摇掉，改成手写清单只注册
+// 53 个，产物大小分毫不差（连一个都不注册也一样）。而模板里既有 `<Odometer />` 也有
+// `:is="'Odometer'"` 这种按字符串取的写法，后者只能靠全局注册——为零收益换一条
+// 「加图标要记得登记、忘了就静默消失」的规矩不划算。
 for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
   app.component(key, component)
 }

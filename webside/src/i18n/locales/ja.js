@@ -18,6 +18,7 @@ export default {
     edit: '編集',
     add: '追加',
     search: '検索',
+    filter: '絞り込み',
     reset: 'リセット',
     refresh: '更新',
     close: '閉じる',
@@ -154,6 +155,8 @@ export default {
     addCard: 'GPU を追加',
     addDevice: '本体を追加',
     addPick: '何を追加しますか',
+    dateFrom: '購入日（開始）',
+    dateTo: '購入日（終了）',
     costJpy: '原価（円）',
     addCardDesc: '一つ仕入れて一つ売る：仕入値と売値が一つずつ',
     addDeviceDesc: 'まとめて仕入れて分けて売る：CPU / GPU / メモリなどの部品ごとに販売',
@@ -227,7 +230,8 @@ export default {
     more: 'もっと見る',
     collapse: '折りたたむ',
     notConfigured: '画像ホスティングが未設定です。「システム設定 → 画像ホスティング」で設定してください',
-    dragToSort: 'ドラッグで並び替え'
+    dragToSort: 'ドラッグで並び替え',
+    setCover: '表紙にする'
   },
   dashboard: {
     title: 'ダッシュボード',

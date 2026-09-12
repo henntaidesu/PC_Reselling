@@ -428,4 +428,18 @@ onMounted(reload)
 .alloc-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; }
 .alloc-line.short { color: #e6a23c; }
 .pcr-table :deep(.el-input-number) { width: 100% !important; }
+
+@media (max-width: 768px) {
+  /* 三个操作按钮在窄屏上换行后会一长一短地错开，各占一行反而齐整，热区也够大 */
+  .head-actions { width: 100%; }
+  .head-actions .el-button { flex: 1 1 40%; margin-left: 0; }
+  /* 这两张表六列都是必看的（日期 / 金额 / 汇率 / 人民币 / 余额 / 操作），砍掉哪一列都
+     会让人为了核一个数再点进别的地方，所以宁可让它横向滚——el-table 自带滚动容器，
+     卡片内边距收窄一档，能多露出小半列，一眼就看得出「右边还有」。 */
+  .table-card :deep(.el-card__body) { padding: 8px 6px; }
+  /* 展开行里那 46px 的左缩进是对齐桌面端展开箭头用的，窄屏上等于白扔掉八分之一行宽，
+     而里面恰恰是「哪批注资 × 什么汇率 = 多少人民币」这条最长的算式 */
+  .alloc { padding: 4px 6px 8px 12px; }
+  .alloc-line { flex-wrap: wrap; gap: 4px 8px; }
+}
 </style>

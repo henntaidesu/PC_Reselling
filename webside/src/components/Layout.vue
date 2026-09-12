@@ -196,7 +196,9 @@ function handleLogout() {
 .layout-fab {
   position: fixed;
   left: 14px;
-  bottom: 18px;
+  /* 带安全区：全面屏底部那条手势横条会压在 18px 的位置上，按钮点不动。
+     下面 .main 的底部内边距也是按这个值留的（72px + 安全区），两处要一起看。 */
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
   z-index: 1500;
   width: 46px;
   height: 46px;

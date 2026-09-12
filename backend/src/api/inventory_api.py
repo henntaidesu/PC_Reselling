@@ -125,9 +125,6 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "purchase_cny": None,
         "intl_shipping_cny": None,
         "sale_cny": money["sale_cny"],
-        # 净收入 = 售价 − 国内运费。放在这儿供前端在「已收回」下方标一行小字，
-        # 「已收回」本身仍取售价，二级行加起来才等于整机那一行。
-        "net_cny": money["net_cny"],
         "domestic_shipping_cny": money["domestic_shipping_cny"],
         "profit_cny": None,
         "incomplete": money["incomplete"],

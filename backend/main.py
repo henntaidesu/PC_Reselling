@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 
 # 冻结成 exe 后 sys.path 里没有 backend 目录，src.* 的导入会失败
 if getattr(sys, "frozen", False):
@@ -90,6 +91,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 压缩响应。打包后前端 dist 由这个进程托管，而 StaticFiles 不会压缩：手机首次打开要
+# 下约 2.7MB（JS 2.3MB + CSS 0.36MB），gzip 之后约 820KB——同一条网络上三倍多的差距，
+# 在手机流量上就是「等一会儿」和「以为没反应」的区别。
+# 局域网里这点 CPU 无所谓，外网访问时省下的时间远超过它。
+# minimum_size 用默认的 500 字节：比这更小的响应压完往往还更大（gzip 有固定头部），
+# 而接口返回的 JSON 大多也就几百字节到几十 KB，该压的都会被压到。
+app.add_middleware(GZipMiddleware, minimum_size=500)
 
 app.include_router(api_router)
 register_health(app)

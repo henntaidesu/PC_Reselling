@@ -18,6 +18,7 @@ export default {
     edit: '编辑',
     add: '新增',
     search: '搜索',
+    filter: '筛选',
     reset: '重置',
     refresh: '刷新',
     close: '关闭',
@@ -154,6 +155,8 @@ export default {
     addCard: '新增显卡',
     addDevice: '新增整机',
     addPick: '新增什么',
+    dateFrom: '购入起',
+    dateTo: '购入止',
     costJpy: '总成本（日元）',
     addCardDesc: '一进一出：一个买价、一个卖价',
     addDeviceDesc: '一进多出：一笔买回整机，拆成 CPU / 显卡 / 内存等部件分别卖',
@@ -227,7 +230,8 @@ export default {
     more: '更多图片',
     collapse: '收起',
     notConfigured: '图床尚未配置，请先到「系统配置 → 图床」中填写连接信息',
-    dragToSort: '拖拽可调整顺序'
+    dragToSort: '拖拽可调整顺序',
+    setCover: '设为封面'
   },
   dashboard: {
     title: '概览',

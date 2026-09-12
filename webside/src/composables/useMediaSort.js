@@ -86,5 +86,20 @@ export function useMediaSort(commit) {
     return after.value ? 'sort-after' : 'sort-before'
   }
 
-  return { handlers, cellClass }
+  // 挪到第一位。给触屏用：上面那套是 HTML5 拖放，它在触屏上根本不触发（iOS 的长按
+  // 拖拽既不稳也不是这套事件），于是手机上排序等于没有——而第一张图就是列表里的封面
+  // （见 format.firstImage），拍完照换不了封面，列表里那台机器就一直顶着一张随手拍。
+  //
+  // 只提供「挪到第一位」而不是整套触屏拖拽：排序在这里几乎只为了定封面这一件事，
+  // 为剩下那点「第三张和第四张对调」的需求实现一整套长按拖拽不划算。
+  // 落库仍走同一个 commit，和拖拽是同一条写路径。
+  function moveToFront(list, item) {
+    const from = list.findIndex((m) => m.id === item.id)
+    if (from <= 0) return          // 不在列表里，或本来就是第一张
+    const [moved] = list.splice(from, 1)
+    list.unshift(moved)
+    commit(list.map((m) => m.id))
+  }
+
+  return { handlers, cellClass, moveToFront }
 }

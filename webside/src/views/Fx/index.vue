@@ -75,6 +75,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import { fxApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { RATE_UNIT, formatRate } from '@/utils/format'
+import { INK, tooltipStyle } from '@/utils/chartTheme.js'
 import EChart from '@/components/EChart.vue'
 
 const { t } = useI18n()
@@ -89,12 +90,27 @@ const queryDate = ref(null)
 const queryResult = ref(null)
 const queried = ref(false)
 
+// 文字色、轴标签色、提示框底色都显式给全，不靠 echarts 自带的 'dark' 主题——
+// EChart.vue 按需引入之后已经不挂那个主题了（理由见 utils/chartTheme.js 的开头）。
+// 少给一项的表现是深色卡片上出现一个白底提示框、或者一排几乎看不见的灰色刻度。
 const trendOption = computed(() => ({
   backgroundColor: 'transparent',
-  tooltip: { trigger: 'axis', valueFormatter: (v) => formatRate(v) },
+  textStyle: { color: INK.primary },
+  tooltip: { trigger: 'axis', ...tooltipStyle, valueFormatter: (v) => formatRate(v) },
   grid: { left: 8, right: 12, bottom: 8, top: 20, containLabel: true },
-  xAxis: { type: 'category', data: history.value.map((h) => h.date), axisLine: { lineStyle: { color: '#3a4456' } } },
-  yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#1c2740' } }, axisLabel: { formatter: (v) => v.toFixed(4) } },
+  xAxis: {
+    type: 'category',
+    data: history.value.map((h) => h.date),
+    axisLine: { lineStyle: { color: INK.axis } },
+    axisLabel: { color: INK.muted, fontSize: 11 }
+  },
+  yAxis: {
+    type: 'value',
+    scale: true,
+    axisLine: { show: false },
+    splitLine: { lineStyle: { color: INK.grid } },
+    axisLabel: { color: INK.muted, fontSize: 11, formatter: (v) => v.toFixed(4) }
+  },
   series: [{
     type: 'line', smooth: true, showSymbol: false,
     data: history.value.map((h) => h.rate),
@@ -173,4 +189,18 @@ onMounted(loadAll)
 .cfg-row:last-child { border-bottom: none; }
 .cfg-row > span { color: #c7d0de; font-size: 14px; }
 .cfg-select { width: 220px !important; }
+
+@media (max-width: 768px) {
+  /* 「说明文字 —— 控件」两边拉开的排法要有富余宽度才成立。360px 的屏上，
+     定宽 220px 的下拉会把左边那句带副标题的说明挤成每行两三个字。窄屏改成上下排：
+     说明占满一行，控件自己占满下一行，顺带也把下拉的点击热区撑到整行宽。 */
+  .cfg-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .cfg-select { width: 100% !important; }
+  /* 缓存区间那行是纯文本，撑满一行反而该贴左读，不用跟着控件走 */
+  .cfg-row > span:last-child { text-align: left; }
+  /* 「100 日元 = 4.3210 人民币」连币种一共十来个字符，26px 下在窄屏上会折行，
+     折行之后等号两边各占一行，看着像两个数 */
+  .today-rate { font-size: 21px; }
+  .ecb-note { padding: 0; }
+}
 </style>

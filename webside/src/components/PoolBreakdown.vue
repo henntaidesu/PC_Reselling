@@ -46,4 +46,11 @@ const jpy = (v) => formatMoney(v, 'JPY')
 .pool-alloc.short { color: #e6a23c; }
 .link { color: #8fb8ff; text-decoration: none; font-size: 12px; }
 .link:hover { text-decoration: underline; }
+
+@media (max-width: 768px) {
+  /* 「日期 · 日元 · × 汇率 = · 人民币」四段排一行，窄屏上只要金额上了六位就会顶出去。
+     让它折行而不是压扁——这一行是「这笔钱按什么汇率折的」的完整算式，缺一段就对不上账。
+     资金池页面那份明细（Funds 的 .alloc-line）是同样的处理。 */
+  .pool-alloc { flex-wrap: wrap; gap: 4px 8px; }
+}
 </style>

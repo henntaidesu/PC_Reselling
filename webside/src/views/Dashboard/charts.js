@@ -17,7 +17,7 @@ import {
   shortDate,
   tooltipStyle,
   valueAxis
-} from './chartTheme.js'
+} from '@/utils/chartTheme.js'
 
 /** x 轴刻度：按日时省掉年份，按月时保留 YYYY-MM */
 function axisTicks(trend, granularity) {

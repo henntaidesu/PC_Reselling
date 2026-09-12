@@ -119,26 +119,57 @@ body { -webkit-tap-highlight-color: transparent; }
   .el-select__wrapper, .el-select__placeholder {
     font-size: 16px;
   }
+  /* 控件整体抬高一档。32px 是给鼠标用的尺寸，手指按不准——一列字段挨着排时，
+     点「购入日期」经常落进上一行的「型号」。40px 加上行间距刚好够一个指腹。
+     改的是 Element 的尺寸变量而不是各处写死高度：输入框、下拉、默认按钮一起长高，
+     表格里的 size="small" 走的是另一个变量，不受影响（它在横向滚动区里，越矮越好）。
+     选择器写成 html:root 而不是 :root：Element 自己这两个变量也定义在 :root 上，
+     同特异度就只能靠打包顺序取胜——加个 html 把特异度抬高一档，谁先谁后都无所谓。 */
+  html:root {
+    --el-component-size: 40px;
+    --el-component-size-large: 44px;
+  }
   .el-dialog {
     --el-dialog-margin-top: 5vh;
     width: 94vw !important;
     max-width: 94vw;
   }
-  /* 弹窗表单一律标签在上，窄屏下不挤成一条 */
-  .el-dialog .el-form-item { display: block; }
-  .el-dialog .el-form-item__label {
+  /* 确认框（删除部件 / 删除注资那几处）默认写死 420px，比 360px 的屏还宽——
+     两侧被裁掉之后，「取消 / 确定」正好是最先被切走的那部分。
+     它不是 el-dialog，不吃上面那条规则，得单独给。 */
+  .el-message-box { --el-messagebox-width: 94vw; }
+  /* 标签在左的表单一律改成标签在上。label-width 是个死宽度：Settings 那张表单写的
+     150px，在 360px 的屏上先被标签吃掉将近一半，剩给输入框的位置连一个图床 URL 的
+     开头都放不下。本来就是 label-position="top" 的（各个弹窗）不受这条影响。 */
+  .el-form--label-left .el-form-item,
+  .el-form--label-right .el-form-item { display: block; }
+  .el-form--label-left .el-form-item__label,
+  .el-form--label-right .el-form-item__label {
     width: auto !important;
     justify-content: flex-start;
     text-align: left;
     padding: 0 0 4px;
   }
-  .el-dialog .el-form-item__content { margin-left: 0 !important; }
+  .el-form--label-left .el-form-item__content,
+  .el-form--label-right .el-form-item__content { margin-left: 0 !important; }
   .el-card__body { padding: 12px; }
   .el-card__header { padding: 12px; }
   .el-table { font-size: 12px; }
-  @media (hover: none) {
-    .el-table { --el-table-row-hover-bg-color: transparent; }
-  }
+  /* 弹窗底部按钮排成一行，各占一半——「取消 / 保存」在窄屏上挤在右下角，
+     两个都只有指甲盖大，点错的概率不低 */
+  .el-dialog__footer .el-button { flex: 1 1 0; margin-left: 0; }
+  .el-dialog__footer { display: flex; gap: 10px; }
+}
+
+/* ── 触屏：悬浮态在这里等于不存在 ──────────────────────────────────────
+   判据是「这块屏能不能悬浮」，不是它有多宽，所以用 (hover: none) 而不是宽度断点：
+   窄窗口的桌面浏览器仍有鼠标，那套「移上去才亮」的皮该留着。 */
+@media (hover: none) {
+  /* 表格行的悬浮底色在触屏上只会在点过之后赖着不走，看着像选中了某一行 */
+  .el-table { --el-table-row-hover-bg-color: transparent; }
+  /* 表格里的图标按钮（编辑 / 删除）只有图标那么大，手指点不中还容易点到隔壁那个。
+     只加内边距不动图标尺寸：热区撑到 30px 见方，行高不变。 */
+  .el-table .el-button.is-link { padding: 7px 5px; }
 }
 
 /* 通用工具类 */

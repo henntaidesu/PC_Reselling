@@ -310,7 +310,7 @@ import { usePlatforms } from '@/composables/usePlatforms'
 import { cny, profitClass, STATUS_COLOR, STATUS_ORDER } from '@/utils/format'
 import EChart from '@/components/EChart.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { NEUTRAL, SERIES, STATUS, formatInt } from './chartTheme.js'
+import { NEUTRAL, SERIES, STATUS, formatInt } from '@/utils/chartTheme.js'
 import { buildCountOption, buildShareBarOption, buildTrendOption } from './charts.js'
 
 defineOptions({ name: 'Dashboard' })

@@ -196,10 +196,31 @@
         <!-- 部件一览：分页之后总得有一个地方能一眼看完「哪几件卖了、哪几件还空着」 -->
         <el-card shadow="never" class="block">
           <template #header>{{ t('device.partsOverview') }}</template>
-          <el-table :data="form.parts" class="parts-table" @row-click="(row) => (activeTab = partTab(row.part_type))">
+          <!-- 手机：这张表七列合计约 890px，360px 的屏上要横划两屏半——而它存在的理由
+               恰恰是「一眼看完哪几件卖了、哪几件还空着」，横滚等于把这个理由抵消掉。
+               换成一行一件的紧凑列表，点一行同样跳到那个部件页。 -->
+          <div v-if="isMobile" class="mp-list">
+            <!-- 没落盘的模板槽位还没有 id，退回用下标做 key。这张表是只读的，不会
+                 增删重排，下标在这里是稳的 -->
+            <button v-for="(row, i) in form.parts" :key="row.id ?? 'slot-' + i"
+              type="button" class="mp-row" @click="activeTab = partTab(row.part_type)">
+              <PartTypeTag :type="row.part_type" />
+              <span class="mp-name" :class="{ 'pcr-dim': !hasPartContent(row) }">
+                {{ hasPartContent(row) ? partTitle(row) : t('device.blankSlot') }}
+              </span>
+              <span v-if="row._media_count" class="mp-media pcr-mono pcr-dim">
+                <el-icon><Picture /></el-icon>{{ row._media_count }}
+              </span>
+              <StatusTag v-if="isSold(row)" :status="row.status" />
+              <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+              <span class="mp-money pcr-mono">{{ isSold(row) ? formatMoney(row.sale_amount, row.sale_currency) : '' }}</span>
+            </button>
+          </div>
+
+          <el-table v-else :data="form.parts" class="parts-table" @row-click="(row) => (activeTab = partTab(row.part_type))">
             <el-table-column :label="t('inv.kind')" width="110">
               <template #default="{ row }">
-                <el-tag size="small" effect="plain" type="info">{{ t('partType.' + row.part_type) }}</el-tag>
+                <PartTypeTag :type="row.part_type" />
               </template>
             </el-table-column>
             <el-table-column :label="t('inv.name')" min-width="200">
@@ -282,6 +303,7 @@ import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
@@ -292,6 +314,7 @@ import MoneyInput from '@/components/MoneyInput.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
+import PartTypeTag from '@/components/PartTypeTag.vue'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 
 const { t } = useI18n()
@@ -320,6 +343,7 @@ async function startEditTitle() {
 }
 
 const { platforms } = usePlatforms()
+const { isMobile } = useIsMobile()
 // 金额要按购入日 / 各部件出售日的汇率折算，只有后端算得准，前端不自己算一遍
 // （自己算必然和列表页对不上）
 const money = computed(() => device.value?.money || {
@@ -691,6 +715,32 @@ onMounted(async () => {
 }
 .hint.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
 .hint .warn { color: #e6a23c; }
+
+/* 手机上的部件一览。做成一行一件的按钮：整行可点（跳到那个部件页），
+   用原生 button 而不是 div——键盘能 Tab 到、回车能按下，这些在 div 上都得自己补。 */
+.mp-list { display: flex; flex-direction: column; gap: 6px; }
+.mp-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  /* 44px：一行一件挨着排，比这矮就会点到隔壁那件 */
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  color: var(--pcr-text);
+  font-size: 13px;
+  text-align: left;
+}
+.mp-row:active { background: rgba(91, 140, 255, 0.08); }
+/* 名称吃掉中间所有剩余宽度，右边的状态和金额始终贴着右缘对齐成一列 */
+.mp-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mp-media { flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 11px; }
+/* 金额给个下限宽度并右对齐：没卖的那几件这一格是空的，不占位的话上下两行的
+   状态标签会各自停在不同的横坐标上，一列扫下来是锯齿状的 */
+.mp-money { flex: 0 0 auto; min-width: 62px; text-align: right; }
 
 @media (max-width: 1100px) {
   .fields { grid-template-columns: minmax(0, 1fr); }

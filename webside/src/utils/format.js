@@ -31,6 +31,31 @@ export function statusColor(status) {
   return STATUS_COLOR[status] || STATUS_COLOR.purchased
 }
 
+// 部件类型色。一台整机展开来是十来行，光靠文字扫不出哪行是显卡、哪行是内存，
+// 给每种部件一个固定颜色就能一眼分出来。
+//
+// 与状态色是**两套**，刻意不共用：状态是流程（走到哪一步了），类型是分类（这是个什么
+// 东西），同色会让人以为两者有关系。挑色只有两条讲究：
+//   1. 「显卡」用的就是列表里顶层「显卡」行那个蓝（Element 的 primary）——同一样东西，
+//      在哪一层都该是同一个颜色；
+//   2. 常见的那几件（CPU / 显卡 / 内存 / 硬盘）色相拉开，散热 / 机箱 / 其他这类少见的
+//      用灰调收着，别跟主角抢眼。
+export const PART_TYPE_COLOR = {
+  cpu: '#38bdf8',
+  gpu: '#409eff',
+  ram: '#a78bfa',
+  disk: '#34d399',
+  motherboard: '#f472b6',
+  psu: '#fbbf24',
+  cooler: '#2dd4bf',
+  case: '#d08c60',
+  other: '#94a3b8'
+}
+
+export function partTypeColor(type) {
+  return PART_TYPE_COLOR[type] || PART_TYPE_COLOR.other
+}
+
 // 状态在流程里的先后，用于按流程排序而不是字母序
 export const STATUS_ORDER = [
   'intent', 'purchased', 'pending_test', 'test_passed', 'test_failed',

@@ -40,37 +40,152 @@
         >
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
-        <el-select v-model="filters.kind" :placeholder="t('inv.allKinds')" clearable class="f-kind" @change="reload">
-          <el-option :label="t('inv.card')" value="card" />
-          <el-option :label="t('inv.device')" value="device" />
-        </el-select>
-        <StatusSelect v-model="filters.status" multiple collapse-tags :placeholder="t('card.status')"
-          clearable class="f-status" @change="reload" />
-        <el-select v-model="filters.brand" :placeholder="t('card.brand')" clearable filterable class="f-brand" @change="reload">
-          <el-option v-for="b in usedBrands" :key="b.brand" :label="`${b.brand} (${b.count})`" :value="b.brand" />
-        </el-select>
-        <el-select v-model="filters.source_platform" :placeholder="t('card.platform')" clearable class="f-platform" @change="reload">
-          <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
-        </el-select>
-        <el-date-picker
-          v-model="dateRange"
-          type="daterange"
-          value-format="YYYY-MM-DD"
-          :start-placeholder="t('card.purchaseDate')"
-          :end-placeholder="t('card.purchaseDate')"
-          class="f-date"
-          @change="reload"
-        />
-        <el-button :icon="Refresh" @click="resetFilters">{{ t('common.reset') }}</el-button>
+        <!-- 手机上六个筛选器竖着排完要占掉大半屏，进页面第一眼看到的是一列空下拉框而
+             不是货。所以窄屏默认只留搜索框，其余收进这个开关；按钮上的角标写着当前有
+             几项在生效——收起来之后唯一的风险就是「明明有货却一条都不显示」而看不出
+             是筛掉的。 -->
+        <el-button v-if="isMobile" class="f-toggle" :icon="Filter" @click="filtersOpen = !filtersOpen">
+          {{ t('common.filter') }}<span v-if="activeFilterCount" class="f-count">{{ activeFilterCount }}</span>
+        </el-button>
+        <template v-if="!isMobile || filtersOpen">
+          <el-select v-model="filters.kind" :placeholder="t('inv.allKinds')" clearable class="f-kind" @change="reload">
+            <el-option :label="t('inv.card')" value="card" />
+            <el-option :label="t('inv.device')" value="device" />
+          </el-select>
+          <StatusSelect v-model="filters.status" multiple collapse-tags :placeholder="t('card.status')"
+            clearable class="f-status" @change="reload" />
+          <el-select v-model="filters.brand" :placeholder="t('card.brand')" clearable filterable class="f-brand" @change="reload">
+            <el-option v-for="b in usedBrands" :key="b.brand" :label="`${b.brand} (${b.count})`" :value="b.brand" />
+          </el-select>
+          <el-select v-model="filters.source_platform" :placeholder="t('card.platform')" clearable class="f-platform" @change="reload">
+            <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
+          </el-select>
+          <!-- 区间选择器在手机上摆不下：Element 的 daterange 面板是并排两个月历，
+               写死 646px 宽（单个月历是 322px），360px 的屏上会被裁掉大半，右边那个月
+               连同「确定」一起看不见。窄屏拆成起 / 止两个单日期选择器——面板只剩一个月，
+               正好放得下，顺带也支持只填一头（后端两端本来就是各自独立判断的）。 -->
+          <el-date-picker
+            v-if="!isMobile"
+            v-model="dateRange"
+            type="daterange"
+            value-format="YYYY-MM-DD"
+            :start-placeholder="t('card.purchaseDate')"
+            :end-placeholder="t('card.purchaseDate')"
+            class="f-date"
+            @change="reload"
+          />
+          <template v-else>
+            <el-date-picker
+              :model-value="dateRange?.[0] || null"
+              type="date"
+              value-format="YYYY-MM-DD"
+              :placeholder="t('inv.dateFrom')"
+              class="f-date"
+              @update:model-value="(v) => setRangeEnd(0, v)"
+            />
+            <el-date-picker
+              :model-value="dateRange?.[1] || null"
+              type="date"
+              value-format="YYYY-MM-DD"
+              :placeholder="t('inv.dateTo')"
+              class="f-date"
+              @update:model-value="(v) => setRangeEnd(1, v)"
+            />
+          </template>
+          <el-button :icon="Refresh" @click="resetFilters">{{ t('common.reset') }}</el-button>
+        </template>
         <!-- 新增挨着重置放：这一行是「对这张表做点什么」的地方，按钮都聚在同一处，
              不用在标题栏和筛选行之间来回找 -->
-        <el-button type="primary" :icon="Plus" @click="addVisible = true">{{ t('common.add') }}</el-button>
+        <el-button type="primary" :icon="Plus" class="f-add" @click="addVisible = true">{{ t('common.add') }}</el-button>
       </div>
     </el-card>
 
     <!-- 表格：显卡与整机同一张表，靠「类型」列区分。整机可展开看部件明细 -->
     <el-card class="table-card" shadow="never">
+      <!-- 手机改用卡片列表。这张表十一列合计约 1400px，在 360px 的屏上要横着划近四屏，
+           而「哪一张卡、卖了没、赚没赚」这三件事分散在第三、第四和最后一列——横向滚动
+           的表格永远没法让它们同时在眼前。所以窄屏换一种排法：同一批 rows、同一个
+           onRowClick，只是把一行摊成一张卡。
+           这不是第二套列表——取数、筛选、分页仍然只有上面那一份，这里不持有任何状态。 -->
+      <div v-if="isMobile" v-loading="loading" class="m-list">
+        <div v-for="row in rows" :key="row.row_key" class="m-card" @click="onRowClick(row)">
+          <div class="m-top">
+            <div class="cover m-cover">
+              <img v-if="cover(row)" :src="cover(row)" alt="" loading="lazy" />
+              <el-icon v-else class="cover-empty">
+                <component :is="row.kind === 'device' ? 'Monitor' : 'Picture'" />
+              </el-icon>
+            </div>
+            <div class="m-head">
+              <div class="m-name">{{ nameOf(row) }}</div>
+              <div v-if="row.mgmt_no || row.subtitle" class="sub pcr-dim">
+                <span class="pcr-mono">{{ row.mgmt_no }}</span>
+                <template v-if="row.subtitle"> · {{ row.subtitle }}</template>
+              </div>
+              <div class="m-tags">
+                <el-tag size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
+                  {{ t('inv.' + row.kind) }}
+                </el-tag>
+                <StatusTag :status="row.status" />
+                <!-- 整机的「已售 / 总件数」：顶层行上最该先看到的就是它还剩几件没出手 -->
+                <el-tag v-if="row.kind === 'device'" size="small" effect="plain" type="info" class="pcr-mono">
+                  {{ row.sold_count }} / {{ row.part_count }}
+                </el-tag>
+              </div>
+            </div>
+          </div>
+
+          <!-- 成本 / 收入 / 利润三个数并排。桌面端成本上挂着「购入 + 国际运费 + 国内运费」
+               的悬浮明细，这里不复刻：触屏没有悬浮，改成点一下弹层就和「点整行进详情」
+               抢同一次点击，而详情页里那三项本来就是分行列着的。 -->
+          <div class="m-metrics">
+            <div class="m-metric">
+              <span class="m-label">{{ t('card.cost') }}</span>
+              <b class="pcr-mono">{{ money(row.cost_total_cny) }}</b>
+              <!-- 日元成本压在人民币下面。货是在日站买的，对着成交页复核时看的是这个数；
+                   两者是同一笔账的两种说法，不是两套口径（见 cards._to_jpy） -->
+              <span class="m-sub pcr-mono pcr-dim">{{ money(row.cost_total_jpy, jpy) }}</span>
+            </div>
+            <div class="m-metric">
+              <span class="m-label">{{ t('device.revenue') }}</span>
+              <b class="pcr-mono">{{ money(row.sale_cny) }}</b>
+            </div>
+            <div class="m-metric">
+              <span class="m-label">{{ t('card.profit') }}</span>
+              <b class="pcr-mono" :class="profitClass(row.profit_cny)">
+                {{ money(row.profit_cny) }}
+                <el-icon v-if="row.incomplete" class="warn-icon"><WarningFilled /></el-icon>
+              </b>
+            </div>
+          </div>
+
+          <div class="m-foot">
+            <span class="pcr-mono pcr-dim">{{ row.purchase_date }}</span>
+            <!-- 整机不显示成交日：部件是分批卖的，任何一个日期摆在顶层行上都会被当成
+                 「这台机器卖完的那天」（与桌面端同一条理由） -->
+            <span v-if="row.kind !== 'device' && row.sale_date" class="pcr-mono pcr-dim">→ {{ row.sale_date }}</span>
+            <button v-if="row.children && row.children.length" class="m-expand" type="button"
+              @click.stop="togglePartsOf(row)">
+              {{ t('device.partsOverview') }}
+              <el-icon><component :is="expandedKeys.has(row.row_key) ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+            </button>
+          </div>
+
+          <div v-if="row.children && row.children.length && expandedKeys.has(row.row_key)" class="m-parts">
+            <div v-for="part in row.children" :key="part.row_key" class="m-part">
+              <PartTypeTag :type="part.part_type" />
+              <span class="m-part-name">{{ nameOf(part) }}</span>
+              <StatusTag v-if="part.sold" :status="part.status" />
+              <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+              <span class="pcr-mono m-part-money">{{ money(part.sale_cny) }}</span>
+            </div>
+          </div>
+        </div>
+        <el-empty v-if="!rows.length && !loading" :description="t('common.noData')" :image-size="70" />
+      </div>
+
       <el-table
+        v-else
         v-loading="loading"
         :data="rows"
         class="cards-table"
@@ -93,9 +208,11 @@
         </el-table-column>
         <el-table-column :label="t('inv.kind')" width="90">
           <template #default="{ row }">
-            <!-- 顶层行显示显卡 / 整机，二级行显示这个部件是什么（CPU / 内存…） -->
-            <el-tag size="small" effect="plain" :type="kindTagType(row)">
-              {{ row.kind === 'part' ? t('partType.' + row.part_type) : t('inv.' + row.kind) }}
+            <!-- 顶层行显示显卡 / 整机，二级行显示这个部件是什么（CPU / 内存…）。
+                 部件那一套颜色在 PartTypeTag 里，整机详情的部件表用的是同一个组件 -->
+            <PartTypeTag v-if="row.kind === 'part'" :type="row.part_type" />
+            <el-tag v-else size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
+              {{ t('inv.' + row.kind) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -117,8 +234,8 @@
             <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
           </template>
         </el-table-column>
-        <!-- 日期没有就空着，不画「—」：这两列里空白本身就是「还没到那一步」，
-             一列破折号只是噪音。金额列的「—」不一样，那是「缺汇率算不出来」，得留着。 -->
+        <!-- 没有就空着，不画「—」：这张表里空白只有一个意思——这一格本来就没有数据。
+             整张表都按这条来（见下面的 money()），一列破折号只是噪音。 -->
         <el-table-column :label="t('card.purchaseDate')" width="120">
           <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.purchase_date }}</span></template>
         </el-table-column>
@@ -132,30 +249,27 @@
         </el-table-column>
         <el-table-column :label="t('device.partsCount')" width="96" align="center">
           <template #default="{ row }">
-            <!-- 显卡就是一件，部件行本身也不再分件，只有整机这一格有意义 -->
+            <!-- 只有整机这一格有意义：显卡就是一件，部件行本身也不再分件。
+                 不适用就空着——「0 / 0」和「—」都会让人以为这里该有个数。 -->
             <span v-if="row.kind === 'device'" class="pcr-mono">{{ row.sold_count }} / {{ row.part_count }}</span>
-            <span v-else class="pcr-dim">—</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('card.cost')" width="140" align="right">
           <template #default="{ row }">
-            <!-- 部件没有单件成本：整机是一口价买的，总价不往部件上摊 -->
-            <el-tooltip v-if="row.kind === 'part'" :content="t('device.noPartCost')">
-              <span class="pcr-dim">—</span>
-            </el-tooltip>
-            <template v-else>
+            <!-- 部件这一格空着：没有单件成本（整机是一口价买的，总价不往部件上摊） -->
+            <template v-if="row.kind !== 'part'">
               <!-- 总成本 = 购入价 + 国际运费 + 国内运费。三项都已计入合计，悬浮摊开是
                    为了让人一眼确认运费确实算进去了，而不是只看到一个总数在那儿。 -->
               <el-tooltip placement="left">
                 <template #content>
                   <div class="cost-tip">
-                    <div><span>{{ t('card.purchaseAmount') }}</span><b>{{ cny(row.purchase_cny) }}</b></div>
-                    <div><span>{{ t('card.intlShipping') }}</span><b>{{ cny(row.intl_shipping_cny) }}</b></div>
-                    <div><span>{{ t('card.domesticShipping') }}</span><b>{{ cny(row.domestic_shipping_cny) }}</b></div>
-                    <div class="cost-tip-sum"><span>{{ t('card.cost') }}</span><b>{{ cny(row.cost_total_cny) }}</b></div>
+                    <div><span>{{ t('card.purchaseAmount') }}</span><b>{{ money(row.purchase_cny) }}</b></div>
+                    <div><span>{{ t('card.intlShipping') }}</span><b>{{ money(row.intl_shipping_cny) }}</b></div>
+                    <div><span>{{ t('card.domesticShipping') }}</span><b>{{ money(row.domestic_shipping_cny) }}</b></div>
+                    <div class="cost-tip-sum"><span>{{ t('card.cost') }}</span><b>{{ money(row.cost_total_cny) }}</b></div>
                   </div>
                 </template>
-                <span class="pcr-mono cost-value">{{ cny(row.cost_total_cny) }}</span>
+                <span class="pcr-mono cost-value">{{ money(row.cost_total_cny) }}</span>
               </el-tooltip>
               <!-- 这笔成本的钱从哪儿出的，用一个字标在金额后面：
                    「池」= 按资金池的注资汇率折的，不是买入当天的牌价（不标出来对不上账）；
@@ -176,19 +290,15 @@
              所以不再重复悬浮明细，明细挂在左边那一列上。 -->
         <el-table-column :label="t('inv.costJpy')" width="130" align="right">
           <template #default="{ row }">
-            <span class="pcr-mono" :class="{ 'pcr-dim': row.cost_total_jpy === null }">
-              {{ jpy(row.cost_total_jpy) }}
-            </span>
+            <span v-if="row.kind !== 'part'" class="pcr-mono">{{ money(row.cost_total_jpy, jpy) }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('device.revenue')" width="130" align="right">
           <template #default="{ row }">
-            <span class="pcr-mono">{{ cny(row.sale_cny) }}</span>
-            <!-- 部件的净收入（扣掉国内运费）标在下面，「已收回」本身仍是售价，
-                 二级行加起来才等于整机那一行 -->
-            <div v-if="row.kind === 'part' && row.domestic_shipping_cny" class="pcr-dim sub pcr-mono">
-              {{ t('device.netIncome') }} {{ cny(row.net_cny) }}
-            </div>
+            <!-- 这一列一律是**售价**，部件行也一样：国内运费已经算在「总成本」里了，
+                 在这儿再标一次扣完运费的净收入，等于同一笔运费在一行里出现两遍，
+                 看的人会去减第二次。二级行的售价加起来正好等于整机那一行。 -->
+            <span class="pcr-mono">{{ money(row.sale_cny) }}</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('card.profit')" width="150" align="right">
@@ -200,11 +310,9 @@
             </el-tooltip>
           </template>
           <template #default="{ row }">
-            <el-tooltip v-if="row.kind === 'part'" :content="t('device.noPartCost')">
-              <span class="pcr-dim">—</span>
-            </el-tooltip>
-            <template v-else>
-              <span class="pcr-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
+            <!-- 部件不算利润：成本不摊到单件，减不出来。这一格空着 -->
+            <template v-if="row.kind !== 'part'">
+              <span class="pcr-mono" :class="profitClass(row.profit_cny)">{{ money(row.profit_cny) }}</span>
               <el-tooltip v-if="row.incomplete" :content="t('card.incomplete')">
                 <el-icon class="warn-icon"><WarningFilled /></el-icon>
               </el-tooltip>
@@ -215,12 +323,15 @@
       </el-table>
 
       <div class="pager">
+        <!-- 窄屏砍掉「共 N 条」和每页条数：整条分页器排不下一行，挤成两行之后翻页箭头
+             会跑到第二行的两端，拇指够不着。页码数也从 7 收到 5。 -->
         <el-pagination
           v-model:current-page="page"
           v-model:page-size="pageSize"
           :total="total"
           :page-sizes="[10, 20, 50, 100]"
-          layout="total, sizes, prev, pager, next"
+          :layout="isMobile ? 'prev, pager, next' : 'total, sizes, prev, pager, next'"
+          :pager-count="isMobile ? 5 : 7"
           background
           @current-change="fetch"
           @size-change="fetch"
@@ -256,7 +367,7 @@ import { computed, onActivated, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Cpu, Monitor, Plus, Refresh, Search, WarningFilled
+  Cpu, Filter, Monitor, Plus, Refresh, Search, WarningFilled
 } from '@element-plus/icons-vue'
 import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
 import { cny, firstImage, jpy, profitClass } from '@/utils/format'
@@ -267,6 +378,7 @@ import { useMetaStore } from '@/stores/meta'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
+import PartTypeTag from '@/components/PartTypeTag.vue'
 
 defineOptions({ name: 'Cards' })
 
@@ -286,6 +398,35 @@ const usedBrands = ref([])
 const filters = reactive({ keyword: '', kind: null, status: [], brand: null, source_platform: null })
 // 购入日期区间：绑定 daterange 选择器，拆成 purchase_from/purchase_to 传后端
 const dateRange = ref(null)
+
+// 窄屏上除搜索框外的筛选器收在开关后面，只影响显示，不参与取数
+const filtersOpen = ref(false)
+// 开关按钮上的角标。不含关键词——搜索框一直摆在外面，它有没有值本来就看得见；
+// 收起来的那几项才需要这个数提醒「现在看到的不是全部」。
+const activeFilterCount = computed(() => {
+  const f = filters
+  return [f.kind, f.status.length ? f.status : null, f.brand, f.source_platform, dateRange.value]
+    .filter(Boolean).length
+})
+
+// 手机上那两个单日期选择器写回同一个 dateRange。两头都清空时整个置回 null，
+// 而不是留一个 [null, null]——filterParams 取的是 ?.[0] / ?.[1]，留着不影响取数，
+// 但「筛选」角标数的是 dateRange 本身真不真，留着会一直显示有一项筛选在生效。
+function setRangeEnd(i, value) {
+  const next = [dateRange.value?.[0] || null, dateRange.value?.[1] || null]
+  next[i] = value || null
+  dateRange.value = next[0] || next[1] ? next : null
+  reload()
+}
+
+// 手机卡片列表里展开了部件明细的整机行。用 row_key 而不是 id：显卡和整机的 id 各自
+// 从 1 开始，混在一张列表里会互相顶掉（row_key 是后端规范化时就给好的唯一键）。
+const expandedKeys = ref(new Set())
+function togglePartsOf(row) {
+  const next = new Set(expandedKeys.value)
+  next.has(row.row_key) ? next.delete(row.row_key) : next.add(row.row_key)
+  expandedKeys.value = next
+}
 
 const emptyStats = () => ({
   total: 0, cards: 0, devices: 0, in_stock: 0, settled: 0,
@@ -328,9 +469,15 @@ const statCards = computed(() => {
   ]
 })
 
+// 表格里的金额：没有就空着，不摆「—」。空白在这张表里只有一个意思——这一格本来就
+// 没有数据（还没卖、部件不摊成本）；真正算不出来的那种（缺汇率）由「利润」列右边的
+// 警告图标标着，不靠破折号传达。
+function money(value, fmt = cny) {
+  return value === null || value === undefined ? '' : fmt(value)
+}
+
 // 二级行（部件）整行淡一档，一眼能看出层级
 const rowClass = ({ row }) => (row.kind === 'part' ? 'part-row' : '')
-const kindTagType = (row) => (row.kind === 'device' ? 'warning' : row.kind === 'part' ? 'info' : 'primary')
 
 function cover(row) {
   const img = firstImage(row.media)
@@ -567,10 +714,100 @@ onActivated(() => {
 .add-option-title { font-size: 15px; font-weight: 600; }
 .add-option-desc { font-size: 12px; line-height: 1.5; color: var(--pcr-text-dim); }
 
+/* ── 手机卡片列表 ──────────────────────────────────────────────────────
+   一行摊成一张卡：上半是「这是什么」（封面 / 名称 / 类型 / 状态），中间一排是三个钱
+   （成本 / 收入 / 利润），底下一行是日期。顺序照着人拿起手机想知道的顺序排，
+   不是照桌面端的列序。 */
+.m-list { display: flex; flex-direction: column; gap: 10px; }
+.m-card {
+  padding: 12px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.015);
+}
+/* 按下去给一下反馈。整张卡都是点击区（全局关掉了 tap 高亮），不给反馈的话
+   点完到路由跳转之间那一下会让人以为没点着，于是又点一次 */
+.m-card:active { background: rgba(91, 140, 255, 0.08); }
+.m-top { display: flex; gap: 10px; align-items: flex-start; }
+/* 封面比桌面端大一档：手机上这张图常常是认出「哪张卡」最快的线索 */
+.m-cover { width: 72px; height: 54px; flex: none; }
+.m-head { flex: 1 1 auto; min-width: 0; }
+.m-name { color: #e6edf7; font-size: 15px; font-weight: 500; line-height: 1.35; }
+.m-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+
+.m-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--pcr-border);
+}
+.m-metric { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.m-label { font-size: 11px; color: #8a94a6; }
+/* 三个数都用等宽数字：三列上下对不齐的话，扫一眼看不出哪个大 */
+.m-metric b { font-size: 15px; font-weight: 600; color: #e6edf7; }
+.m-metric .m-sub { font-size: 11px; }
+
+.m-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+/* 展开按钮挤到右端，和左边的日期分开——它是个能按的东西，不该混在日期里 */
+.m-expand {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(91, 140, 255, 0.1);
+  color: #8fb8ff;
+  font-size: 12px;
+}
+.m-parts { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.m-part {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 8px;
+  border-radius: 6px;
+  background: rgba(91, 140, 255, 0.04);
+  font-size: 12px;
+}
+.m-part-name { flex: 1 1 auto; min-width: 0; color: #b9c4d6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-part-money { flex: none; color: #e6edf7; }
+
 @media (max-width: 768px) {
-  .f-keyword, .f-kind, .f-status, .f-brand, .f-platform, .f-date { width: 100% !important; }
-  .filters { flex-direction: column; align-items: stretch; }
+  /* 展开后的五个筛选器各占满一行——并排只会各自剩下小半个框，看不清选的是什么。
+     搜索框是例外：它和「筛选」开关共一行，收起状态下这一行就是全部筛选界面。 */
+  .f-kind, .f-status, .f-brand, .f-platform, .f-date { width: 100% !important; }
+  .filters { align-items: stretch; }
+  .f-keyword { flex: 1 1 60%; width: auto !important; }
+  .f-toggle { flex: 0 0 auto; margin-left: 0; }
+  .f-add { flex: 1 1 100%; margin-left: 0; }
+  /* 角标做成贴在文字后面的小圆点，不用 el-badge：badge 是绝对定位的，
+     在按钮里会跑到边框外面被相邻控件盖住 */
+  .f-count {
+    margin-left: 5px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--pcr-accent);
+    color: #fff;
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+  }
   /* 两张卡片并排在手机上只剩半屏宽，说明文字会碎成每行两三个字 */
   .add-picker { flex-direction: column; }
+  /* 卡片列表自己带圆角和边框，外面那张卡的内边距只会白白吃掉两边各 12px */
+  .table-card :deep(.el-card__body) { padding: 10px; }
+  .pager { justify-content: center; }
 }
 </style>

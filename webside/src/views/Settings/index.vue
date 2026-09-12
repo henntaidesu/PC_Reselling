@@ -415,4 +415,16 @@ onMounted(async () => {
 .add-row { display: flex; gap: 8px; margin-bottom: 14px; }
 .head-count { font-size: 12px; font-weight: 400; margin-left: 6px; }
 .head-tag { margin-left: 8px; }
+
+@media (max-width: 768px) {
+  /* 「键 —— 值」两边拉开，靠的是值那侧有富余宽度。数据库这几行的值恰恰是最长的那种
+     （conf.ini 全路径、MySQL 版本号），窄屏上左边的键被 white-space: nowrap 顶着不让，
+     值只能一路 break-all 折成好几行，读起来像一段乱码。改成上下排。 */
+  .kv { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .kv b { text-align: left; }
+  /* 表单里的 label-width 已由 App.vue 的窄屏规则统一改成标签在上，这里只收一下
+     max-width：760px 的限制在手机上本来就不起作用，但按钮行还是该占满 */
+  .form-actions { display: flex; gap: 8px; }
+  .form-actions .el-button { flex: 1 1 0; margin-left: 0; }
+}
 </style>

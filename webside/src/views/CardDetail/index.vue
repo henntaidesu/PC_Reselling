@@ -345,4 +345,17 @@ onMounted(async () => {
 .pool-draw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pool-done { color: #4ade80; font-size: 13px; }
 .pool-warn { color: #e6a23c; font-size: 12px; }
+
+@media (max-width: 768px) {
+  /* 序列号这一格必须跟着全站的 16px 走。App.vue 里那条「手机上输入框一律 16px」
+     （iOS 聚焦更小的输入框会强行放大整页且不复位）在这里是压不住上面那条的：
+     scoped 的 :deep 编译出来带一个属性选择器，特异度比全局那条高，而且它还在
+     路由分块的 CSS 里、加载得更晚。所以这条得在本文件里自己写一遍。
+     代价是 30 位的序列号在手机上一屏排不下、要在框内横滚——但把整页顶到放大状态
+     且退不回来，比看不全一串字符糟得多。等宽字体留着，那是为了认清 0 和 O。 */
+  .mono-input :deep(.el-input__inner) { font-size: 16px; }
+  .model { font-size: 17px; }
+  /* 利润卡里最大的那个数：22px 加上「￥1,234,567」在窄屏上会把左边的标签挤没 */
+  .profit-row.big b { font-size: 19px; }
+}
 </style>
