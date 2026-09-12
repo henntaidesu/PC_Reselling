@@ -248,6 +248,8 @@ def serialize(row: Dict[str, Any], parts: Optional[List[Dict[str, Any]]] = None)
         value = row.get(key)
         out[key] = float(value) if value is not None else None
     out["fund_source"] = row.get("fund_source") or "own"
+    # 池子动没动，前端据此决定显示「确认扣除」还是「已扣除 / 撤销」
+    out["pool_confirmed_at"] = _iso(row.get("pool_confirmed_at"))
     out["money"] = compute_money(row, parts)
     out["parts"] = [serialize_part(p) for p in parts]
     return out

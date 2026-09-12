@@ -22,7 +22,7 @@
         </div>
       </div>
 
-      <div class="grid">
+      <div class="grid drop-zone" :class="{ dropping: zone(cat).dragging.value }" v-on="zone(cat).handlers">
         <div v-for="item in grouped[cat] || []" :key="item.id" class="cell">
           <div class="thumb" @click="preview(item)">
             <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
@@ -50,6 +50,10 @@
             <span>{{ uploading ? t('media.uploading') : t('media.upload') }}</span>
           </div>
         </el-upload>
+
+        <!-- 遮罩必须 pointer-events: none，不然它一浮出来就顶替了鼠标下方的元素，
+             dragleave / dragenter 会打成一片 -->
+        <div v-if="zone(cat).dragging.value" class="drop-mask">{{ t('media.dropHere') }}</div>
       </div>
     </div>
 
@@ -73,6 +77,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mediaApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
+import { useFileDrop } from '@/composables/useFileDrop'
 import { useMetaStore } from '@/stores/meta'
 
 const props = defineProps({
@@ -134,14 +139,34 @@ function preview(item) {
   viewerIndex.value = Math.max(0, images.findIndex((m) => m.id === item.id))
 }
 
-function onPick(cat, file) {
-  if (!canUpload.value) return
+function queue(cat, files) {
+  if (!canUpload.value || !files.length) return
   pending.cat = cat
-  pending.files.push(file.raw)
+  pending.files.push(...files)
   if (!flushScheduled) {
     flushScheduled = true
     queueMicrotask(flush)
   }
+}
+
+function onPick(cat, file) {
+  queue(cat, [file.raw])
+}
+
+// 每个分类一个投放区，各自记着自己有没有被拖住（高亮只亮鼠标底下那一块）。
+// 建出来就存着不再重建——每次渲染新建一份的话，高亮状态会跟着渲染被抹掉。
+const zones = new Map()
+function zone(cat) {
+  if (!zones.has(cat)) {
+    zones.set(cat, useFileDrop(
+      (files, rejected) => {
+        if (rejected) ElMessage.warning(t('media.dropRejected', { n: rejected }))
+        queue(cat, files)
+      },
+      { disabled: () => !canUpload.value }
+    ))
+  }
+  return zones.get(cat)
 }
 
 async function flush() {
@@ -262,6 +287,22 @@ defineExpose({ reload: load })
 }
 .del-btn:hover { background: #f87171; }
 .uploader :deep(.el-upload) { width: 100%; display: block; }
+
+/* 投放区：平时完全看不出来，拖着文件进来才浮出边框 + 遮罩 */
+.drop-zone { position: relative; border-radius: 10px; }
+.drop-zone.dropping { outline: 2px dashed #5b8cff; outline-offset: 6px; }
+.drop-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(11, 18, 32, 0.82);
+  color: #8fb8ff;
+  font-size: 13px;
+  pointer-events: none;
+}
 .add-cell {
   aspect-ratio: 4 / 3;
   border: 1px dashed #3a4a66;

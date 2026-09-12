@@ -136,7 +136,17 @@ def _round(value: Optional[Decimal]) -> Optional[float]:
 
 
 def uses_pool(row: Dict[str, Any]) -> bool:
-    return (row.get("fund_source") or "own") == "pool"
+    """这一行的采购成本该不该按资金池的注资汇率算。
+
+    选了「从资金池扣除」还不够，**必须已经点过「确认扣除」**（``pool_confirmed_at``
+    有值）。详情页是边填边自动保存的，少了这道闸门，购入价刚敲了两位数就已经从池里
+    扣走一笔了。确认之前这行照旧按购入日牌价折算——而不是显示成「缺汇率」的一串「—」，
+    那会让人以为汇率没取到。
+
+    确认之后金额再改，扣款跟着改（``funds.sync_owner_draws`` 照常同步），不用重新确认：
+    闸门管的是第一次动池子，不是每一次改数字。
+    """
+    return (row.get("fund_source") or "own") == "pool" and row.get("pool_confirmed_at") is not None
 
 
 def _purchase_side(
@@ -249,6 +259,8 @@ def serialize(row: Dict[str, Any], media: Optional[List[Dict[str, Any]]] = None)
         out[key] = float(value) if value is not None else None
     out["fx_manual"] = bool(row.get("fx_manual"))
     out["fund_source"] = row.get("fund_source") or "own"
+    # 池子动没动，前端据此决定显示「确认扣除」还是「已扣除 / 撤销」
+    out["pool_confirmed_at"] = _iso(row.get("pool_confirmed_at"))
     out["money"] = compute_money(row)
     if media is not None:
         out["media"] = media

@@ -17,6 +17,10 @@ export const cardsApi = {
   update: (id, payload) => http.put(`/cards/${id}`, payload),
   changeStatus: (id, payload) => http.patch(`/cards/${id}/status`, payload),
   refreshFx: (id) => http.post(`/cards/${id}/refresh-fx`),
+  // 「确认扣除 / 撤销扣除」：单独一个接口而不是表单上的字段——详情页改一个字段就 PUT
+  // 一次，动池子这种事不该跟着防抖自动保存一起发生。响应与 GET 同形，含重算后的 money。
+  confirmPoolDraw: (id) => http.post(`/cards/${id}/pool-draw`),
+  cancelPoolDraw: (id) => http.delete(`/cards/${id}/pool-draw`),
   remove: (id, purgeMedia = false) => http.delete(`/cards/${id}`, { params: { purge_media: purgeMedia } }),
   nextMgmtNo: () => http.get('/cards/next-mgmt-no')
 }
@@ -38,6 +42,9 @@ export const devicesApi = {
   update: (id, payload) => http.put(`/devices/${id}`, payload),
   changeStatus: (id, payload) => http.patch(`/devices/${id}/status`, payload),
   refreshFx: (id) => http.post(`/devices/${id}/refresh-fx`),
+  // 与显卡同一套（见 cardsApi.confirmPoolDraw）
+  confirmPoolDraw: (id) => http.post(`/devices/${id}/pool-draw`),
+  cancelPoolDraw: (id) => http.delete(`/devices/${id}/pool-draw`),
   remove: (id) => http.delete(`/devices/${id}`),
   nextMgmtNo: () => http.get('/devices/next-mgmt-no')
 }

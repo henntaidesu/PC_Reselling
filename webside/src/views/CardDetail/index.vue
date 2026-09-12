@@ -86,18 +86,23 @@
                 <el-option :label="t('card.fundPool')" value="pool" />
               </el-select>
             </InlineField>
-            <div v-if="usePool" class="hint pool-hint">
-              <div>{{ t('card.fundPoolHint') }}</div>
-              <div v-if="poolSummary">
-                {{ t('card.poolBalance') }} <b class="pcr-mono">{{ jpy(poolSummary.balance) }}</b>
+            <!-- 池子要点了这里才真的少钱。详情页是边填边自动保存的，没有这道闸门，
+                 购入价刚敲了两位数就已经从池里扣走一笔了 -->
+            <InlineField v-if="usePool" :label="t('card.poolDraw')" readonly>
+              <div class="pool-draw">
+                <template v-if="poolDrawn">
+                  <span class="pool-done">{{ t('card.poolDrawn') }}</span>
+                  <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">
+                    {{ t('card.poolUndo') }}
+                  </el-button>
+                </template>
+                <el-button v-else type="primary" size="small" :loading="poolBusy"
+                  :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
+                  {{ t('card.poolConfirm') }}
+                </el-button>
+                <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
               </div>
-              <div v-if="poolCurrencyMismatch" class="warn">{{ t('card.poolCurrencyWarn') }}</div>
-              <div v-if="poolCost !== null">
-                {{ t('card.poolCost') }}: <b class="pcr-mono">{{ cny(poolCost) }}</b>
-                <span v-if="card.money.pool_fx_rate" class="pcr-dim">（{{ t('card.poolRate') }}
-                  {{ formatRate(card.money.pool_fx_rate) }}）</span>
-              </div>
-            </div>
+            </InlineField>
 
             <el-divider />
 
@@ -160,8 +165,9 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { onBeforeRouteLeave, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft } from '@element-plus/icons-vue'
-import { cardsApi, fundsApi, optionsApi, systemApi } from '@/api'
-import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
+import { cardsApi, optionsApi, systemApi } from '@/api'
+import { cny, formatRate, profitClass } from '@/utils/format'
+import { ElMessage } from '@/utils/notify'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
@@ -183,7 +189,6 @@ const meta = useMetaStore()
 const card = ref(null)
 const loading = ref(false)
 const hostingConfigured = ref(true)
-const poolSummary = ref(null)
 
 const brands = computed(() => meta.brands)
 const models = computed(() => meta.models)
@@ -211,14 +216,24 @@ const usePool = computed(() => form.fund_source === 'pool')
 const poolCurrencyMismatch = computed(() =>
   usePool.value && form.purchase_currency !== 'JPY' && form.purchase_amount
 )
-// 这张卡实际折了多少人民币：要按 FIFO 吃到的批次算，前端算不出来，取后端返回值
-const poolCost = computed(() => {
-  const m = card.value?.money
-  if (!m || !m.from_pool) return null
-  const parts = [m.purchase_cny, m.intl_shipping_cny].filter((v) => v !== null && v !== undefined)
-  return parts.length ? parts.reduce((a, b) => a + b, 0) : null
-})
-const jpy = (v) => formatMoney(v, 'JPY')
+
+// 走资金池 + 已确认扣除，才是池子真的少了钱的状态
+const poolDrawn = computed(() => usePool.value && Boolean(card.value?.pool_confirmed_at))
+const poolBusy = ref(false)
+
+// 确认 / 撤销都回 这张卡完整的一份（与 GET 同形），直接换掉展示数据即可。
+// **不能拿它回灌表单**：请求往返那几百毫秒里敲的字会被覆盖掉。
+async function togglePoolDraw(action, okKey) {
+  poolBusy.value = true
+  try {
+    card.value = await action(form.id)
+    ElMessage.success(t(okKey))
+  } catch { /* 拦截器已提示 */ } finally {
+    poolBusy.value = false
+  }
+}
+const confirmPoolDraw = () => togglePoolDraw(cardsApi.confirmPoolDraw, 'card.poolDrawnOk')
+const cancelPoolDraw = () => togglePoolDraw(cardsApi.cancelPoolDraw, 'card.poolUndoOk')
 
 const autosave = useAutoSave(doSave)
 watch(form, autosave.schedule, { deep: true })
@@ -228,8 +243,6 @@ async function doSave() {
   delete payload.id
   const res = await cardsApi.update(form.id, payload)
   card.value = res
-  // 这张卡的扣款改动了池子余额，顺手刷一次；不走资金池就没必要多打这个请求
-  if (form.fund_source === 'pool') loadPoolSummary()
   await persistDict()
 }
 
@@ -262,13 +275,6 @@ async function load() {
   await autosave.begin()
 }
 
-async function loadPoolSummary() {
-  try {
-    poolSummary.value = await fundsApi.summary()
-  } catch {
-    poolSummary.value = null
-  }
-}
 
 async function persistDict() {
   // 品牌只在「系统配置」里手动维护，这里不把现敲的品牌写进字典（免得污染清单）；
@@ -300,7 +306,6 @@ onBeforeRouteLeave(async () => {
 
 onMounted(async () => {
   await meta.ensure()
-  loadPoolSummary()
   systemApi.getImageHosting()
     .then((ih) => { hostingConfigured.value = Boolean(ih.configured) })
     .catch(() => { hostingConfigured.value = false })
@@ -337,4 +342,9 @@ onMounted(async () => {
 .profit-row b { color: #e6edf7; font-size: 15px; }
 .profit-row.big b { font-size: 22px; }
 .mt { margin-top: 10px; }
+
+/* 「确认扣除」那一行：按钮 + 已扣除标记，与旁边的 InlineField 对齐 */
+.pool-draw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pool-done { color: #4ade80; font-size: 13px; }
+.pool-warn { color: #e6a23c; font-size: 12px; }
 </style>

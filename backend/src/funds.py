@@ -9,7 +9,9 @@
 
 - ``fund_injections`` 注资批次：一次换汇进池一条，带自己那天的汇率快照。
 - ``fund_draws`` 扣款：卡片与整机侧的「购入价 / 国际运费」跟着各自的金额自动同步
-  （一卡一类一条 / 一机一类一条），另有手工记的池内杂项支出。
+  （一卡一类一条 / 一机一类一条），另有手工记的池内杂项支出。**要先在详情页点过
+  「确认扣除」**（``pool_confirmed_at`` 有值）才会生成——详情页边填边自动保存，
+  没有这道闸门，购入价刚敲了两位数就已经从池里扣走一笔了。
 - ``fund_allocations`` 分摊明细：一笔扣款按 FIFO 拆到若干批次上，每段带该批次的汇率。
 
 **FIFO 与两条硬规则**：
@@ -36,6 +38,9 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
 from src import db
+# uses_pool 的定义只有 cards.py 那一份（「选了资金池 **且** 已确认扣除」）。
+# 在这里照抄一遍条件的下场是某天只改了其中一处，成本按池子算、扣款却没同步。
+from src.cards import uses_pool
 from src.fx import RATE_UNIT, FxError, get_rate
 from src.schema import POOL_CURRENCY
 
@@ -339,6 +344,25 @@ def rebuild() -> Dict[str, Any]:
 
 # ── 归属方（卡片 / 整机）扣款的同步 ─────────────────────────────────────── #
 
+def poolable_amounts(row: Dict[str, Any]) -> Dict[str, Decimal]:
+    """这一行有哪几笔能从池里出，按扣款类别归好。
+
+    只有**日元**进得了池子（池子装的是日元）；同一行上以人民币付的那项与池子无关，
+    照旧按牌价折算。确认扣除前要拿它判断「有没有钱可扣」，同步扣款时要拿它算金额，
+    两处必须是同一个判断——不然会出现「确认得下去、却一分钱都没扣」。
+    """
+    out: Dict[str, Decimal] = {}
+    for category, amount_key, currency_key in (
+        ("purchase", "purchase_amount", "purchase_currency"),
+        ("intl_shipping", "intl_shipping_amount", "intl_shipping_currency"),
+    ):
+        amount = _dec(row.get(amount_key))
+        currency = (row.get(currency_key) or "").upper()
+        if amount and amount > 0 and currency == POOL_CURRENCY:
+            out[category] = amount
+    return out
+
+
 def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = None) -> bool:
     """让一张卡 / 一台整机的池内扣款与它上面的金额保持一致，返回是否发生了改动。
 
@@ -350,24 +374,16 @@ def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = N
     「一卡一类一条 / 一机一类一条」由唯一键保证，所以这里按 category 做 upsert 而不是
     先删后插——先删后插会让 id 每次保存都变，分摊明细也就没法追溯了。
     只有日元金额进池：池子装的是日元，人民币支出与它无关（照旧走牌价折算）。
+
+    ``uses_pool`` 里含「已确认扣除」这一条，所以确认之前 wanted 是空的，这里正好把
+    可能残留的扣款删干净——撤销扣除也就不必另写一套删除逻辑，置回 NULL 再同步即可。
     """
     col, table = _OWNERS[kind]
     row = row or db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
     if not row:
         return False
-    use_pool = (row.get("fund_source") or "own") == "pool"
     draw_date = row.get("purchase_date") or dt.date.today()
-
-    wanted: Dict[str, Decimal] = {}
-    if use_pool:
-        for category, amount_key, currency_key in (
-            ("purchase", "purchase_amount", "purchase_currency"),
-            ("intl_shipping", "intl_shipping_amount", "intl_shipping_currency"),
-        ):
-            amount = _dec(row.get(amount_key))
-            currency = (row.get(currency_key) or "").upper()
-            if amount and amount > 0 and currency == POOL_CURRENCY:
-                wanted[category] = amount
+    wanted = poolable_amounts(row) if uses_pool(row) else {}
 
     existing = {
         r["category"]: r for r in db.query(
@@ -400,6 +416,36 @@ def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = N
             changed = True
 
     return changed
+
+
+def set_confirmed(kind: str, owner_id: int, confirmed: bool) -> Dict[str, Any]:
+    """点「确认扣除」/「撤销扣除」：只动确认标记，扣款行照旧由同步派生出来。
+
+    这里**不吞异常**（与自动保存路径的 ``sync_and_rebuild`` 相反）：那边是防抖自动触发的，
+    算不动池子不该让保存失败；这里是用户按了一个按钮，失败了必须说出来，
+    否则表现成「点了没反应，钱也没动」。
+
+    返回归属行最新的那一份，省得调用方再查一遍。
+    """
+    col, table = _OWNERS[kind]
+    row = db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
+    if not row:
+        raise LookupError("记录不存在")
+    if confirmed:
+        if (row.get("fund_source") or "own") != "pool":
+            raise ValueError("资金来源不是「从资金池扣除」")
+        if not poolable_amounts(row):
+            # 选了池子却没有日元金额（金额空着、或填的是人民币）：确认下去也扣不出东西，
+            # 与其静悄悄地记一个没有扣款的确认，不如当场说清楚
+            raise ValueError("没有可从资金池扣除的日元金额")
+
+    db.execute(
+        f"UPDATE {table} SET pool_confirmed_at = %s WHERE id = %s",
+        (dt.datetime.now() if confirmed else None, owner_id),
+    )
+    if sync_owner_draws(kind, owner_id):
+        rebuild()
+    return db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
 
 
 def sync_and_rebuild(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = None) -> None:

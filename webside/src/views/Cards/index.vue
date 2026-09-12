@@ -160,7 +160,7 @@
                 <span class="pcr-mono cost-value">{{ cny(row.cost_total_cny) }}</span>
               </el-tooltip>
               <!-- 成本是按资金池的注资汇率折的，不是买入当天的牌价——标出来，免得对不上账 -->
-              <el-tooltip v-if="row.from_pool" :content="t('card.fundPoolHint')">
+              <el-tooltip v-if="row.from_pool" :content="t('card.poolDrawn')">
                 <el-tag size="small" type="primary" effect="plain" class="pool-tag">{{ t('card.poolTag') }}</el-tag>
               </el-tooltip>
             </template>

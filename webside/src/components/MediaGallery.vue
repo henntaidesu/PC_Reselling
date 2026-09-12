@@ -2,40 +2,46 @@
   <div class="media-gallery">
     <div v-if="!hostingConfigured" class="hint warn">{{ t('media.notConfigured') }}</div>
 
-    <div v-else class="grid" :class="{ 'grid--lg': large }">
-      <div v-for="item in visibleItems" :key="item.id" class="cell">
-        <div class="thumb" @click="preview(item)">
-          <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
-          <div v-else class="video-thumb">
-            <el-icon :size="20"><VideoPlay /></el-icon>
-            <span class="video-tag">{{ t('media.video') }}</span>
+    <div v-else class="drop-zone" :class="{ dropping: dragging }" v-on="dropHandlers">
+      <div class="grid" :class="{ 'grid--lg': large }">
+        <div v-for="item in visibleItems" :key="item.id" class="cell">
+          <div class="thumb" @click="preview(item)">
+            <img v-if="item.kind === 'image'" :src="thumbUrl(item)" :alt="item.filename" loading="lazy" />
+            <div v-else class="video-thumb">
+              <el-icon :size="20"><VideoPlay /></el-icon>
+              <span class="video-tag">{{ t('media.video') }}</span>
+            </div>
           </div>
+          <button class="del-btn" type="button" :title="t('common.delete')" @click.stop="removeItem(item)">
+            <el-icon><Close /></el-icon>
+          </button>
         </div>
-        <button class="del-btn" type="button" :title="t('common.delete')" @click.stop="removeItem(item)">
-          <el-icon><Close /></el-icon>
-        </button>
+
+        <!-- 装不下的那些收在这里：让缩略图把卡片撑到比表单还长，不如点一下再展开 -->
+        <div v-if="hiddenCount" class="more-cell" @click="expanded = true">
+          <span class="more-n">+{{ hiddenCount }}</span>
+          <span>{{ t('media.more') }}</span>
+        </div>
+
+        <el-upload
+          :show-file-list="false"
+          :auto-upload="false"
+          :multiple="true"
+          :disabled="uploading"
+          accept="image/*,video/*"
+          class="uploader"
+          :on-change="onPick"
+        >
+          <div class="add-cell" :class="{ disabled: uploading }">
+            <el-icon :size="18"><Plus /></el-icon>
+            <span>{{ uploading ? t('media.uploading') : t('media.upload') }}</span>
+          </div>
+        </el-upload>
       </div>
 
-      <!-- 装不下的那些收在这里：让缩略图把卡片撑到比表单还长，不如点一下再展开 -->
-      <div v-if="hiddenCount" class="more-cell" @click="expanded = true">
-        <span class="more-n">+{{ hiddenCount }}</span>
-        <span>{{ t('media.more') }}</span>
-      </div>
-
-      <el-upload
-        :show-file-list="false"
-        :auto-upload="false"
-        :multiple="true"
-        :disabled="uploading"
-        accept="image/*,video/*"
-        class="uploader"
-        :on-change="onPick"
-      >
-        <div class="add-cell" :class="{ disabled: uploading }">
-          <el-icon :size="18"><Plus /></el-icon>
-          <span>{{ uploading ? t('media.uploading') : t('media.upload') }}</span>
-        </div>
-      </el-upload>
+      <!-- 遮罩必须 pointer-events: none，不然它一浮出来就顶替了鼠标下方的元素，
+           dragleave / dragenter 会打成一片 -->
+      <div v-if="dragging" class="drop-mask">{{ t('media.dropHere') }}</div>
     </div>
 
     <div v-if="expanded && overLimit" class="collapse-row">
@@ -61,6 +67,7 @@ import { useI18n } from 'vue-i18n'
 import { Close, Plus, VideoPlay } from '@element-plus/icons-vue'
 import { mediaApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
+import { useFileDrop } from '@/composables/useFileDrop'
 
 // 平铺一组图，不分类。两种归属共用这一个组件：owner='parts' 挂在某个部件上，
 // owner='devices' 挂在整机本身上（整机外观 / 铭牌 / 开机测试这类照片）。
@@ -133,14 +140,27 @@ function preview(item) {
   viewerIndex.value = Math.max(0, images.findIndex((m) => m.id === item.id))
 }
 
-function onPick(file) {
-  if (uploading.value) return
-  pending.push(file.raw)
+function queue(files) {
+  if (uploading.value || !files.length) return
+  pending.push(...files)
   if (!flushScheduled) {
     flushScheduled = true
     queueMicrotask(flush)
   }
 }
+
+function onPick(file) {
+  queue([file.raw])
+}
+
+// 拖进来的和点进来的走同一条管线（同样攒进 buffer 合并成一次请求）
+const { dragging, handlers: dropHandlers } = useFileDrop(
+  (files, rejected) => {
+    if (rejected) ElMessage.warning(t('media.dropRejected', { n: rejected }))
+    queue(files)
+  },
+  { disabled: () => uploading.value || !props.hostingConfigured }
+)
 
 async function flush() {
   flushScheduled = false
@@ -261,6 +281,22 @@ defineExpose({ reload: load })
 .more-n { font-size: 15px; color: #8fb8ff; }
 .collapse-row { margin-top: 6px; text-align: center; }
 .uploader :deep(.el-upload) { width: 100%; display: block; }
+
+/* 投放区：平时完全看不出来，拖着文件进来才浮出边框 + 遮罩 */
+.drop-zone { position: relative; border-radius: 10px; }
+.drop-zone.dropping { outline: 2px dashed #5b8cff; outline-offset: 4px; }
+.drop-mask {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: rgba(11, 18, 32, 0.82);
+  color: #8fb8ff;
+  font-size: 13px;
+  pointer-events: none;
+}
 .add-cell {
   aspect-ratio: 4 / 3;
   border: 1px dashed #3a4a66;

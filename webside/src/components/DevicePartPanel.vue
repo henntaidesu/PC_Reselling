@@ -49,7 +49,7 @@
             <el-input v-model="part.spec" />
           </InlineField>
           <InlineField :label="t('card.serialNo')">
-            <el-input v-model="part.serial_no" class="mono-input" />
+            <el-input v-model="part.serial_no" />
           </InlineField>
         </div>
 
@@ -176,7 +176,6 @@ const title = computed(() =>
 /* 字段两列排，窄屏退回一列。列间距比「标签到输入框」的 12px 明显宽，两列才不会糊成一片 */
 .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
 .panel-card :deep(.el-divider) { margin: 10px 0; }
-.mono-input :deep(.el-input__inner) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 
 @media (max-width: 1100px) {
   .fields { grid-template-columns: minmax(0, 1fr); }

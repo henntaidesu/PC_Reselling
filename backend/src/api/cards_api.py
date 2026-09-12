@@ -359,6 +359,10 @@ def update_card(card_id: int, payload: CardPayload):
                    ("purchase_fx_rate", "purchase_fx_date", "sale_fx_rate", "sale_fx_date", "fx_manual")})
     # 一旦保存就转正：草稿变正式卡，从此进列表与统计
     values["is_draft"] = 0
+    # 改回自有资金就把确认作废。留着的话下次再切回「从资金池扣除」会无声无息地
+    # 又扣一笔——闸门就白做了。
+    if values["fund_source"] != "pool":
+        values["pool_confirmed_at"] = None
 
     db.execute(
         "UPDATE cards SET {sets} WHERE id = %s".format(
@@ -409,6 +413,32 @@ def refresh_fx(card_id: int):
          resolved["sale_fx_rate"], resolved["sale_fx_date"], card_id),
     )
     return _result(card_id, resolved["warnings"])
+
+
+@router.post("/{card_id}/pool-draw")
+def confirm_pool_draw(card_id: int):
+    """确认把这张卡的日元从资金池里扣掉：池内余额当场减少，成本改按注资批次的汇率算。
+
+    单独一个接口而不是表单上的一个字段：详情页改一个字段就 PUT 一次，
+    「动池子」这种事不该跟着防抖自动保存一起发生。
+    """
+    return _pool_draw(card_id, True)
+
+
+@router.delete("/{card_id}/pool-draw")
+def cancel_pool_draw(card_id: int):
+    """撤销扣除：扣款行删掉，钱还回池子，成本退回按购入日牌价折算。"""
+    return _pool_draw(card_id, False)
+
+
+def _pool_draw(card_id: int, confirmed: bool):
+    try:
+        funds.set_confirmed("card", card_id, confirmed)
+    except LookupError:
+        raise HTTPException(status_code=404, detail="张卡不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _result(card_id, [])
 
 
 @router.delete("/{card_id}")

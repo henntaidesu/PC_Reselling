@@ -197,6 +197,10 @@ _TABLES: List[Tuple[str, str]] = [
             -- 采购资金从哪来。'own' 走 purchase_fx_rate（老逻辑）；'pool' 则由
             -- fund_draws / fund_allocations 按注资批次的汇率分段算出成本。
             fund_source VARCHAR(8) NOT NULL DEFAULT 'own',
+            -- 选了 'pool' 只是意向，池子要等这里有时间戳才真的少钱：详情页是边填边自动
+            -- 保存的，没有这道闸门，购入价刚敲了两位数就已经从池里扣走了。
+            -- 改回 'own' 时置回 NULL，否则下次切回资金池会无声无息地又扣一笔。
+            pool_confirmed_at DATETIME NULL COMMENT '点「确认扣除」的时间；NULL = 池子未动',
             -- 下面三列是资金池分摊的**结果快照**，由 funds.rebuild() 统一回写。
             -- 冗余在卡片行上是为了让列表/统计不必为每一行再查一次分摊明细（N+1）。
             pool_purchase_cny DECIMAL(14,2) NULL COMMENT '购入价按各注资批次汇率折算后的人民币合计',
@@ -291,6 +295,8 @@ _TABLES: List[Tuple[str, str]] = [
             -- 采购资金从哪来，与 cards 同一套语义：'own' 走 purchase_fx_rate；
             -- 'pool' 则由 fund_draws / fund_allocations 按注资批次的汇率分段算出成本。
             fund_source VARCHAR(8) NOT NULL DEFAULT 'own',
+            -- 与 cards 同义：池子要等这里有时间戳才真的少钱（见 cards.pool_confirmed_at）
+            pool_confirmed_at DATETIME NULL COMMENT '点「确认扣除」的时间；NULL = 池子未动',
             pool_purchase_cny DECIMAL(14,2) NULL COMMENT '购入总价按各注资批次汇率折算后的人民币合计',
             pool_intl_cny     DECIMAL(14,2) NULL COMMENT '国际运费按各注资批次汇率折算后的人民币合计',
             pool_fx_rate      DECIMAL(18,8) NULL COMMENT '这台设备实际吃到的加权汇率，仅供展示',
@@ -540,10 +546,12 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("cards", "pool_purchase_cny", "pool_purchase_cny DECIMAL(14,2) NULL"),
     ("cards", "pool_intl_cny", "pool_intl_cny DECIMAL(14,2) NULL"),
     ("cards", "pool_fx_rate", "pool_fx_rate DECIMAL(18,8) NULL"),
+    ("cards", "pool_confirmed_at", "pool_confirmed_at DATETIME NULL"),
     ("devices", "fund_source", "fund_source VARCHAR(8) NOT NULL DEFAULT 'own'"),
     ("devices", "pool_purchase_cny", "pool_purchase_cny DECIMAL(14,2) NULL"),
     ("devices", "pool_intl_cny", "pool_intl_cny DECIMAL(14,2) NULL"),
     ("devices", "pool_fx_rate", "pool_fx_rate DECIMAL(18,8) NULL"),
+    ("devices", "pool_confirmed_at", "pool_confirmed_at DATETIME NULL"),
     ("fund_draws", "device_id", "device_id INT UNSIGNED NULL"),
 ]
 
@@ -731,6 +739,41 @@ def _migrate_platform_column_width() -> None:
         )
 
 
+# pool_confirmed_at 是后加的闸门列：在它之前，只要 fund_source='pool' 池子就已经扣了钱。
+# 补上这列后那些行会变成「未确认」，下一次保存就把扣款删掉——池内余额凭空涨回来，
+# 成本也从注资汇率退回市场牌价。所以建完列要把存量的 pool 行一次性标成已确认。
+# 这是改存量数据的迁移，跑第二遍会把用户后来主动撤销的行又标回已确认，
+# 所以照 _migrate_fx_rate_direction 的办法在 app_settings 里记一个做过的标记。
+_POOL_CONFIRM_KEY = "pool_confirm_backfilled"
+
+
+def _migrate_backfill_pool_confirmed() -> None:
+    """把补列之前就在走资金池的卡片 / 整机标成「已确认扣除」。做过一次就跳过。
+
+    时间取 purchase_date（那天的钱就该那天出池），没有购入日的退回 created_at——
+    确认时间只用于展示与「有没有确认过」，FIFO 分摊吃的是 fund_draws.draw_date。
+    """
+    if settings_store.get(_POOL_CONFIRM_KEY):
+        return
+    for table in ("cards", "devices"):
+        if not _has_column(table, "pool_confirmed_at"):
+            return  # 列还没补上，等下次启动
+    log.info("迁移：把存量的资金池卡片 / 整机标为已确认扣除")
+    with db.transaction() as cur:
+        # 表名来自上面这个固定的元组，不是外部输入
+        for table in ("cards", "devices"):
+            cur.execute(
+                "UPDATE `{t}` SET pool_confirmed_at = COALESCE(purchase_date, created_at, NOW()) "
+                "WHERE fund_source = 'pool' AND pool_confirmed_at IS NULL".format(t=table)
+            )
+        # 与 settings_store.set 同一条语句，只是必须走本事务的游标
+        cur.execute(
+            "INSERT INTO app_settings (`key`, `value`) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+            (_POOL_CONFIRM_KEY, "1"),
+        )
+
+
 def init() -> None:
     """建库 → 建表 → 补列 → 结构迁移 → 数据迁移 → 灌入首次运行的种子数据。可重复执行。"""
     db.ensure_database()
@@ -744,6 +787,7 @@ def init() -> None:
     _migrate_card_vram_to_core_no()
     _migrate_platform_column_width()
     _migrate_fx_rate_direction()
+    _migrate_backfill_pool_confirmed()
     _cleanup_stale_drafts()
     _seed()
 
