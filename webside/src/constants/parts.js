@@ -96,7 +96,7 @@ export function partSchema(partType) {
   return PART_SCHEMA[partType] || PART_SCHEMA.other
 }
 
-// 「规格」这一栏的标题按类型换（显存 / 容量 / 功率 / 芯片组…），i18n 里对应
+// 「规格」这一栏的标题按类型换（核心编号 / 容量 / 功率 / 芯片组…），i18n 里对应
 // partSpec.<type>；没有单独定义的类型退回 partSpec.other。
 export function specLabelKey(partType) {
   return 'partSpec.' + (PART_SCHEMA[partType] ? partType : 'other')

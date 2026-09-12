@@ -1,52 +1,55 @@
 <template>
-  <el-card shadow="never" class="panel-card">
-    <template #header>
-      <!-- 不标类型：上面的标签页已经说了这是哪一类，卡片里再写一遍纯属占地方 -->
-      <div class="panel-head">
-        <el-tag v-if="blank" size="small" type="info" effect="plain">{{ t('device.blankSlot') }}</el-tag>
-        <el-tag v-else-if="sold" size="small" type="success" effect="plain">
-          {{ formatMoney(part.sale_amount, part.sale_currency) }}
-        </el-tag>
-        <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
-        <span class="panel-title">{{ title }}</span>
-        <span v-if="net !== null" class="pcr-dim panel-net">
-          {{ t('device.netIncome') }} <b class="pcr-mono">{{ cny(net) }}</b>
-        </span>
-        <!-- 同类只剩这一件时不给删（deletable=false）：一台机器不可能没有 CPU，
-             与其删掉再让人从「添加」里加回来，不如根本不摆这个按钮 -->
-        <el-button v-if="deletable" class="panel-del" size="small" text type="danger" :icon="Delete"
-          @click="emit('remove')">
-          {{ t('device.removePart') }}
-        </el-button>
-      </div>
-    </template>
+  <!-- 两张卡并排：左表单、右图片。合成一张时同一件部件的资料是连着的，但图片少的时候
+       右半边会空一大块；分成两张、再把两列拉成等高，空的是卡片自己的下半截，不至于让
+       整行看起来缺了一块 -->
+  <div class="pcr-split panel-row">
+    <div class="pcr-split-form">
+      <el-card shadow="never" class="panel-card">
+        <template #header>
+          <!-- 不标类型：上面的标签页已经说了这是哪一类，卡片里再写一遍纯属占地方 -->
+          <div class="panel-head">
+            <span class="panel-title">{{ title }}</span>
+            <span v-if="net !== null" class="pcr-dim panel-net">
+              {{ t('device.netIncome') }} <b class="pcr-mono">{{ cny(net) }}</b>
+            </span>
+            <div class="panel-head-right">
+              <!-- 状态只标那两种「还没完」的：没填过、或填了还没卖。卖掉了什么都不标——
+                   售价在下面的「出售价格」里，旁边还有净收入，头上再顶一个是同一个数说三遍。
+                   不用 el-tag：一个方框套两个字比字本身还占地方，直接上色的文字就够了 -->
+              <span v-if="blank" class="panel-state pcr-dim">{{ t('device.blankSlot') }}</span>
+              <span v-else-if="!sold" class="panel-state panel-state--unsold">{{ t('device.unsold') }}</span>
+              <!-- 同类只剩这一件时不给删（deletable=false）：一台机器不可能没有 CPU，
+                   与其删掉再让人从「添加」里加回来，不如根本不摆这个按钮 -->
+              <el-button v-if="deletable" size="small" text type="danger" :icon="Delete"
+                @click="emit('remove')">
+                {{ t('device.removePart') }}
+              </el-button>
+            </div>
+          </div>
+        </template>
 
-    <!-- 表单与图片装在同一张卡里，中间一条竖线分栏。拆成两张卡的话，同一件部件的资料
-         被卡片边框切成两块，看着像两件东西 -->
-    <div class="panel-body">
-      <div class="panel-form">
         <div class="fields">
           <InlineField :label="t('card.brand')">
             <!-- 品牌候选按部件类型给：CPU 只有 Intel / AMD（不允许现场新建），显卡直接用
                  系统里的品牌字典，其余给一份常见清单但可以现场输入 -->
             <el-select v-model="part.brand" filterable :allow-create="!schema.brandStrict"
-              default-first-option clearable :placeholder="t('common.unset')">
+              default-first-option clearable>
               <el-option v-for="b in brandOptions" :key="b" :label="b" :value="b" />
             </el-select>
           </InlineField>
           <InlineField :label="t('card.model')">
             <el-select v-if="modelOptions.length" v-model="part.model" filterable allow-create
-              default-first-option clearable :placeholder="t('common.unset')">
+              default-first-option clearable>
               <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
             </el-select>
-            <el-input v-else v-model="part.model" :placeholder="t('common.unset')" />
+            <el-input v-else v-model="part.model" />
           </InlineField>
-          <!-- 「规格」这一栏各类型填的不是一回事（显存 / 容量 / 功率 / 芯片组），标题跟着类型走 -->
+          <!-- 「规格」这一栏各类型填的不是一回事（核心编号 / 容量 / 功率 / 芯片组），标题跟着类型走 -->
           <InlineField :label="t(specLabelKey(part.part_type))">
-            <el-input v-model="part.spec" :placeholder="t('common.unset')" />
+            <el-input v-model="part.spec" />
           </InlineField>
           <InlineField :label="t('card.serialNo')">
-            <el-input v-model="part.serial_no" class="mono-input" :placeholder="t('common.unset')" />
+            <el-input v-model="part.serial_no" class="mono-input" />
           </InlineField>
         </div>
 
@@ -54,57 +57,57 @@
 
         <div class="fields">
           <InlineField :label="t('card.saleDate')">
-            <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD"
-              :placeholder="t('common.unset')" />
-          </InlineField>
-          <InlineField :label="t('card.saleAmount')">
-            <MoneyInput v-model:amount="part.sale_amount" v-model:currency="part.sale_currency" />
-          </InlineField>
-          <InlineField :label="t('card.domesticShipping')">
-            <MoneyInput v-model:amount="part.domestic_shipping_amount"
-              v-model:currency="part.domestic_shipping_currency" />
+            <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" />
           </InlineField>
           <InlineField :label="t('card.status')">
             <el-select v-model="part.status">
               <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s" />
             </el-select>
           </InlineField>
+          <InlineField :label="t('card.domesticShipping')">
+            <MoneyInput v-model:amount="part.domestic_shipping_amount"
+              v-model:currency="part.domestic_shipping_currency" />
+          </InlineField>
+          <InlineField :label="t('card.saleAmount')">
+            <MoneyInput v-model:amount="part.sale_amount" v-model:currency="part.sale_currency" />
+          </InlineField>
         </div>
 
         <el-divider />
 
         <InlineField :label="t('card.note')" stack>
-          <el-input v-model="part.note" type="textarea" :rows="2" :placeholder="t('common.unset')" />
+          <el-input v-model="part.note" type="textarea" :rows="2" />
         </InlineField>
-      </div>
+      </el-card>
+    </div>
 
-      <div class="panel-media">
-        <div class="media-head">
-          {{ t('device.partMedia') }}
-          <span v-if="part._media_count" class="pcr-dim count">{{ part._media_count }}</span>
-        </div>
+    <div class="pcr-split-media">
+      <!-- 这张卡里只有图片，不给标题：一眼就看得出是图片，再写一行「部件图片」是废话 -->
+      <el-card shadow="never" class="panel-card">
         <!-- 图片区一直在，空槽位也能直接传：要传的那一刻页面会先把这一行存出来拿到 id
              （ensureId），而不是要求用户先填点什么。
-             limit：这块地方只有卡片右边一条，十几张缩略图会把整张卡撑得比表单还长，
-             多出来的收进「更多图片」里 -->
+             large + limit：缩略图尺寸跟整机那份照片一致（整机页和部件页来回切时，
+             同样大小的格子才不会跳）；一行能摆下五六张，再多会把卡片撑得比左边长出
+             一大截，多出来的收进「更多图片」里 -->
         <MediaGallery
           owner="parts"
           :owner-id="part.id"
           :ensure-id="ensureId"
           :hosting-configured="hostingConfigured"
-          :limit="5"
+          large
+          :limit="8"
           @changed="(n) => emit('media-changed', n)"
         />
-      </div>
+      </el-card>
     </div>
-  </el-card>
+  </div>
 </template>
 
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete } from '@element-plus/icons-vue'
-import { cny, formatMoney } from '@/utils/format'
+import { cny } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
 import InlineField from './InlineField.vue'
@@ -158,18 +161,17 @@ const title = computed(() =>
 </script>
 
 <style scoped>
-.panel-card { margin-bottom: 16px; }
+/* 分栏本身（4 : 6、等高、窄屏堆叠）在 App.vue 的 .pcr-split 里，与整机页共用 */
+.panel-row { margin-bottom: 16px; }
+
 .panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .panel-title { font-size: 14px; color: #e6edf7; }
 .panel-net { font-size: 12px; }
-.panel-del { margin-left: auto; }
-
-/* 左表单 / 右图片。align-items 保持默认的 stretch，中间那条竖线才通到卡片底边 */
-.panel-body { display: flex; }
-.panel-form { flex: 1 1 58%; min-width: 0; padding-right: 20px; }
-.panel-media { flex: 0 0 38%; min-width: 0; padding-left: 20px; border-left: 1px solid var(--pcr-border); }
-.media-head { font-size: 14px; color: #e6edf7; margin-bottom: 12px; }
-.count { font-size: 12px; margin-left: 4px; }
+/* 状态和删除按钮一起靠右。包一层而不是给两个各自 margin-left:auto——两个 auto 会把
+   剩余空间对半分，状态和按钮之间凭空裂开一道缝 */
+.panel-head-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.panel-state { font-size: 12px; }
+.panel-state--unsold { color: #f87171; }
 
 /* 字段两列排，窄屏退回一列。列间距比「标签到输入框」的 12px 明显宽，两列才不会糊成一片 */
 .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
@@ -178,16 +180,6 @@ const title = computed(() =>
 
 @media (max-width: 1100px) {
   .fields { grid-template-columns: minmax(0, 1fr); }
-  .panel-del { margin-left: 0; }
-  /* 窄屏两栏并排都挤没了，改成上下排，竖线换成横线 */
-  .panel-body { display: block; }
-  .panel-form { padding-right: 0; }
-  .panel-media {
-    padding-left: 0;
-    padding-top: 14px;
-    margin-top: 14px;
-    border-left: none;
-    border-top: 1px solid var(--pcr-border);
-  }
+  .panel-head-right { margin-left: 0; }
 }
 </style>

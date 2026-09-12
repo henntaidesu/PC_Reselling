@@ -57,7 +57,7 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         "id": row["id"],
         "mgmt_no": row["mgmt_no"],
         "title": " ".join(x for x in (row.get("brand"), row.get("model")) if x) or None,
-        "subtitle": row.get("vram"),
+        "subtitle": row.get("core_no"),
         "status": row["status"],
         "source_platform": row.get("source_platform"),
         "purchase_date": data["purchase_date"],

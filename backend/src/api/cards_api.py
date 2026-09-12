@@ -20,7 +20,7 @@ router = APIRouter(prefix="/cards", tags=["cards"], dependencies=[Depends(requir
 
 # 允许写入的列 → 是否需要额外校验。顺序即 UPDATE 语句里的顺序。
 _WRITABLE = [
-    "brand", "model", "vram", "serial_no",
+    "brand", "model", "core_no", "serial_no",
     "source_platform", "seller", "item_url", "order_no",
     "purchase_date", "purchase_amount", "purchase_currency",
     "intl_shipping_amount", "intl_shipping_currency",
@@ -37,7 +37,8 @@ class CardPayload(BaseModel):
 
     brand: Optional[str] = Field(default=None, max_length=64)
     model: Optional[str] = Field(default=None, max_length=128)
-    vram: Optional[str] = Field(default=None, max_length=32)
+    # 核心编号 = GPU 核心上的丝印，用来证明核心没被换过。以前这一栏是显存。
+    core_no: Optional[str] = Field(default=None, max_length=32)
     serial_no: Optional[str] = Field(default=None, max_length=128)
 
     source_platform: Optional[str] = Field(default=None, max_length=32)

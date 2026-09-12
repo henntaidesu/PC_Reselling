@@ -371,8 +371,7 @@ onMounted(async () => {
 .add-row { display: flex; gap: 8px; margin-bottom: 14px; }
 .head-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .model-add { flex-wrap: wrap; }
-.mb-select { width: 130px !important; }
-.vram-in { width: 110px !important; flex: 0 0 110px; }
+.mb-select { width: 130px !important; }
 .chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip { margin: 0; }
 .account-card { max-width: 520px; }

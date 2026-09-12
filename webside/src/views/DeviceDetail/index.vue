@@ -22,7 +22,6 @@
           size="large"
           :maxlength="TITLE_MAX"
           show-word-limit
-          :placeholder="t('device.noTitle')"
           @keyup.enter="editingTitle = false"
           @keyup.esc="editingTitle = false"
           @blur="editingTitle = false"
@@ -93,14 +92,16 @@
 
       <!-- ── 整机页 ────────────────────────────────────────────────────── -->
       <template v-if="activeTab === 'device'">
-        <el-row :gutter="16">
-          <el-col :xs="24" :lg="14">
-            <el-card shadow="never" class="block">
+        <!-- 左表单 / 右图片，4 : 6 两列等高，与下面每个部件的卡片同一套
+             （分栏本身在 App.vue 的 .pcr-split 里） -->
+        <div class="pcr-split split-block">
+          <div class="pcr-split-form">
+            <el-card shadow="never">
               <template #header>{{ t('device.purchaseInfo') }}</template>
 
               <div class="fields">
                 <InlineField :label="t('device.name')">
-                  <el-input v-model="form.title" :maxlength="TITLE_MAX" :placeholder="t('device.noTitle')" />
+                  <el-input v-model="form.title" :maxlength="TITLE_MAX" />
                 </InlineField>
                 <InlineField :label="t('card.status')">
                   <el-select v-model="form.status">
@@ -108,18 +109,18 @@
                   </el-select>
                 </InlineField>
                 <InlineField :label="t('card.platform')">
-                  <el-select v-model="form.source_platform" clearable :placeholder="t('common.unset')">
+                  <el-select v-model="form.source_platform" clearable>
                     <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
                   </el-select>
                 </InlineField>
                 <InlineField :label="t('card.seller')">
-                  <el-input v-model="form.seller" :placeholder="t('common.unset')" />
+                  <el-input v-model="form.seller" />
                 </InlineField>
                 <InlineField :label="t('card.orderNo')">
-                  <el-input v-model="form.order_no" :placeholder="t('common.unset')" />
+                  <el-input v-model="form.order_no" />
                 </InlineField>
                 <InlineField :label="t('card.itemUrl')">
-                  <el-input v-model="form.item_url" placeholder="https://" />
+                  <el-input v-model="form.item_url" />
                   <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
                     :title="t('common.detail')">↗</a>
                 </InlineField>
@@ -129,8 +130,7 @@
 
               <div class="fields">
                 <InlineField :label="t('card.purchaseDate')">
-                  <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD"
-                    :placeholder="t('common.unset')" />
+                  <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" />
                 </InlineField>
                 <!-- 汇率是按购入日取的快照，不给手改：改了日期，保存之后这一行自己就变了 -->
                 <InlineField :label="t('card.purchaseFx')" readonly>
@@ -166,19 +166,19 @@
               <el-divider />
 
               <InlineField :label="t('card.note')" stack>
-                <el-input v-model="form.note" type="textarea" :rows="2" :placeholder="t('common.unset')" />
+                <el-input v-model="form.note" type="textarea" :rows="2" />
               </InlineField>
 
               <div v-if="device.warnings?.length" class="hint warn">
                 <div v-for="(w, i) in device.warnings" :key="i">{{ w }}</div>
               </div>
             </el-card>
-          </el-col>
+          </div>
 
-          <el-col :xs="24" :lg="10">
+          <div class="pcr-split-media">
             <!-- 整机自己的照片：整机外观、铭牌、开机测试这类拍的是「这台机器」，
                  不属于任何一个部件 -->
-            <el-card shadow="never" class="block">
+            <el-card shadow="never">
               <template #header>
                 {{ t('device.deviceMedia') }}
                 <span class="pcr-dim media-hint">{{ t('device.deviceMediaHint') }}</span>
@@ -191,8 +191,8 @@
                 @changed="onDeviceMediaChanged"
               />
             </el-card>
-          </el-col>
-        </el-row>
+          </div>
+        </div>
 
         <!-- 部件一览：分页之后总得有一个地方能一眼看完「哪几件卖了、哪几件还空着」 -->
         <el-card shadow="never" class="block">
@@ -637,8 +637,9 @@ onMounted(async () => {
 .summary-flag.done { color: #67c23a; background: rgba(103, 194, 58, 0.1); }
 .summary-flag.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.1); }
 
-/* 二级菜单 */
-.tabs-row { display: flex; align-items: center; gap: 12px; }
+/* 二级菜单。与下面内容的间距挂在标签条上，不挂在内容上：整机页下面是分栏行、
+   部件页下面是部件卡，各自记一份边距，两个标签页切过去就会差一截 */
+.tabs-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
 .part-tabs { flex: 1 1 auto; min-width: 0; }
 /* el-tabs 只当标签条用，内容由下面自己渲染 */
 .part-tabs :deep(.el-tabs__content) { display: none; }
@@ -681,10 +682,11 @@ onMounted(async () => {
 .add-card:hover :deep(.el-card__body) { color: #8fb8ff; }
 
 .block { margin-bottom: 16px; }
-.block:first-of-type { margin-top: 16px; }
+/* 分栏行自己带下边距：卡片改为撑满整列之后，边距再挂在卡片上会把两列的等高顶歪 */
+.split-block { margin-bottom: 16px; }
 /* 两列字段。列间距比标签到输入框的 12px 明显宽，两列之间才不会糊成一片 */
 .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
-.block :deep(.el-divider) { margin: 10px 0; }
+.block :deep(.el-divider), .split-block :deep(.el-divider) { margin: 10px 0; }
 .media-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .row-link { color: #8fb8ff; text-decoration: none; flex: 0 0 auto; padding: 0 4px; }
 .parts-table :deep(.el-table__row) { cursor: pointer; }

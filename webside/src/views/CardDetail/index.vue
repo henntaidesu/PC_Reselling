@@ -12,7 +12,7 @@
       <div class="title-row">
         <span class="pcr-mono mgmt">{{ card.mgmt_no }}</span>
         <h2 class="model">{{ [form.brand, form.model].filter(Boolean).join(' ') || t('card.noModel') }}</h2>
-        <span v-if="form.vram" class="vram-badge">{{ form.vram }}</span>
+        <span v-if="form.core_no" class="core-badge">{{ form.core_no }}</span>
         <StatusTag :status="form.status" />
         <el-tag v-if="card.is_draft" size="small" type="warning" effect="plain">{{ t('common.draft') }}</el-tag>
       </div>
@@ -24,19 +24,17 @@
             <template #header>{{ t('card.purchaseInfo') }} / {{ t('card.saleInfo') }}</template>
 
             <InlineField :label="t('card.brand')">
-              <el-select v-model="form.brand" filterable allow-create default-first-option clearable
-                :placeholder="t('common.unset')">
+              <el-select v-model="form.brand" filterable allow-create default-first-option clearable>
                 <el-option v-for="b in brands" :key="b.id" :label="b.name" :value="b.name" />
               </el-select>
             </InlineField>
             <InlineField :label="t('card.model')">
-              <el-select v-model="form.model" filterable allow-create default-first-option clearable
-                :placeholder="t('common.unset')">
+              <el-select v-model="form.model" filterable allow-create default-first-option clearable>
                 <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.name" />
               </el-select>
             </InlineField>
-            <InlineField :label="t('card.vram')">
-              <el-input v-model="form.vram" :placeholder="t('common.unset')" />
+            <InlineField :label="t('card.coreNo')">
+              <el-input v-model="form.core_no" />
             </InlineField>
             <InlineField :label="t('card.status')">
               <el-select v-model="form.status">
@@ -47,21 +45,21 @@
             <el-divider />
 
             <InlineField :label="t('card.serialNo')">
-              <el-input v-model="form.serial_no" class="mono-input" :placeholder="t('common.unset')" />
+              <el-input v-model="form.serial_no" class="mono-input" />
             </InlineField>
             <InlineField :label="t('card.platform')">
-              <el-select v-model="form.source_platform" clearable :placeholder="t('common.unset')">
+              <el-select v-model="form.source_platform" clearable>
                 <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
               </el-select>
             </InlineField>
             <InlineField :label="t('card.seller')">
-              <el-input v-model="form.seller" :placeholder="t('common.unset')" />
+              <el-input v-model="form.seller" />
             </InlineField>
             <InlineField :label="t('card.orderNo')">
-              <el-input v-model="form.order_no" :placeholder="t('common.unset')" />
+              <el-input v-model="form.order_no" />
             </InlineField>
             <InlineField :label="t('card.itemUrl')">
-              <el-input v-model="form.item_url" placeholder="https://" />
+              <el-input v-model="form.item_url" />
               <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
                 :title="t('common.detail')">↗</a>
             </InlineField>
@@ -69,8 +67,7 @@
             <el-divider />
 
             <InlineField :label="t('card.purchaseDate')">
-              <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD"
-                :placeholder="t('common.unset')" />
+              <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" />
             </InlineField>
             <InlineField :label="t('card.purchaseAmount')">
               <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
@@ -105,8 +102,7 @@
             <el-divider />
 
             <InlineField :label="t('card.saleDate')">
-              <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD"
-                :placeholder="t('common.unset')" />
+              <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD" />
             </InlineField>
             <InlineField :label="t('card.saleAmount')">
               <MoneyInput v-model:amount="form.sale_amount" v-model:currency="form.sale_currency" />
@@ -123,7 +119,7 @@
             <el-divider />
 
             <InlineField :label="t('card.note')" stack>
-              <el-input v-model="form.note" type="textarea" :rows="2" :placeholder="t('common.unset')" />
+              <el-input v-model="form.note" type="textarea" :rows="2" />
             </InlineField>
 
             <!-- 汇率取自哪一天、有没有回退过，都在这里说清楚；空着就是一切正常 -->
@@ -197,7 +193,7 @@ const { platforms } = usePlatforms()
 function blankForm() {
   return {
     id: null,
-    brand: null, model: null, vram: null, serial_no: null,
+    brand: null, model: null, core_no: null, serial_no: null,
     source_platform: null, seller: null, item_url: null, order_no: null,
     purchase_date: null, purchase_amount: null, purchase_currency: 'JPY',
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
@@ -318,7 +314,7 @@ onMounted(async () => {
 .title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
 .mgmt { font-size: 13px; color: #8fb8ff; }
 .model { font-size: 20px; color: #e6edf7; margin: 0; }
-.vram-badge { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #1b2942; color: #a6adb4; }
+.core-badge { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: #1b2942; color: #a6adb4; }
 .info-card, .profit-card { margin-bottom: 16px; }
 .block { margin-bottom: 16px; }
 .info-card :deep(.el-divider) { margin: 10px 0; }

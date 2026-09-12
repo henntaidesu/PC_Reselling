@@ -75,6 +75,21 @@ html, body, #app {
 }
 .el-card__body { background: transparent !important; color: #e6edf7; }
 
+/* 详情页的「左表单 / 右图片」分栏：宽度 4 : 6，两列等高。
+   整机页和每个部件的卡片用的是同一套——分头各写一份的话，某天调了其中一处，
+   同一个页面上下两块的比例就对不上了。
+   用 flex-grow 的比例而不是百分比宽度：中间 16px 的间隙不会被算进去。
+   两列被 stretch 拉成等高，卡片再填满自己那一列，右边图片少时也不会矮一截。 */
+.pcr-split { display: flex; align-items: stretch; gap: 16px; }
+.pcr-split > * { display: flex; min-width: 0; }
+.pcr-split > * > .el-card { width: 100%; }
+.pcr-split-form { flex: 4 1 0; }
+.pcr-split-media { flex: 6 1 0; }
+@media (max-width: 1100px) {
+  /* 窄屏并排都挤没了，改成上下排 */
+  .pcr-split { flex-direction: column; }
+}
+
 .el-loading-mask { background-color: var(--el-mask-color) !important; }
 .el-loading-mask .el-loading-spinner .path { stroke: #8fb8ff; }
 

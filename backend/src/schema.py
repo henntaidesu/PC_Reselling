@@ -133,6 +133,8 @@ _TABLES: List[Tuple[str, str]] = [
         CREATE TABLE IF NOT EXISTS gpu_models (
             id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
             name         VARCHAR(128) NOT NULL,
+            -- 已停用：显存那一栏改成了「核心编号」，而核心编号是一张卡一个，
+            -- 没有「按型号给默认值」的意义。列按惯例只留不删。
             default_vram VARCHAR(32) NULL,
             sort_order   INT NOT NULL DEFAULT 0,
             created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -165,7 +167,7 @@ _TABLES: List[Tuple[str, str]] = [
             mgmt_no       VARCHAR(32) NOT NULL COMMENT '系统管理编号 GPU-2026-0001',
             brand         VARCHAR(64) NULL,
             model         VARCHAR(128) NULL,
-            vram          VARCHAR(32) NULL,
+            core_no       VARCHAR(32) NULL COMMENT 'GPU 核心上的丝印编号，用来证明核心没被换过',
             serial_no     VARCHAR(128) NULL COMMENT '显卡实体序列号',
 
             source_platform VARCHAR(32) NULL COMMENT 'source_platforms 字典里的 name',
@@ -690,6 +692,21 @@ def _migrate_fx_rate_direction() -> None:
         )
 
 
+def _migrate_card_vram_to_core_no() -> None:
+    """把 cards.vram 改名成 core_no：显卡不再记显存，改记核心上的丝印编号。
+
+    用 CHANGE 而不是「加新列 + 留着旧列」，是因为这一栏换的是含义不是用途——留着一个
+    永远为空的 vram 列，以后每次看表结构都要想一遍它还算不算数。
+    """
+    if not _has_column("cards", "vram") or _has_column("cards", "core_no"):
+        return  # 已经改过，或本来就是新结构
+    log.info("迁移：cards.vram 改名为 core_no（显存 → 核心编号）")
+    db.execute(
+        "ALTER TABLE cards CHANGE COLUMN vram core_no VARCHAR(32) NULL "
+        "COMMENT 'GPU 核心上的丝印编号，用来证明核心没被换过'"
+    )
+
+
 def _migrate_platform_column_width() -> None:
     """把 cards / devices 的 source_platform 从 VARCHAR(16) 放宽到 32。
 
@@ -724,6 +741,7 @@ def init() -> None:
         _ensure_column(table, column, ddl)
     _migrate_gpu_models_standalone()
     _migrate_fund_draws_devices()
+    _migrate_card_vram_to_core_no()
     _migrate_platform_column_width()
     _migrate_fx_rate_direction()
     _cleanup_stale_drafts()

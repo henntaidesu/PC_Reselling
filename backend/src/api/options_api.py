@@ -38,9 +38,9 @@ class PlatformPayload(BaseModel):
 
 
 class ModelPayload(BaseModel):
-    # 型号独立于品牌，只有名字（如 RTX 4090）和默认显存
+    # 型号独立于品牌，只有名字（如 RTX 4090）。原来还有个「默认显存」，显存那一栏改成
+    # 核心编号之后就没意义了——核心编号是一张卡一个，给不出按型号的默认值。
     name: str = Field(min_length=1, max_length=128)
-    default_vram: Optional[str] = Field(default=None, max_length=32)
     sort_order: int = 0
 
 
@@ -92,8 +92,7 @@ def list_models():
     """所有型号，独立于品牌。列表和录卡下拉都用这一份完整清单。"""
     return {
         "items": db.query(
-            "SELECT id, name, default_vram, sort_order FROM gpu_models "
-            "ORDER BY sort_order, name"
+            "SELECT id, name, sort_order FROM gpu_models ORDER BY sort_order, name"
         )
     }
 
@@ -102,20 +101,16 @@ def list_models():
 def create_model(payload: ModelPayload):
     name = payload.name.strip()
     existing = db.query_one(
-        "SELECT id, name, default_vram, sort_order FROM gpu_models WHERE name = %s",
-        (name,),
+        "SELECT id, name, sort_order FROM gpu_models WHERE name = %s", (name,)
     )
     if existing:
         # 录卡时现敲一个已存在的型号不该报错，直接把已有那条还回去
         return existing
     model_id = db.insert(
-        "INSERT INTO gpu_models (name, default_vram, sort_order) VALUES (%s, %s, %s)",
-        (name, (payload.default_vram or "").strip() or None, payload.sort_order),
+        "INSERT INTO gpu_models (name, sort_order) VALUES (%s, %s)",
+        (name, payload.sort_order),
     )
-    return {
-        "id": model_id, "name": name,
-        "default_vram": payload.default_vram, "sort_order": payload.sort_order,
-    }
+    return {"id": model_id, "name": name, "sort_order": payload.sort_order}
 
 
 @router.delete("/models/{model_id}")
