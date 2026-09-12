@@ -72,6 +72,46 @@ webside (Vue3 + Element Plus, hash 路由)
 
 打包后同一个进程既是 API 又托管前端 dist（`web_static.py`），开发时前端由 Vite 提供。
 
+### 打包后的桌面外壳：运行窗口 + 托盘（只在冻结态存在）
+
+exe 是 **windowed**（`pc_reselling.spec` 里 `console=False`）：双击后出现的是一个 Tk 运行窗口
+（`log_window.py`），点 X 弹「收入任务栏 / 退出程序 / 取消」，托盘图标（`tray.py`）常驻右下角。
+与 `D:\Project\FreeMarket_Manager` 同一套做法，窗口版式也刻意保持一致。开发态（`start.bat` /
+`python main.py`）完全不装这一层——命令行里 Ctrl+C 就是退出。
+
+为什么不直接在控制台窗口上做：**控制台窗口被关闭时 Windows 会强制结束进程，那次关闭拦不住也
+取消不了**，所以控制台上根本没有「点 X 收起来」这回事。控制台仍然分配一个（`console_win.py`），
+但隐藏、并摘掉它的关闭按钮，只当 stdout/stderr 的真实落点，内容由运行窗口转发显示。
+
+三处顺序/依赖错了都不会报错，只会「窗口不出现」或「日志是空的」：
+
+- `main.py` 里那段冻结态初始化必须在 `logging.basicConfig()` **之前**——basicConfig 会把当时的
+  `sys.stderr` 绑进 StreamHandler，晚一步接管，日志就只进隐藏控制台、窗口里一行都没有。
+- spec 的 `excludes` 里**不能**再有 `tkinter`（运行窗口就是 Tk 写的），`hiddenimports` 要留着
+  `pystray` 的子模块（它的 Windows 后端是运行时按平台挑的，静态分析看不见）。
+- 托盘走的是 `uvicorn.Server` 而不是 `uvicorn.run()`（`server.py:_serve`）：后者把 Server 藏在
+  函数里，外面拿不到 `should_exit`，「退出程序」就没法做成优雅停机。
+
+图标：`webside/public/static/` 下的 `logo.png`（托盘与窗口，pystray 和 Tk 都读不了 SVG）和
+`favicon.ico`（exe 自身，PyInstaller 只收 .ico），两个都是照着 `logo.svg` 的图形转出来的；
+改 logo 要一起重做，否则托盘上还是老图标。
+
+### 打包时 conda 的 DLL 必须压过 PATH
+
+`_ssl` / `_hashlib` / `_sqlite3` / `_lzma` / `_bz2` / `_ctypes` / `_tkinter` / `pyexpat` 依赖的那批
+DLL 在 conda 里不跟 `python.exe` 放一起，而是单独住在 `<env>\Library\bin`。PyInstaller 解析依赖时
+按 PATH 找，于是捞到的是 anaconda base（甚至 Git for Windows）里的同名 DLL——版本对不上，exe
+一启动就弹 `DLL load failed while importing _ssl: 找不到指定的程序`（ERROR_PROC_NOT_FOUND：
+DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
+
+`pc_reselling.spec` 顶部因此把 `sys.prefix` 下的 `Library\bin` / `DLLs` / 环境根目录顶到 PATH 最前，
+**别删**。放在 spec 而不是 `pyinstaller.bat` 里，是为了手敲 `python -m PyInstaller pc_reselling.spec`
+时同样生效。这不是缺依赖，pip 装不出来，换台机器或装了别的软件就可能捞到另一份。
+
+调试打包后的启动问题时注意：**onefile 的 exe 是父子两个进程**，引导进程只持有
+`PyInstallerOnefileHiddenWindow`，真正跑 Python、持有运行窗口与托盘图标的是它的子进程。
+按启动时拿到的那个 PID 去找窗口会一无所获，看着就像「窗口没起来」。
+
 ### 配置分两处，别搞混
 
 - `conf.ini`：**只有** MySQL 连接与监听端口。每项都能被 `PC_RESELLING_*` 环境变量覆盖（见 `conf.py:_SPEC`）。

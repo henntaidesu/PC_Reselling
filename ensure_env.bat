@@ -61,8 +61,11 @@ rem An existing env can still be empty -- created earlier with the pip step
 rem aborted halfway. Probing here turns that into one clear message; otherwise it
 rem surfaces later as a bare ModuleNotFoundError from main.py (or as a PyInstaller
 rem build that quietly bundles nothing), neither of which says "run pip".
+rem pystray/PIL are only needed by the packaged exe's tray shell, but they are probed
+rem here too: an env created before they were added still satisfies the old probe, so
+rem without them listed the build would silently ship an exe with no tray icon.
 if not defined NEED_DEPS (
-  "!PCRPY!" -c "import fastapi, uvicorn, pymysql, jwt, bcrypt" >nul 2>&1
+  "!PCRPY!" -c "import fastapi, uvicorn, pymysql, jwt, bcrypt, pystray, PIL" >nul 2>&1
   if errorlevel 1 (
     echo [^^!] Backend deps missing or incomplete in the env.
     set "NEED_DEPS=1"

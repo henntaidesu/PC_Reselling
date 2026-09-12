@@ -8,3 +8,8 @@ cryptography==46.0.7
 PyJWT==2.10.1
 bcrypt==5.0.0
 requests==2.32.3
+
+# 打包成 exe 后的桌面外壳：托盘图标（pystray）+ 它的图标解码（Pillow）。
+# 开发态跑 main.py 用不到，但打包机上必须装——spec 会收集它们的子模块。
+pystray==0.19.5
+Pillow==12.3.0

@@ -23,6 +23,21 @@ if getattr(sys, "frozen", False):
 else:
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 打包成 windowed（无 CMD 黑框）后进程根本没有 stdout/stderr，print 与 logging 会写到 None 上。
+# 所以先分配一个隐藏控制台接住所有输出，再开运行窗口把它显示出来——双击 exe 看到的是那个窗口，
+# 点 X 可以选「收入任务栏」（见 src/log_window.py + src/tray.py）。
+# 位置很关键：必须赶在下面的 logging.basicConfig() 之前，那一句会把当时的 sys.stderr 绑进
+# StreamHandler，晚一步接管的话窗口里一行日志都不会有。仅 Windows 冻结态生效。
+if getattr(sys, "frozen", False) and sys.platform == "win32":
+    try:
+        from src.console_win import setup_hidden_console
+        from src.log_window import start as start_log_window
+
+        setup_hidden_console()
+        start_log_window()
+    except Exception:  # noqa: BLE001
+        pass  # 外壳起不来无所谓，服务本身照跑
+
 from src import conf  # noqa: E402
 from src.api import router as api_router  # noqa: E402
 from src.web_static import mount_spa, register_health  # noqa: E402

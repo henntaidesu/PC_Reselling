@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Uvicorn 启动。后端只监听普通 HTTP，需要 HTTPS 就在前面放 nginx。"""
+"""Uvicorn 启动。后端只监听普通 HTTP，需要 HTTPS 就在前面放 nginx。
+
+打包成 exe（冻结态）时这里还顺带把桌面外壳装起来：托盘图标 + 运行窗口的退出回调，
+见 _start_desktop_shell。开发态一概不装。
+"""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
+import threading
+import time
 from typing import Optional
 
 import uvicorn
@@ -78,4 +84,68 @@ def run(app: FastAPI, import_string: Optional[str] = None) -> None:
         )
     else:
         log.info("后端启动：http://%s:%s", cfg["host"], cfg["port"])
-        uvicorn.run(app, **common)
+        _serve(app, common)
+
+
+def _serve(app: FastAPI, options: dict) -> None:
+    """非热重载路径：自己建 uvicorn.Server，而不是图省事用 uvicorn.run()。
+
+    uvicorn.run() 把 Server 实例藏在函数里，外面拿不到 should_exit，也就没法从托盘菜单
+    触发优雅停机——而 windowed 打包之后，托盘和运行窗口是仅有的退出入口。
+    """
+    config = uvicorn.Config(
+        app,
+        # 优雅停机上限：在途请求（比如一次慢查询）不该把停机卡住，否则点了「退出程序」
+        # 托盘图标已经消失、进程却还占着端口赖在后台。
+        timeout_graceful_shutdown=5,
+        **options,
+    )
+    server = uvicorn.Server(config)
+    _start_desktop_shell(server)
+    server.run()
+
+    # 冻结态：优雅停机后 Tk / pystray / 连接池这些后台线程未必全退干净，直接结束进程。
+    if getattr(sys, "frozen", False):
+        os._exit(0)
+
+
+def _start_desktop_shell(server: uvicorn.Server) -> None:
+    """冻结态（Windows）挂上托盘图标，并把「退出程序」接到优雅停机上。
+
+    开发态直接跳过：命令行里跑着的时候 Ctrl+C 就是退出，再弹一个托盘图标只会碍事。
+    """
+    if not (getattr(sys, "frozen", False) and sys.platform == "win32"):
+        return
+
+    def _quit() -> None:
+        # 先摘掉托盘图标再停机：停机要好几秒，图标该立刻消失，否则看着像点了没反应。
+        try:
+            from src.tray import stop_tray
+
+            stop_tray()
+        except Exception:  # noqa: BLE001
+            pass
+        server.should_exit = True
+
+        # 看门狗兜底：万一停机彻底卡死（主循环停不下来），到点强制结束进程——
+        # 托盘图标都没了还有个进程占着 9910，下次启动会直接报端口被占用。
+        def _watchdog() -> None:
+            time.sleep(8)
+            os._exit(0)
+
+        threading.Thread(target=_watchdog, daemon=True).start()
+
+    try:
+        from src.log_window import set_on_quit
+
+        set_on_quit(_quit)
+    except Exception:  # noqa: BLE001
+        pass
+
+    try:
+        from src.tray import start_tray
+
+        if not start_tray(on_quit=_quit):
+            log.warning("系统托盘未启动（pystray / Pillow 缺失？），程序继续运行")
+    except Exception:  # noqa: BLE001
+        log.warning("系统托盘启动失败，程序继续运行", exc_info=True)
