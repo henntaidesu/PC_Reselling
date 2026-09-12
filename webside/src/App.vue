@@ -23,15 +23,15 @@ import { elementLocale } from '@/i18n'
 
 :root {
   --app-vh: 1vh;
-  --dc-bg: #0b1220;
-  --dc-card: #131c2f;
-  --dc-card-header: #161f33;
-  --dc-border: #28354a;
-  --dc-text: #e6edf7;
-  --dc-text-dim: #a6adb4;
-  --dc-accent: #5b8cff;
-  --dc-profit: #4ade80;
-  --dc-loss: #f87171;
+  --pcr-bg: #0b1220;
+  --pcr-card: #131c2f;
+  --pcr-card-header: #161f33;
+  --pcr-border: #28354a;
+  --pcr-text: #e6edf7;
+  --pcr-text-dim: #a6adb4;
+  --pcr-accent: #5b8cff;
+  --pcr-profit: #4ade80;
+  --pcr-loss: #f87171;
 }
 
 @supports (height: 1dvh) {
@@ -49,7 +49,7 @@ html.dark {
 html, body, #app {
   height: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  background: var(--dc-bg);
+  background: var(--pcr-bg);
   color: #e5e7eb;
 }
 
@@ -121,8 +121,8 @@ body { -webkit-tap-highlight-color: transparent; }
 }
 
 /* 通用工具类 */
-.dc-profit { color: var(--dc-profit); }
-.dc-loss { color: var(--dc-loss); }
-.dc-dim { color: var(--dc-text-dim); }
-.dc-mono { font-variant-numeric: tabular-nums; }
+.pcr-profit { color: var(--pcr-profit); }
+.pcr-loss { color: var(--pcr-loss); }
+.pcr-dim { color: var(--pcr-text-dim); }
+.pcr-mono { font-variant-numeric: tabular-nums; }
 </style>

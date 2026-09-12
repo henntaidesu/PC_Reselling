@@ -6,16 +6,16 @@
       <el-col :xs="24" :md="8">
         <el-card shadow="never" class="today-card">
           <div class="today-label">{{ t('fx.today') }}</div>
-          <div class="today-rate dc-mono" v-if="today">
+          <div class="today-rate pcr-mono" v-if="today">
             1 <span class="unit">{{ t('currency.CNY_short') }}</span> =
             {{ formatRate(today.rate) }} <span class="unit">{{ t('currency.JPY_short') }}</span>
           </div>
           <div class="today-rate" v-else>—</div>
-          <div class="today-date dc-dim" v-if="today">
+          <div class="today-date pcr-dim" v-if="today">
             {{ today.rate_date }}
             <span v-if="today.stale">{{ t('fx.stale', { date: today.rate_date }) }}</span>
           </div>
-          <p class="ecb-note dc-dim">{{ t('fx.ecbNote') }}</p>
+          <p class="ecb-note pcr-dim">{{ t('fx.ecbNote') }}</p>
         </el-card>
 
         <el-card shadow="never" class="query-card">
@@ -23,11 +23,11 @@
           <div class="query-row">
             <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" :placeholder="t('fx.queryDate')" class="full" @change="doQuery" />
           </div>
-          <div v-if="queryResult" class="query-result dc-mono">
+          <div v-if="queryResult" class="query-result pcr-mono">
             {{ formatRate(queryResult.rate) }}
-            <span class="dc-dim">（{{ queryResult.rate_date }}<template v-if="queryResult.stale"> {{ t('fx.stale', { date: queryResult.rate_date }) }}</template>）</span>
+            <span class="pcr-dim">（{{ queryResult.rate_date }}<template v-if="queryResult.stale"> {{ t('fx.stale', { date: queryResult.rate_date }) }}</template>）</span>
           </div>
-          <div v-else-if="queried" class="dc-dim">{{ t('fx.noRate') }}</div>
+          <div v-else-if="queried" class="pcr-dim">{{ t('fx.noRate') }}</div>
         </el-card>
       </el-col>
 
@@ -52,12 +52,12 @@
             </el-select>
           </div>
           <div class="cfg-row">
-            <span>{{ t('fx.autoFetch') }}<br /><small class="dc-dim">{{ t('fx.autoFetchHint') }}</small></span>
+            <span>{{ t('fx.autoFetch') }}<br /><small class="pcr-dim">{{ t('fx.autoFetchHint') }}</small></span>
             <el-switch v-model="config.auto_fetch" @change="saveConfig" />
           </div>
           <div class="cfg-row">
             <span>{{ t('fx.cachedRange') }}</span>
-            <span class="dc-dim dc-mono">
+            <span class="pcr-dim pcr-mono">
               {{ t('fx.cachedCount', { n: config.cached_count }) }}
               <template v-if="config.cached_range?.min_date"> · {{ config.cached_range.min_date }} ~ {{ config.cached_range.max_date }}</template>
             </span>

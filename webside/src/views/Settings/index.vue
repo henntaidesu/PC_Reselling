@@ -53,25 +53,25 @@
         <h3 class="section-heading">{{ t('settings.tabDatabase') }}</h3>
         <el-card shadow="never" class="pane-card">
           <el-alert :title="t('settings.dbHint')" type="info" :closable="false" show-icon class="mb" />
-          <div class="kv"><span>{{ t('settings.dbConf') }}</span><b class="dc-mono">{{ db.conf_path }}</b></div>
-          <div class="kv"><span>{{ t('settings.dbHost') }}</span><b class="dc-mono">{{ db.host }}:{{ db.port }}</b></div>
-          <div class="kv"><span>{{ t('settings.dbName') }}</span><b class="dc-mono">{{ db.database }}</b></div>
-          <div class="kv"><span>{{ t('settings.dbUser') }}</span><b class="dc-mono">{{ db.user }}</b></div>
+          <div class="kv"><span>{{ t('settings.dbConf') }}</span><b class="pcr-mono">{{ db.conf_path }}</b></div>
+          <div class="kv"><span>{{ t('settings.dbHost') }}</span><b class="pcr-mono">{{ db.host }}:{{ db.port }}</b></div>
+          <div class="kv"><span>{{ t('settings.dbName') }}</span><b class="pcr-mono">{{ db.database }}</b></div>
+          <div class="kv"><span>{{ t('settings.dbUser') }}</span><b class="pcr-mono">{{ db.user }}</b></div>
           <div class="kv">
             <span>{{ t('settings.database') }}</span>
             <el-tag :type="db.ok ? 'success' : 'danger'" effect="dark" size="small">
               {{ db.ok ? t('settings.dbConnected') : t('settings.dbDisconnected') }}
             </el-tag>
           </div>
-          <div class="kv" v-if="db.version"><span>{{ t('settings.dbVersion') }}</span><b class="dc-mono">{{ db.version }}</b></div>
-          <div class="kv" v-if="db.error"><span class="dc-loss">Error</span><b class="dc-loss">{{ db.error }}</b></div>
+          <div class="kv" v-if="db.version"><span>{{ t('settings.dbVersion') }}</span><b class="pcr-mono">{{ db.version }}</b></div>
+          <div class="kv" v-if="db.error"><span class="pcr-loss">Error</span><b class="pcr-loss">{{ db.error }}</b></div>
           <div class="form-actions">
             <el-button :icon="Refresh" :loading="reconnecting" @click="reconnect">{{ t('settings.dbReconnect') }}</el-button>
           </div>
           <el-table v-if="db.tables?.length" :data="db.tables" size="small" class="mt">
             <el-table-column prop="name" :label="t('settings.dbTables')" />
             <el-table-column align="right" width="140">
-              <template #default="{ row }"><span class="dc-dim dc-mono">{{ t('settings.dbRows', { n: row.approx_rows ?? 0 }) }}</span></template>
+              <template #default="{ row }"><span class="pcr-dim pcr-mono">{{ t('settings.dbRows', { n: row.approx_rows ?? 0 }) }}</span></template>
             </el-table-column>
           </el-table>
         </el-card>
@@ -95,7 +95,7 @@
                     <el-button size="small" text type="danger" :icon="Delete" @click="removeBrand(row)" />
                   </template>
                 </el-table-column>
-                <template #empty><span class="dc-dim">{{ t('common.noData') }}</span></template>
+                <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
               </el-table>
             </el-card>
           </el-col>
@@ -113,7 +113,7 @@
                     <el-button size="small" text type="danger" :icon="Delete" @click="removeModel(row)" />
                   </template>
                 </el-table-column>
-                <template #empty><span class="dc-dim">{{ t('common.noData') }}</span></template>
+                <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
               </el-table>
             </el-card>
           </el-col>

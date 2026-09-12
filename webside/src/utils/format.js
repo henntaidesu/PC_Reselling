@@ -49,8 +49,8 @@ export function formatRate(rate) {
 // 利润着色：正绿负红，0 和缺失用默认色
 export function profitClass(value) {
   if (value === null || value === undefined) return ''
-  if (value > 0) return 'dc-profit'
-  if (value < 0) return 'dc-loss'
+  if (value > 0) return 'pcr-profit'
+  if (value < 0) return 'pcr-loss'
   return ''
 }
 

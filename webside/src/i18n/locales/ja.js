@@ -1,5 +1,5 @@
 export default {
-  app: { name: 'Display Card Manager', short: 'GPU管理' },
+  app: { name: 'PC Reselling Manager', short: 'GPU管理' },
   route: {
     login: 'ログイン',
     dashboard: 'ダッシュボード',
@@ -340,7 +340,7 @@ export default {
     publicBase: '公開アクセス先',
     publicBaseHint: 'ブラウザで画像を開くアドレス。空欄なら上と同じ',
     project: 'プロジェクト識別子（slug）',
-    projectHint: '画像ホスティングで作成したプロジェクト名。例: displaycard',
+    projectHint: '画像ホスティングで作成したプロジェクト名。例: pc_reselling',
     token: 'API トークン',
     tokenHint: '空欄なら保存済みトークンを変更しません',
     tokenSet: 'トークン設定済み',

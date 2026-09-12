@@ -101,7 +101,7 @@
       </el-row>
       <div v-if="fxPreview.purchase && !usePool" class="fx-hint">
         {{ t('card.fxPreview') }}: 1 {{ t('currency.CNY_short') }} = {{ formatRate(fxPreview.purchase.rate) }} {{ t('currency.JPY_short') }}
-        <span class="dc-dim">（{{ fxPreview.purchase.rate_date }}{{ fxPreview.purchase.stale ? ' *' : '' }}）</span>
+        <span class="pcr-dim">（{{ fxPreview.purchase.rate_date }}{{ fxPreview.purchase.stale ? ' *' : '' }}）</span>
       </div>
 
       <!-- 资金来源。开着的时候这张卡的日元支出从资金池扣，成本改按被吃掉的那几批
@@ -109,16 +109,16 @@
       <div class="pool-row">
         <el-switch v-model="usePool" />
         <span class="pool-label">{{ t('card.fundPool') }}</span>
-        <span v-if="poolSummary" class="dc-dim pool-balance">
-          {{ t('card.poolBalance') }} <b class="dc-mono">{{ jpyText(poolSummary.balance) }}</b>
+        <span v-if="poolSummary" class="pcr-dim pool-balance">
+          {{ t('card.poolBalance') }} <b class="pcr-mono">{{ jpyText(poolSummary.balance) }}</b>
         </span>
       </div>
       <div v-if="usePool" class="fx-hint pool-hint">
         <div>{{ t('card.fundPoolHint') }}</div>
         <div v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</div>
         <div v-if="poolCost !== null">
-          {{ t('card.poolCost') }}: <b class="dc-mono">{{ cnyText(poolCost) }}</b>
-          <span v-if="poolRate" class="dc-dim">（{{ t('card.poolRate') }} {{ formatRate(poolRate) }}）</span>
+          {{ t('card.poolCost') }}: <b class="pcr-mono">{{ cnyText(poolCost) }}</b>
+          <span v-if="poolRate" class="pcr-dim">（{{ t('card.poolRate') }} {{ formatRate(poolRate) }}）</span>
         </div>
       </div>
 
@@ -140,7 +140,7 @@
       </el-row>
       <div v-if="fxPreview.sale" class="fx-hint">
         {{ t('card.fxPreview') }}: 1 {{ t('currency.CNY_short') }} = {{ formatRate(fxPreview.sale.rate) }} {{ t('currency.JPY_short') }}
-        <span class="dc-dim">（{{ fxPreview.sale.rate_date }}{{ fxPreview.sale.stale ? ' *' : '' }}）</span>
+        <span class="pcr-dim">（{{ fxPreview.sale.rate_date }}{{ fxPreview.sale.stale ? ' *' : '' }}）</span>
       </div>
 
       <el-form-item :label="t('card.note')">
@@ -434,8 +434,8 @@ async function onClosed() {
 .dialog-title { font-size: 16px; font-weight: 600; color: #e6edf7; }
 .autosave { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #6f7b8e; }
 .autosave.active { color: #8fb8ff; }
-.autosave .spin { animation: dc-spin 0.9s linear infinite; }
-@keyframes dc-spin { to { transform: rotate(360deg); } }
+.autosave .spin { animation: pcr-spin 0.9s linear infinite; }
+@keyframes pcr-spin { to { transform: rotate(360deg); } }
 
 /* overflow-x:hidden 干掉横向滚动条：顶部标签布局下每个控件都满宽，之前那条横条
    来自左标签 + 定宽控件挤不下时的溢出，改顶标签后不再需要横向滚动 */

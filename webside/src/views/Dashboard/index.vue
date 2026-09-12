@@ -252,10 +252,10 @@
             </el-table-column>
             <el-table-column :label="t('card.profit')" width="120" align="right">
               <template #default="{ row }">
-                <span class="dc-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
+                <span class="pcr-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
               </template>
             </el-table-column>
-            <template #empty><span class="dc-dim">{{ t('common.noData') }}</span></template>
+            <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
           </el-table>
         </el-card>
       </div>
@@ -272,7 +272,7 @@
         </template>
         <el-table :data="recent" size="small" stripe class="num-table clickable" @row-click="goDetail">
           <el-table-column :label="t('card.mgmtNo')" width="130">
-            <template #default="{ row }"><span class="dc-mono mgmt">{{ row.mgmt_no }}</span></template>
+            <template #default="{ row }"><span class="pcr-mono mgmt">{{ row.mgmt_no }}</span></template>
           </el-table-column>
           <el-table-column :label="t('card.model')" min-width="160">
             <template #default="{ row }">{{ [row.brand, row.model].filter(Boolean).join(' ') || t('card.noModel') }}</template>
@@ -281,17 +281,17 @@
             <template #default="{ row }"><StatusTag :status="row.status" /></template>
           </el-table-column>
           <el-table-column :label="t('card.purchaseDate')" width="120">
-            <template #default="{ row }"><span class="dc-mono dc-dim">{{ row.purchase_date || '—' }}</span></template>
+            <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.purchase_date || '—' }}</span></template>
           </el-table-column>
           <el-table-column :label="t('card.cost')" width="120" align="right">
-            <template #default="{ row }"><span class="dc-mono">{{ cny(row.money.cost_total_cny) }}</span></template>
+            <template #default="{ row }"><span class="pcr-mono">{{ cny(row.money.cost_total_cny) }}</span></template>
           </el-table-column>
           <el-table-column :label="t('card.profit')" width="120" align="right">
             <template #default="{ row }">
-              <span class="dc-mono" :class="profitClass(row.money.profit_cny)">{{ cny(row.money.profit_cny) }}</span>
+              <span class="pcr-mono" :class="profitClass(row.money.profit_cny)">{{ cny(row.money.profit_cny) }}</span>
             </template>
           </el-table-column>
-          <template #empty><span class="dc-dim">{{ t('common.noData') }}</span></template>
+          <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
         </el-table>
       </el-card>
     </div>

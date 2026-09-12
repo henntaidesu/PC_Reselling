@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Display Card Manager 后端入口。
+"""PC Reselling Manager 后端入口。
 
 启动顺序：读 conf.ini → 建库建表 → 注册路由 → 挂前端。建表放在 lifespan 里而不是
 模块顶层，是为了让 MySQL 没起来的时候错误信息出现在启动日志里，而不是变成一个
@@ -31,7 +31,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
     datefmt="%H:%M:%S",
 )
-log = logging.getLogger("displaycard")
+log = logging.getLogger("pc_reselling")
 
 
 @asynccontextmanager
@@ -59,14 +59,14 @@ async def lifespan(app: FastAPI):
     db.reset_pool()
 
 
-_ENABLE_DOCS = (os.environ.get("DISPLAYCARD_ENABLE_DOCS") or "").strip().lower() in ("1", "true", "yes")
+_ENABLE_DOCS = (os.environ.get("PC_RESELLING_ENABLE_DOCS") or "").strip().lower() in ("1", "true", "yes")
 
 app = FastAPI(
-    title="Display Card Manager",
+    title="PC Reselling Manager",
     version="1.0.0",
     lifespan=lifespan,
     # /docs 默认关闭：局域网里它是一份未认证可读的完整路由与参数清单。
-    # 需要时设 DISPLAYCARD_ENABLE_DOCS=1。
+    # 需要时设 PC_RESELLING_ENABLE_DOCS=1。
     docs_url="/docs" if _ENABLE_DOCS else None,
     redoc_url="/redoc" if _ENABLE_DOCS else None,
     openapi_url="/openapi.json" if _ENABLE_DOCS else None,
@@ -74,8 +74,8 @@ app = FastAPI(
 
 # 认证走 Authorization Bearer 而非 Cookie，所以默认允许任意来源但**关闭凭证**——
 # 「通配 origin + allow_credentials」是明确危险的组合，这里从结构上避开它。
-# 需要锁定来源时设 DISPLAYCARD_CORS_ORIGINS="https://host:9911"（逗号分隔）。
-_cors_env = (os.environ.get("DISPLAYCARD_CORS_ORIGINS") or "").strip()
+# 需要锁定来源时设 PC_RESELLING_CORS_ORIGINS="https://host:9911"（逗号分隔）。
+_cors_env = (os.environ.get("PC_RESELLING_CORS_ORIGINS") or "").strip()
 if _cors_env:
     _origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
     _allow_credentials = True

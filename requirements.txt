@@ -1,4 +1,4 @@
-# Display Card Manager 后端依赖（Python 3.12 / conda 环境 displayCard）
+# PC Reselling Manager 后端依赖（Python 3.12 / conda 环境 PC_Reselling）
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
 pydantic==2.13.5

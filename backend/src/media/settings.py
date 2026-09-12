@@ -22,7 +22,7 @@ KEYS = {
 DEFAULTS = {
     "base_url": "http://127.0.0.1:9990",
     "public_base": "",
-    "project": "displaycard",
+    "project": "pc_reselling",
     "token": "",
     "timeout": "30",
     "verify_tls": "1",

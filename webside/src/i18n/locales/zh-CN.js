@@ -1,5 +1,5 @@
 export default {
-  app: { name: 'Display Card Manager', short: '显卡管理' },
+  app: { name: 'PC Reselling Manager', short: '显卡管理' },
   route: {
     login: '登录',
     dashboard: '概览',
@@ -340,7 +340,7 @@ export default {
     publicBase: '公开访问地址',
     publicBaseHint: '浏览器打开图片用的地址，留空则与上面相同',
     project: '项目标识（slug）',
-    projectHint: '在图床里创建的项目名，例如 displaycard',
+    projectHint: '在图床里创建的项目名，例如 pc_reselling',
     token: 'API Token',
     tokenHint: '留空表示不修改已保存的 Token',
     tokenSet: 'Token 已设置',

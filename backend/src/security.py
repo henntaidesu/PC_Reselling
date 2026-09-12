@@ -35,7 +35,7 @@ def get_or_create_jwt_secret() -> str:
     刻意不回退到源码里的常量——那等于把签名密钥公开，任何拿到源码的人都能伪造令牌。
     密钥存在 MySQL 里，重启后仍然有效，登录状态不会因为重启被清空。
     """
-    env_secret = (os.environ.get("DISPLAYCARD_JWT_SECRET") or "").strip()
+    env_secret = (os.environ.get("PC_RESELLING_JWT_SECRET") or "").strip()
     if env_secret:
         return env_secret
 

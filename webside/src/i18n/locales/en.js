@@ -1,5 +1,5 @@
 export default {
-  app: { name: 'Display Card Manager', short: 'GPU Mgr' },
+  app: { name: 'PC Reselling Manager', short: 'GPU Mgr' },
   route: {
     login: 'Login',
     dashboard: 'Dashboard',
@@ -340,7 +340,7 @@ export default {
     publicBase: 'Public URL',
     publicBaseHint: 'URL the browser opens images from; leave empty to match the above',
     project: 'Project slug',
-    projectHint: 'The project name created on the image host, e.g. displaycard',
+    projectHint: 'The project name created on the image host, e.g. pc_reselling',
     token: 'API Token',
     tokenHint: 'Leave empty to keep the saved token',
     tokenSet: 'Token set',

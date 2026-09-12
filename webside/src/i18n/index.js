@@ -7,7 +7,7 @@ import zhCNMessages from './locales/zh-CN'
 import jaMessages from './locales/ja'
 import enMessages from './locales/en'
 
-const STORAGE_KEY = 'dc_locale'
+const STORAGE_KEY = 'pcr_locale'
 const SUPPORTED = ['zh-CN', 'ja', 'en']
 
 function detectLocale() {

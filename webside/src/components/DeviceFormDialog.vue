@@ -83,7 +83,7 @@
       </el-row>
       <div v-if="fxPreview" class="fx-hint">
         {{ t('card.fxPreview') }}: 1 {{ t('currency.CNY_short') }} = {{ formatRate(fxPreview.rate) }} {{ t('currency.JPY_short') }}
-        <span class="dc-dim">（{{ fxPreview.rate_date }}{{ fxPreview.stale ? ' *' : '' }}）</span>
+        <span class="pcr-dim">（{{ fxPreview.rate_date }}{{ fxPreview.stale ? ' *' : '' }}）</span>
       </div>
 
       <!-- 资金来源。开着的时候这台设备的日元支出从资金池扣，成本改按被吃掉的那几批
@@ -91,23 +91,23 @@
       <div class="pool-row">
         <el-switch v-model="usePool" :disabled="poolLocked" />
         <span class="pool-label">{{ t('card.fundPool') }}</span>
-        <span v-if="poolSummary" class="dc-dim pool-balance">
-          {{ t('card.poolBalance') }} <b class="dc-mono">{{ jpyText(poolSummary.balance) }}</b>
+        <span v-if="poolSummary" class="pcr-dim pool-balance">
+          {{ t('card.poolBalance') }} <b class="pcr-mono">{{ jpyText(poolSummary.balance) }}</b>
         </span>
-        <span v-if="poolLocked" class="dc-dim pool-locked">{{ t('device.poolLocked') }}</span>
+        <span v-if="poolLocked" class="pcr-dim pool-locked">{{ t('device.poolLocked') }}</span>
       </div>
       <div v-if="usePool" class="fx-hint pool-hint">
         <div>{{ t('device.fundPoolHint') }}</div>
         <div v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</div>
         <div v-if="poolCost !== null">
-          {{ t('card.poolCost') }}: <b class="dc-mono">{{ cny(poolCost) }}</b>
-          <span v-if="poolRate" class="dc-dim">（{{ t('card.poolRate') }} {{ formatRate(poolRate) }}）</span>
+          {{ t('card.poolCost') }}: <b class="pcr-mono">{{ cny(poolCost) }}</b>
+          <span v-if="poolRate" class="pcr-dim">（{{ t('card.poolRate') }} {{ formatRate(poolRate) }}）</span>
         </div>
         <!-- 分段折算明细。整机没有独立详情页，这里是唯一能看到「钱从哪几批出的」的地方 -->
         <div v-for="draw in fundDraws" :key="draw.id" class="pool-draw">
-          <span class="dc-dim">{{ t('funds.cat.' + draw.category) }}</span>
-          <b class="dc-mono">{{ jpyText(draw.amount) }}</b>
-          <span v-for="(seg, i) in draw.allocations" :key="i" class="pool-seg dc-mono">
+          <span class="pcr-dim">{{ t('funds.cat.' + draw.category) }}</span>
+          <b class="pcr-mono">{{ jpyText(draw.amount) }}</b>
+          <span v-for="(seg, i) in draw.allocations" :key="i" class="pool-seg pcr-mono">
             {{ seg.inject_date }} {{ jpyText(seg.amount) }} @{{ formatRate(seg.fx_rate) }} = {{ cny(seg.cny_amount) }}
           </span>
           <span v-if="draw.shortfall" class="pool-warn">
@@ -131,8 +131,8 @@
           </el-tag>
           <el-tag v-else size="small" type="info" effect="plain" class="head-tag">{{ t('device.unsold') }}</el-tag>
           <span class="part-title">{{ partTitle(part) }}</span>
-          <span v-if="partNet(part) !== null" class="dc-dim part-net">
-            {{ t('device.netIncome') }} <b class="dc-mono">{{ cny(partNet(part)) }}</b>
+          <span v-if="partNet(part) !== null" class="pcr-dim part-net">
+            {{ t('device.netIncome') }} <b class="pcr-mono">{{ cny(partNet(part)) }}</b>
           </span>
           <div class="part-actions">
             <el-button size="small" text @click="toggleMore(part._uid)">
@@ -238,23 +238,23 @@
       <div v-if="money" class="summary">
         <div class="summary-item">
           <span class="summary-label">{{ t('device.cost') }}</span>
-          <span class="dc-mono summary-value">{{ cny(money.cost_total_cny) }}</span>
+          <span class="pcr-mono summary-value">{{ cny(money.cost_total_cny) }}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">{{ t('device.revenue') }}</span>
-          <span class="dc-mono summary-value">{{ cny(money.sale_cny) }}</span>
+          <span class="pcr-mono summary-value">{{ cny(money.sale_cny) }}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">{{ t('device.profit') }}</span>
-          <span class="dc-mono summary-value" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</span>
+          <span class="pcr-mono summary-value" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">{{ t('device.recovery') }}</span>
-          <span class="dc-mono summary-value">{{ money.recovery === null ? '—' : money.recovery + '%' }}</span>
+          <span class="pcr-mono summary-value">{{ money.recovery === null ? '—' : money.recovery + '%' }}</span>
         </div>
         <div class="summary-item">
           <span class="summary-label">{{ t('device.soldParts') }}</span>
-          <span class="dc-mono summary-value">{{ money.sold_count }} / {{ money.part_count }}</span>
+          <span class="pcr-mono summary-value">{{ money.sold_count }} / {{ money.part_count }}</span>
         </div>
       </div>
       <div v-if="money && money.settled" class="fx-hint settled-hint">{{ t('device.settledHint') }}</div>
@@ -698,8 +698,8 @@ async function onClosed() {
 .dialog-title { font-size: 16px; font-weight: 600; color: #e6edf7; }
 .autosave { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: #6f7b8e; }
 .autosave.active { color: #8fb8ff; }
-.autosave .spin { animation: dc-spin 0.9s linear infinite; }
-@keyframes dc-spin { to { transform: rotate(360deg); } }
+.autosave .spin { animation: pcr-spin 0.9s linear infinite; }
+@keyframes pcr-spin { to { transform: rotate(360deg); } }
 
 .device-form { max-height: 70vh; overflow-y: auto; overflow-x: hidden; padding-right: 8px; }
 .section-title {

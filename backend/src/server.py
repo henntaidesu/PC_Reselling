@@ -17,11 +17,11 @@ log = logging.getLogger(__name__)
 
 
 def _reload_enabled() -> bool:
-    # 热重载只在开发时开：设 DISPLAYCARD_RELOAD=1（start.bat 会设）。打包成 exe 后
+    # 热重载只在开发时开：设 PC_RESELLING_RELOAD=1（start.bat 会设）。打包成 exe 后
     # 冻结态不能用 reload（会重新 spawn 自身导致递归/找不到模块），所以冻结时强制关闭。
     if getattr(sys, "frozen", False):
         return False
-    return (os.environ.get("DISPLAYCARD_RELOAD") or "").strip().lower() in ("1", "true", "yes")
+    return (os.environ.get("PC_RESELLING_RELOAD") or "").strip().lower() in ("1", "true", "yes")
 
 
 def _enable_windows_console_ansi() -> None:

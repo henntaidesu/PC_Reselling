@@ -112,8 +112,8 @@
           <template #default="{ row }">
             <div class="model-cell">
               <span class="model-name">{{ nameOf(row) }}</span>
-              <span v-if="row.mgmt_no || row.subtitle" class="dc-dim sub">
-                <span class="dc-mono">{{ row.mgmt_no }}</span>
+              <span v-if="row.mgmt_no || row.subtitle" class="pcr-dim sub">
+                <span class="pcr-mono">{{ row.mgmt_no }}</span>
                 <template v-if="row.subtitle"> · {{ row.subtitle }}</template>
               </span>
             </div>
@@ -127,23 +127,23 @@
           </template>
         </el-table-column>
         <el-table-column :label="t('card.purchaseDate')" width="120">
-          <template #default="{ row }"><span class="dc-mono dc-dim">{{ row.purchase_date || '—' }}</span></template>
+          <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.purchase_date || '—' }}</span></template>
         </el-table-column>
         <el-table-column :label="t('card.saleDate')" width="120">
-          <template #default="{ row }"><span class="dc-mono dc-dim">{{ row.sale_date || '—' }}</span></template>
+          <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.sale_date || '—' }}</span></template>
         </el-table-column>
         <el-table-column :label="t('device.partsCount')" width="96" align="center">
           <template #default="{ row }">
             <!-- 显卡就是一件，部件行本身也不再分件，只有整机这一格有意义 -->
-            <span v-if="row.kind === 'device'" class="dc-mono">{{ row.sold_count }} / {{ row.part_count }}</span>
-            <span v-else class="dc-dim">—</span>
+            <span v-if="row.kind === 'device'" class="pcr-mono">{{ row.sold_count }} / {{ row.part_count }}</span>
+            <span v-else class="pcr-dim">—</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('card.cost')" width="140" align="right">
           <template #default="{ row }">
             <!-- 部件没有单件成本：整机是一口价买的，总价不往部件上摊 -->
             <el-tooltip v-if="row.kind === 'part'" :content="t('device.noPartCost')">
-              <span class="dc-dim">—</span>
+              <span class="pcr-dim">—</span>
             </el-tooltip>
             <template v-else>
               <!-- 总成本 = 购入价 + 国际运费 + 国内运费。三项都已计入合计，悬浮摊开是
@@ -157,7 +157,7 @@
                     <div class="cost-tip-sum"><span>{{ t('card.cost') }}</span><b>{{ cny(row.cost_total_cny) }}</b></div>
                   </div>
                 </template>
-                <span class="dc-mono cost-value">{{ cny(row.cost_total_cny) }}</span>
+                <span class="pcr-mono cost-value">{{ cny(row.cost_total_cny) }}</span>
               </el-tooltip>
               <!-- 成本是按资金池的注资汇率折的，不是买入当天的牌价——标出来，免得对不上账 -->
               <el-tooltip v-if="row.from_pool" :content="t('card.fundPoolHint')">
@@ -168,10 +168,10 @@
         </el-table-column>
         <el-table-column :label="t('device.revenue')" width="130" align="right">
           <template #default="{ row }">
-            <span class="dc-mono">{{ cny(row.sale_cny) }}</span>
+            <span class="pcr-mono">{{ cny(row.sale_cny) }}</span>
             <!-- 部件的净收入（扣掉国内运费）标在下面，「已收回」本身仍是售价，
                  二级行加起来才等于整机那一行 -->
-            <div v-if="row.kind === 'part' && row.domestic_shipping_cny" class="dc-dim sub dc-mono">
+            <div v-if="row.kind === 'part' && row.domestic_shipping_cny" class="pcr-dim sub pcr-mono">
               {{ t('device.netIncome') }} {{ cny(row.net_cny) }}
             </div>
           </template>
@@ -186,10 +186,10 @@
           </template>
           <template #default="{ row }">
             <el-tooltip v-if="row.kind === 'part'" :content="t('device.noPartCost')">
-              <span class="dc-dim">—</span>
+              <span class="pcr-dim">—</span>
             </el-tooltip>
             <template v-else>
-              <span class="dc-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
+              <span class="pcr-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
               <el-tooltip v-if="row.incomplete" :content="t('card.incomplete')">
                 <el-icon class="warn-icon"><WarningFilled /></el-icon>
               </el-tooltip>
@@ -205,7 +205,7 @@
             </el-button>
           </template>
         </el-table-column>
-        <template #empty><span class="dc-dim">{{ t('common.noData') }}</span></template>
+        <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
       </el-table>
 
       <div class="pager">

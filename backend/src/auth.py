@@ -18,7 +18,7 @@ from src import db
 JWT_ALGORITHM = "HS256"
 # 0 = 永不过期（默认）：不写 exp 声明。失效由 token_version 控制——
 # 改密码 / 禁用账号会自增 token_version，旧令牌立刻作废。
-JWT_EXPIRE_HOURS = int(os.getenv("DISPLAYCARD_JWT_EXPIRE_HOURS", "0"))
+JWT_EXPIRE_HOURS = int(os.getenv("PC_RESELLING_JWT_EXPIRE_HOURS", "0"))
 
 _bearer = HTTPBearer(auto_error=False)
 

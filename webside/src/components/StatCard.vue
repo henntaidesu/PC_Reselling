@@ -61,9 +61,9 @@ const display = computed(() => (props.value === null || props.value === undefine
   /* 金额位数多时折行，不用省略号——省略号会把 ￥12,345,678 读成 ￥12,345… */
   overflow-wrap: anywhere;
 }
-/* 盈亏色要盖过上面那条 .stat-value 的默认色：全局的 .dc-profit / .dc-loss
+/* 盈亏色要盖过上面那条 .stat-value 的默认色：全局的 .pcr-profit / .pcr-loss
    没带 scoped 属性选择器，特异性比它低，不在这里重申一遍就会被吃掉 */
-.stat-value.dc-profit { color: var(--dc-profit); }
-.stat-value.dc-loss { color: var(--dc-loss); }
+.stat-value.pcr-profit { color: var(--pcr-profit); }
+.stat-value.pcr-loss { color: var(--pcr-loss); }
 .stat-label { font-size: 12px; color: #9ba8bf; margin-top: 2px; }
 </style>

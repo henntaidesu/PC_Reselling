@@ -10,7 +10,7 @@
 
     <template v-if="card">
       <div class="title-row">
-        <span class="dc-mono mgmt">{{ card.mgmt_no }}</span>
+        <span class="pcr-mono mgmt">{{ card.mgmt_no }}</span>
         <h2 class="model">{{ [card.brand, card.model].filter(Boolean).join(' ') || t('card.noModel') }}</h2>
         <span v-if="card.vram" class="vram-badge">{{ card.vram }}</span>
         <StatusTag :status="card.status" />
@@ -33,30 +33,30 @@
             <div class="kv"><span>{{ t('card.purchaseDate') }}</span><b>{{ card.purchase_date || '—' }}</b></div>
             <div class="kv"><span>{{ t('card.purchaseAmount') }}</span><b>{{ money(card.purchase_amount, card.purchase_currency) }}</b></div>
             <div class="kv"><span>{{ t('card.intlShipping') }}</span><b>{{ money(card.intl_shipping_amount, card.intl_shipping_currency) }}</b></div>
-            <div class="kv"><span>{{ t('card.purchaseFx') }}</span><b class="dc-mono">{{ card.purchase_fx_rate ? formatRate(card.purchase_fx_rate) : '—' }}<span class="dc-dim" v-if="card.purchase_fx_date"> · {{ card.purchase_fx_date }}</span></b></div>
+            <div class="kv"><span>{{ t('card.purchaseFx') }}</span><b class="pcr-mono">{{ card.purchase_fx_rate ? formatRate(card.purchase_fx_rate) : '—' }}<span class="pcr-dim" v-if="card.purchase_fx_date"> · {{ card.purchase_fx_date }}</span></b></div>
             <div class="kv"><span>{{ t('card.fundSource') }}</span>
               <b>
                 {{ card.fund_source === 'pool' ? t('card.fundPool') : t('card.fundOwn') }}
-                <span v-if="card.fund_source === 'pool' && card.money.pool_fx_rate" class="dc-dim dc-mono"> · {{ formatRate(card.money.pool_fx_rate) }}</span>
+                <span v-if="card.fund_source === 'pool' && card.money.pool_fx_rate" class="pcr-dim pcr-mono"> · {{ formatRate(card.money.pool_fx_rate) }}</span>
               </b>
             </div>
             <el-divider />
             <div class="kv"><span>{{ t('card.saleDate') }}</span><b>{{ card.sale_date || '—' }}</b></div>
             <div class="kv"><span>{{ t('card.saleAmount') }}</span><b>{{ money(card.sale_amount, card.sale_currency) }}</b></div>
             <div class="kv"><span>{{ t('card.domesticShipping') }}</span><b>{{ money(card.domestic_shipping_amount, card.domestic_shipping_currency) }}</b></div>
-            <div class="kv"><span>{{ t('card.saleFx') }}</span><b class="dc-mono">{{ card.sale_fx_rate ? formatRate(card.sale_fx_rate) : '—' }}<span class="dc-dim" v-if="card.sale_fx_date"> · {{ card.sale_fx_date }}</span></b></div>
+            <div class="kv"><span>{{ t('card.saleFx') }}</span><b class="pcr-mono">{{ card.sale_fx_rate ? formatRate(card.sale_fx_rate) : '—' }}<span class="pcr-dim" v-if="card.sale_fx_date"> · {{ card.sale_fx_date }}</span></b></div>
             <div v-if="card.note" class="note">{{ card.note }}</div>
           </el-card>
 
           <!-- 利润卡 -->
           <el-card shadow="never" class="profit-card">
-            <div class="profit-row"><span>{{ t('card.cost') }}</span><b class="dc-mono">{{ cny(card.money.cost_total_cny) }}</b></div>
-            <div class="profit-row"><span>{{ t('card.revenue') }}</span><b class="dc-mono">{{ cny(card.money.sale_cny) }}</b></div>
+            <div class="profit-row"><span>{{ t('card.cost') }}</span><b class="pcr-mono">{{ cny(card.money.cost_total_cny) }}</b></div>
+            <div class="profit-row"><span>{{ t('card.revenue') }}</span><b class="pcr-mono">{{ cny(card.money.sale_cny) }}</b></div>
             <div class="profit-row big">
               <span>{{ t('card.profit') }}</span>
-              <b class="dc-mono" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
+              <b class="pcr-mono" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
             </div>
-            <div class="profit-row"><span>{{ t('card.margin') }}</span><b class="dc-mono">{{ card.money.profit_margin === null ? '—' : card.money.profit_margin + '%' }}</b></div>
+            <div class="profit-row"><span>{{ t('card.margin') }}</span><b class="pcr-mono">{{ card.money.profit_margin === null ? '—' : card.money.profit_margin + '%' }}</b></div>
             <el-alert v-if="card.money.incomplete" :title="t('card.incomplete')" type="warning" :closable="false" show-icon class="mt" />
           </el-card>
 
@@ -71,18 +71,18 @@
             <div v-for="d in card.fund_draws" :key="d.id" class="pool-draw">
               <div class="pool-draw-head">
                 <span>{{ t('funds.cat.' + d.category) }}</span>
-                <b class="dc-mono">{{ money(d.amount, 'JPY') }} → {{ cny(d.cny_amount) }}</b>
+                <b class="pcr-mono">{{ money(d.amount, 'JPY') }} → {{ cny(d.cny_amount) }}</b>
               </div>
               <div v-for="(a, i) in d.allocations" :key="i" class="pool-alloc">
-                <span class="dc-dim dc-mono">{{ a.inject_date }}</span>
-                <span class="dc-mono">{{ money(a.amount, 'JPY') }}</span>
-                <span class="dc-dim">÷ {{ formatRate(a.fx_rate) }} =</span>
-                <span class="dc-mono">{{ cny(a.cny_amount) }}</span>
+                <span class="pcr-dim pcr-mono">{{ a.inject_date }}</span>
+                <span class="pcr-mono">{{ money(a.amount, 'JPY') }}</span>
+                <span class="pcr-dim">÷ {{ formatRate(a.fx_rate) }} =</span>
+                <span class="pcr-mono">{{ cny(a.cny_amount) }}</span>
               </div>
               <div v-if="d.shortfall" class="pool-alloc short">
                 <span>{{ t('funds.shortfall') }}</span>
-                <span class="dc-mono">{{ money(d.shortfall, 'JPY') }}</span>
-                <span class="dc-dim">{{ t('funds.shortfallHint') }}</span>
+                <span class="pcr-mono">{{ money(d.shortfall, 'JPY') }}</span>
+                <span class="pcr-dim">{{ t('funds.shortfallHint') }}</span>
               </div>
             </div>
           </el-card>
@@ -98,7 +98,7 @@
                 placement="top"
               >
                 {{ t('status.' + log.to_status) }}
-                <span v-if="log.note" class="dc-dim">· {{ log.note }}</span>
+                <span v-if="log.note" class="pcr-dim">· {{ log.note }}</span>
               </el-timeline-item>
             </el-timeline>
           </el-card>

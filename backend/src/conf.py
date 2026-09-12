@@ -19,18 +19,18 @@ from src.app_paths import conf_path
 # section -> {key: (环境变量名, 默认值)}
 _SPEC: Dict[str, Dict[str, tuple]] = {
     "mysql": {
-        "host": ("DISPLAYCARD_MYSQL_HOST", "127.0.0.1"),
-        "port": ("DISPLAYCARD_MYSQL_PORT", "3306"),
-        "user": ("DISPLAYCARD_MYSQL_USER", "root"),
-        "password": ("DISPLAYCARD_MYSQL_PASSWORD", ""),
-        "database": ("DISPLAYCARD_MYSQL_DATABASE", "display_card"),
-        "charset": ("DISPLAYCARD_MYSQL_CHARSET", "utf8mb4"),
-        "pool_size": ("DISPLAYCARD_MYSQL_POOL_SIZE", "4"),
-        "pool_recycle": ("DISPLAYCARD_MYSQL_POOL_RECYCLE", "3600"),
+        "host": ("PC_RESELLING_MYSQL_HOST", "127.0.0.1"),
+        "port": ("PC_RESELLING_MYSQL_PORT", "3306"),
+        "user": ("PC_RESELLING_MYSQL_USER", "root"),
+        "password": ("PC_RESELLING_MYSQL_PASSWORD", ""),
+        "database": ("PC_RESELLING_MYSQL_DATABASE", "pc_reselling"),
+        "charset": ("PC_RESELLING_MYSQL_CHARSET", "utf8mb4"),
+        "pool_size": ("PC_RESELLING_MYSQL_POOL_SIZE", "4"),
+        "pool_recycle": ("PC_RESELLING_MYSQL_POOL_RECYCLE", "3600"),
     },
     "server": {
-        "host": ("DISPLAYCARD_HOST", "0.0.0.0"),
-        "port": ("DISPLAYCARD_PORT", "9910"),
+        "host": ("PC_RESELLING_HOST", "0.0.0.0"),
+        "port": ("PC_RESELLING_PORT", "9910"),
     },
 }
 
@@ -108,7 +108,7 @@ def mysql_config() -> Dict[str, Any]:
         "port": _int(cfg["port"], 3306),
         "user": cfg["user"] or "root",
         "password": cfg["password"],
-        "database": cfg["database"] or "display_card",
+        "database": cfg["database"] or "pc_reselling",
         "charset": cfg["charset"] or "utf8mb4",
         "pool_size": max(1, _int(cfg["pool_size"], 4)),
         "pool_recycle": max(60, _int(cfg["pool_recycle"], 3600)),

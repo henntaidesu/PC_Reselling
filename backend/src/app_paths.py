@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 def project_root() -> Path:
-    override = (os.environ.get("DISPLAYCARD_ROOT") or "").strip()
+    override = (os.environ.get("PC_RESELLING_ROOT") or "").strip()
     if override:
         return Path(override).resolve()
     if getattr(sys, "frozen", False):
@@ -31,10 +31,10 @@ def backend_root() -> Path:
 def conf_path() -> Path:
     """conf.ini 的位置。
 
-    先看项目根（开发态是 Display_card/conf.ini，冻结态是 exe 同目录），
+    先看项目根（开发态是 PC_Reselling/conf.ini，冻结态是 exe 同目录），
     找不到再看 backend/ —— 有人习惯把配置放在后端目录里，两边都认。
     """
-    override = (os.environ.get("DISPLAYCARD_CONF") or "").strip()
+    override = (os.environ.get("PC_RESELLING_CONF") or "").strip()
     if override:
         return Path(override).resolve()
     root_conf = project_root() / "conf.ini"

@@ -16,7 +16,7 @@
           <StatCard :label="card.label" :value="card.value" :icon="card.icon" :color="card.color" />
         </el-col>
       </el-row>
-      <p class="pool-note dc-dim">{{ t('funds.explainer') }}</p>
+      <p class="pool-note pcr-dim">{{ t('funds.explainer') }}</p>
       <el-alert v-if="summary.shortfall" type="warning" :closable="false" show-icon class="mt"
         :title="t('funds.shortfallWarn', { amount: jpy(summary.shortfall) })" />
       <el-alert v-if="summary.incomplete" type="warning" :closable="false" show-icon class="mt"
@@ -30,29 +30,29 @@
           <template #header>
             <div class="card-head">
               <span>{{ t('funds.injections') }}</span>
-              <span class="dc-dim count">{{ t('common.total', { n: injections.length }) }}</span>
+              <span class="pcr-dim count">{{ t('common.total', { n: injections.length }) }}</span>
             </div>
           </template>
-          <el-table :data="injections" class="dc-table" size="small" empty-text=" ">
+          <el-table :data="injections" class="pcr-table" size="small" empty-text=" ">
             <el-table-column :label="t('funds.injectDate')" width="104">
-              <template #default="{ row }"><span class="dc-mono dc-dim">{{ row.inject_date }}</span></template>
+              <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.inject_date }}</span></template>
             </el-table-column>
             <el-table-column :label="t('funds.amount')" align="right" min-width="110">
-              <template #default="{ row }"><span class="dc-mono">{{ jpy(row.amount) }}</span></template>
+              <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.amount) }}</span></template>
             </el-table-column>
             <el-table-column :label="t('funds.rate')" align="right" width="96">
               <template #default="{ row }">
-                <span class="dc-mono">{{ row.fx_rate ? formatRate(row.fx_rate) : '—' }}</span>
+                <span class="pcr-mono">{{ row.fx_rate ? formatRate(row.fx_rate) : '—' }}</span>
                 <el-tag v-if="row.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column :label="t('funds.cnyCost')" align="right" min-width="104">
-              <template #default="{ row }"><span class="dc-mono">{{ cny(row.cny_cost) }}</span></template>
+              <template #default="{ row }"><span class="pcr-mono">{{ cny(row.cny_cost) }}</span></template>
             </el-table-column>
             <el-table-column :label="t('funds.remaining')" align="right" min-width="110">
               <template #default="{ row }">
-                <div class="dc-mono">{{ jpy(row.remaining_amount) }}</div>
-                <div class="dc-dim sub">{{ t('funds.used') }} {{ jpy(row.used_amount) }}</div>
+                <div class="pcr-mono">{{ jpy(row.remaining_amount) }}</div>
+                <div class="pcr-dim sub">{{ t('funds.used') }} {{ jpy(row.used_amount) }}</div>
               </template>
             </el-table-column>
             <el-table-column :label="t('common.actions')" width="86" align="center">
@@ -72,31 +72,31 @@
           <template #header>
             <div class="card-head">
               <span>{{ t('funds.draws') }}</span>
-              <span class="dc-dim count">{{ t('funds.drawsHint') }}</span>
+              <span class="pcr-dim count">{{ t('funds.drawsHint') }}</span>
             </div>
           </template>
-          <el-table :data="draws" class="dc-table" size="small" row-key="id" empty-text=" ">
+          <el-table :data="draws" class="pcr-table" size="small" row-key="id" empty-text=" ">
             <!-- 展开行就是这个功能的核心：一笔钱吃了哪几批注资、各按什么汇率折的 -->
             <el-table-column type="expand">
               <template #default="{ row }">
                 <div class="alloc">
                   <div v-for="(a, i) in row.allocations" :key="i" class="alloc-line">
-                    <span class="dc-mono dc-dim">{{ a.inject_date }}</span>
-                    <span class="dc-mono">{{ jpy(a.amount) }}</span>
-                    <span class="dc-dim">÷ {{ formatRate(a.fx_rate) }} =</span>
-                    <span class="dc-mono">{{ cny(a.cny_amount) }}</span>
+                    <span class="pcr-mono pcr-dim">{{ a.inject_date }}</span>
+                    <span class="pcr-mono">{{ jpy(a.amount) }}</span>
+                    <span class="pcr-dim">÷ {{ formatRate(a.fx_rate) }} =</span>
+                    <span class="pcr-mono">{{ cny(a.cny_amount) }}</span>
                   </div>
                   <div v-if="row.shortfall" class="alloc-line short">
-                    <span class="dc-dim">{{ t('funds.shortfall') }}</span>
-                    <span class="dc-mono">{{ jpy(row.shortfall) }}</span>
-                    <span class="dc-dim">{{ t('funds.shortfallHint') }}</span>
+                    <span class="pcr-dim">{{ t('funds.shortfall') }}</span>
+                    <span class="pcr-mono">{{ jpy(row.shortfall) }}</span>
+                    <span class="pcr-dim">{{ t('funds.shortfallHint') }}</span>
                   </div>
-                  <div v-if="!row.allocations.length && !row.shortfall" class="dc-dim">{{ t('common.noData') }}</div>
+                  <div v-if="!row.allocations.length && !row.shortfall" class="pcr-dim">{{ t('common.noData') }}</div>
                 </div>
               </template>
             </el-table-column>
             <el-table-column :label="t('funds.drawDate')" width="104">
-              <template #default="{ row }"><span class="dc-mono dc-dim">{{ row.draw_date }}</span></template>
+              <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.draw_date }}</span></template>
             </el-table-column>
             <el-table-column :label="t('funds.purpose')" min-width="150">
               <template #default="{ row }">
@@ -107,7 +107,7 @@
                 </router-link>
                 <span v-else-if="row.device_id">{{ row.owner_name || row.mgmt_no }}</span>
                 <span v-else>{{ row.note || t('funds.cat.other') }}</span>
-                <div class="dc-dim sub">
+                <div class="pcr-dim sub">
                   <el-tag v-if="row.owner_kind" size="small" effect="plain"
                     :type="row.owner_kind === 'device' ? 'warning' : 'primary'" class="owner-tag">
                     {{ t('inv.' + row.owner_kind) }}
@@ -117,12 +117,12 @@
               </template>
             </el-table-column>
             <el-table-column :label="t('funds.amount')" align="right" min-width="110">
-              <template #default="{ row }"><span class="dc-mono">{{ jpy(row.amount) }}</span></template>
+              <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.amount) }}</span></template>
             </el-table-column>
             <el-table-column :label="t('funds.cnyCost')" align="right" min-width="110">
               <template #default="{ row }">
-                <div class="dc-mono">{{ cny(row.cny_amount) }}</div>
-                <div v-if="row.effective_rate" class="dc-dim sub dc-mono">@{{ formatRate(row.effective_rate) }}</div>
+                <div class="pcr-mono">{{ cny(row.cny_amount) }}</div>
+                <div v-if="row.effective_rate" class="pcr-dim sub pcr-mono">@{{ formatRate(row.effective_rate) }}</div>
               </template>
             </el-table-column>
             <el-table-column :label="t('common.actions')" width="86" align="center">
@@ -132,7 +132,7 @@
                   <el-button link type="danger" :icon="Delete" @click="removeDraw(row)" />
                 </template>
                 <el-tooltip v-else :content="t('funds.ownerDrawLocked')">
-                  <el-icon class="dc-dim"><Lock /></el-icon>
+                  <el-icon class="pcr-dim"><Lock /></el-icon>
                 </el-tooltip>
               </template>
             </el-table-column>
@@ -153,14 +153,14 @@
         </el-form-item>
         <el-form-item>
           <el-checkbox v-model="injectionForm.manual">{{ t('funds.rateManual') }}</el-checkbox>
-          <div class="dc-dim hint">{{ t('funds.rateManualHint') }}</div>
+          <div class="pcr-dim hint">{{ t('funds.rateManualHint') }}</div>
         </el-form-item>
         <el-form-item v-if="injectionForm.manual" :label="t('card.fxRate')">
           <el-input-number v-model="injectionForm.fx_rate" :min="0.0001" :step="0.1" :precision="4" :controls="false" class="full" />
         </el-form-item>
         <div v-else-if="ratePreview" class="fx-hint">
           {{ t('card.fxPreview') }}: 1 {{ t('currency.CNY_short') }} = {{ formatRate(ratePreview.rate) }} {{ t('currency.JPY_short') }}
-          <span class="dc-dim">（{{ ratePreview.rate_date }}{{ ratePreview.stale ? ' *' : '' }}）</span>
+          <span class="pcr-dim">（{{ ratePreview.rate_date }}{{ ratePreview.stale ? ' *' : '' }}）</span>
         </div>
         <div v-if="injectionCostPreview" class="fx-hint">
           {{ t('funds.cnyCost') }}: {{ cny(injectionCostPreview) }}
@@ -407,5 +407,5 @@ onMounted(reload)
 .alloc { padding: 4px 12px 8px 46px; }
 .alloc-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; }
 .alloc-line.short { color: #e6a23c; }
-.dc-table :deep(.el-input-number) { width: 100% !important; }
+.pcr-table :deep(.el-input-number) { width: 100% !important; }
 </style>
