@@ -36,13 +36,14 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
 from src import db
-from src.fx import FxError, get_rate
+from src.fx import RATE_UNIT, FxError, get_rate
 from src.schema import POOL_CURRENCY
 
 log = logging.getLogger(__name__)
 
 _CENT = Decimal("0.01")
 _ZERO = Decimal("0")
+_RATE_UNIT = Decimal(str(RATE_UNIT))
 
 # 由系统自动同步的两类扣款 → 回写到归属行上的哪一列
 _CARD_CATEGORIES = {
@@ -89,10 +90,10 @@ def _iso(value: Any) -> Optional[str]:
 
 
 def _to_cny(amount: Optional[Decimal], rate: Optional[Decimal]) -> Optional[Decimal]:
-    """日元 → 人民币。rate 是「1 日元 = rate 人民币」，所以是乘法（与 cards._to_cny 同口径）。"""
+    """日元 → 人民币。rate 是「100 日元 = rate 人民币」，与 cards._to_cny 同一个算式。"""
     if amount is None or rate is None or rate <= 0:
         return None
-    return _round(amount * rate)
+    return _round(amount * rate / _RATE_UNIT)
 
 
 # ── 注资的汇率 ──────────────────────────────────────────────────────────── #
@@ -201,8 +202,8 @@ def allocate(
             "lines": lines,
             "cny_amount": _round(cny_total),
             "shortfall": shortfall,
-            # 这笔钱实际吃到的加权汇率 = 折出来的人民币 ÷ 花掉的日元
-            "effective_rate": (cny_total / jpy_converted)
+            # 这笔钱实际吃到的加权汇率，与各批次的汇率同口径（100 日元 = ? 人民币）
+            "effective_rate": (cny_total / jpy_converted * _RATE_UNIT)
             if (cny_total is not None and cny_total > 0 and jpy_converted > 0) else None,
         })
 
@@ -294,7 +295,7 @@ def rebuild() -> Dict[str, Any]:
         for (kind, owner_id), bucket in owner_values.items():
             rate = None
             if not bucket["_broken"] and bucket["_cny"] > 0 and bucket["_jpy"] > 0:
-                rate = bucket["_cny"] / bucket["_jpy"]
+                rate = bucket["_cny"] / bucket["_jpy"] * _RATE_UNIT
             # 表名来自 _OWNERS 这张固定的表，不是外部输入，拼进 SQL 是安全的
             cur.execute(
                 f"UPDATE {_OWNERS[kind][1]} SET pool_purchase_cny = %s, pool_intl_cny = %s, "
@@ -520,7 +521,7 @@ def list_draws(
             "note": row["note"],
             "cny_amount": _float(cny),
             "shortfall": _float(row["shortfall"]),
-            "effective_rate": _float(cny / amount) if (cny and cny > 0 and amount > 0) else None,
+            "effective_rate": _float(cny / amount * _RATE_UNIT) if (cny and cny > 0 and amount > 0) else None,
             "allocations": alloc_map.get(int(row["id"]), []),
             "created_at": _iso(row["created_at"]),
         })
@@ -538,7 +539,7 @@ def device_draws(device_id: int) -> List[Dict[str, Any]]:
 def summary() -> Dict[str, Any]:
     """池子的总账：进了多少、花了多少、还剩多少，以及剩余部分的人民币成本。
 
-    「剩余的人民币成本」不是「剩余日元 × 今天的牌价」，而是按各批次自己的汇率分别算
+    「剩余的人民币成本」不是「剩余日元按今天的牌价折」，而是按各批次自己的汇率分别算
     再相加——池子里躺着的钱值多少，取决于它当初是用什么价换进来的。
     """
     injections = list_injections()
@@ -567,10 +568,10 @@ def summary() -> Dict[str, Any]:
         "shortfall": _float(used_row.get("shortfall")),
         "draw_count": int(used_row.get("n") or 0),
         "injection_count": len(injections),
-        # 池子的平均换汇成本：总人民币 ÷ 总日元。缺汇率的批次没算进人民币，
-        # 所以只有全部批次都有汇率时这个数才准，前端用 incomplete 标记提示。
-        "avg_rate": round(total_in_cny / total_in, 6) if total_in else None,
-        "used_rate": _float(used_cny / used_jpy) if (used_jpy > 0 and used_cny > 0) else None,
+        # 池子的平均换汇成本，与单批次同口径（100 日元 = ? 人民币）。缺汇率的批次没算进
+        # 人民币，所以只有全部批次都有汇率时这个数才准，前端用 incomplete 标记提示。
+        "avg_rate": round(total_in_cny / total_in * RATE_UNIT, 4) if total_in else None,
+        "used_rate": _float(used_cny / used_jpy * _RATE_UNIT) if (used_jpy > 0 and used_cny > 0) else None,
         "incomplete": bool(incomplete_injections or int(used_row.get("broken") or 0)),
         "incomplete_injections": incomplete_injections,
     }

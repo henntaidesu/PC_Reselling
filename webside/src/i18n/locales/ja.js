@@ -116,7 +116,7 @@ export default {
     media: '画像/動画',
     cover: 'カバー',
     fx: '為替',
-    fxRate: '為替レート（1円 = ? 元）',
+    fxRate: '為替レート（100円 = ? 元）',
     fxDate: 'レート基準日',
     fxManual: '手動レート',
     fxAuto: '自動取得',

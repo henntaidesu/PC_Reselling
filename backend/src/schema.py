@@ -5,7 +5,7 @@
 保证老库能补上后加的字段。没有版本号表——这个系统的演进方式是「只加不改」，
 把每次新增的列写进 _MIGRATIONS 即可，跑多少次都一样。
 
-**唯一的例外是 ``_migrate_fx_rate_direction``**：它要改动存量数据（汇率换向取倒数），
+**唯一的例外是 ``_migrate_fx_rate_direction``**：它要改动存量数据（汇率换口径），
 跑第二遍就会把数据改回去，所以它自己在 app_settings 里记了一个标记来保证只跑一次。
 再有这类「改数据」的迁移，照它的样子写，别塞进 _MIGRATIONS。
 """
@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import logging
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from src import db, settings_store
 
@@ -168,9 +168,9 @@ _TABLES: List[Tuple[str, str]] = [
 
             -- 汇率快照。取到就写死在行里，之后再也不重算：
             -- 汇率每天在动，不快照的话昨天算出来的利润今天会自己变。
-            purchase_fx_rate DECIMAL(18,8) NULL COMMENT '1 JPY = ? CNY，按 purchase_date',
+            purchase_fx_rate DECIMAL(18,8) NULL COMMENT '100 JPY = ? CNY，按 purchase_date',
             purchase_fx_date DATE NULL COMMENT '实际取到的牌价日（周末/节假日会回退到前一工作日）',
-            sale_fx_rate     DECIMAL(18,8) NULL COMMENT '1 JPY = ? CNY，按 sale_date',
+            sale_fx_rate     DECIMAL(18,8) NULL COMMENT '100 JPY = ? CNY，按 sale_date',
             sale_fx_date     DATE NULL,
             fx_manual        TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=汇率被手工改过，自动刷新时跳过',
 
@@ -265,7 +265,7 @@ _TABLES: List[Tuple[str, str]] = [
             intl_shipping_currency VARCHAR(3) NOT NULL DEFAULT 'JPY',
 
             -- 汇率快照，口径与 cards 完全一致：取到就写死，之后不重算。
-            purchase_fx_rate DECIMAL(18,8) NULL COMMENT '1 JPY = ? CNY，按 purchase_date',
+            purchase_fx_rate DECIMAL(18,8) NULL COMMENT '100 JPY = ? CNY，按 purchase_date',
             purchase_fx_date DATE NULL COMMENT '实际取到的牌价日（非交易日会回退）',
 
             -- 采购资金从哪来，与 cards 同一套语义：'own' 走 purchase_fx_rate；
@@ -383,7 +383,7 @@ _TABLES: List[Tuple[str, str]] = [
             rate_date  DATE NOT NULL,
             base       VARCHAR(3) NOT NULL,
             quote      VARCHAR(3) NOT NULL,
-            rate       DECIMAL(18,8) NOT NULL,
+            rate       DECIMAL(18,8) NOT NULL COMMENT '100 JPY = ? CNY（口径见 fx.service.RATE_UNIT）',
             source     VARCHAR(32) NOT NULL DEFAULT 'ecb',
             fetched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (rate_date, base, quote, source)
@@ -400,7 +400,7 @@ _TABLES: List[Tuple[str, str]] = [
             inject_date DATE NOT NULL COMMENT '这笔钱进池的日期，也是 FIFO 的排序依据',
             amount      DECIMAL(16,2) NOT NULL COMMENT '注入的日元金额',
             currency    VARCHAR(3) NOT NULL DEFAULT 'JPY',
-            -- 换汇当时的汇率快照：1 日元 = fx_rate 人民币。这笔钱之后被谁用掉，
+            -- 换汇当时的汇率快照：100 日元 = fx_rate 人民币。这笔钱之后被谁用掉，
             -- 都按这个汇率折人民币成本 —— 池子里的钱是「已经用这个价换进来的」，
             -- 用它的那天市场价是多少与真实成本无关。
             fx_rate     DECIMAL(18,8) NULL,
@@ -462,7 +462,7 @@ _TABLES: List[Tuple[str, str]] = [
             seq          INT NOT NULL DEFAULT 0 COMMENT '同一笔扣款内的分段顺序',
             amount       DECIMAL(16,2) NOT NULL COMMENT '这一段从该批次吃掉的日元',
             fx_rate      DECIMAL(18,8) NULL COMMENT '该批次的汇率快照（冗余，便于直接展示）',
-            cny_amount   DECIMAL(14,2) NULL COMMENT 'amount * fx_rate；批次缺汇率时为 NULL',
+            cny_amount   DECIMAL(14,2) NULL COMMENT 'amount * fx_rate / 100；批次缺汇率时为 NULL',
             PRIMARY KEY (id),
             KEY idx_fund_alloc_draw (draw_id, seq),
             KEY idx_fund_alloc_injection (injection_id),
@@ -570,15 +570,23 @@ def _migrate_fund_draws_devices() -> None:
         )
 
 
-# 汇率口径从「1 人民币 = ? 日元」换成「1 日元 = ? 人民币」时要做的一次性数据修正。
-# 库里所有汇率快照存的都是旧口径的数值（约 23.76），换向后代码改成乘法，不取倒数的话
-# 成本会算成原来的五百多倍。取两次倒数等于没取，所以拿 app_settings 里的一个标记当
-# 「做过了」的凭证——这是全库唯一一处改存量数据的迁移。
+# 汇率口径前后改过两次，每改一次都要把库里的存量汇率整体换算一遍：最早是
+# 「1 人民币 = ? 日元」（23.76），中间是「1 日元 = ? 人民币」（0.0432），现在是
+# 「100 日元 = ? 人民币」（4.32）。换算两遍等于没换，所以 app_settings 里记着这个库
+# 当前是哪个口径，按标记决定要不要动、怎么动——全库唯一一处改存量数据的迁移。
 _FX_DIRECTION_KEY = "fx_rate_direction"
-_FX_DIRECTION = "jpy_cny"
+_FX_DIRECTION = "cny_per_100jpy"
+
+# 旧标记 → 把该口径的存量值换成当前口径的 SQL 表达式（{c} 是列名）。
+# 被除数写成 100.000000000000 而不是 100：MySQL 除法结果的小数位 = 被除数小数位 +
+# div_precision_increment（默认 4），拿整数去除只留 4 位小数，DECIMAL(18,8) 也补不回来。
+_FX_DIRECTION_FIXUPS: Dict[Optional[str], str] = {
+    None: "100.000000000000 / `{c}`",   # 「1 人民币 = ? 日元」：取倒数再换单位
+    "jpy_cny": "`{c}` * 100",           # 「1 日元 = ? 人民币」：只差一个单位
+}
 
 # 所有存着汇率快照的列。派生出来的金额列（cny_amount / pool_*_cny）存的已经是人民币，
-# 与方向无关，不用动。
+# 与口径无关，不用动。
 _FX_RATE_COLUMNS: List[Tuple[str, str]] = [
     ("cards", "purchase_fx_rate"),
     ("cards", "sale_fx_rate"),
@@ -592,37 +600,44 @@ _FX_RATE_COLUMNS: List[Tuple[str, str]] = [
 
 
 def _migrate_fx_rate_direction() -> None:
-    """把旧口径的存量汇率整体取倒数，并给缓存表换向。做过一次就跳过。
+    """把存量汇率换算成当前口径（100 日元 = ? 人民币）。做过一次就跳过。
 
-    整段必须在一个事务里，标记也由同一个游标写：中途失败却留下一半已取倒数的数据，
-    下次启动会把那一半再取一次倒数——那时已经没法从数值上分辨谁是新口径谁是旧口径了。
+    整段必须在一个事务里，标记也由同一个游标写：中途失败却留下一半已换算的数据，
+    下次启动会把那一半再换一次——那时已经没法从数值上分辨谁是新口径谁是旧口径了。
     """
-    if settings_store.get(_FX_DIRECTION_KEY) == _FX_DIRECTION:
+    current = settings_store.get(_FX_DIRECTION_KEY)
+    if current == _FX_DIRECTION:
         return
-    log.info("迁移：汇率口径改为「1 日元 = ? 人民币」，存量汇率取倒数")
+    if current not in _FX_DIRECTION_FIXUPS:
+        # 标记是本版本不认识的口径。宁可不动数据也不要按错的算式换算一遍——
+        # 换完就再也分不清原值是多少了。留个错误日志，等人工核对。
+        log.error("app_settings.%s = %r 不认识，存量汇率未做换算", _FX_DIRECTION_KEY, current)
+        return
+    expr = _FX_DIRECTION_FIXUPS[current]
+    log.info("迁移：汇率口径改为「100 日元 = ? 人民币」（原口径 %r）", current)
     with db.transaction() as cur:
-        # 表名与列名都来自上面那张固定的表，不是外部输入，拼进 SQL 是安全的。
-        # 被除数写成 1.000000000000 而不是 1：MySQL 的除法结果小数位 =
-        # 被除数小数位 + div_precision_increment(默认 4)，用整数 1 除出来的
-        # 1/23.76 只有 0.0421（4 位），存进 DECIMAL(18,8) 也补不回丢掉的精度。
+        # 表名与列名都来自上面那张固定的表，不是外部输入，拼进 SQL 是安全的
         for table, column in _FX_RATE_COLUMNS:
             if not _has_column(table, column):
                 continue
             cur.execute(
-                "UPDATE `{t}` SET `{c}` = 1.000000000000 / `{c}` "
-                "WHERE `{c}` IS NOT NULL AND `{c}` > 0".format(t=table, c=column)
+                "UPDATE `{t}` SET `{c}` = {e} WHERE `{c}` IS NOT NULL AND `{c}` > 0".format(
+                    t=table, c=column, e=expr.format(c=column)
+                )
             )
-        # 缓存表连 base/quote 一起换向。更早的版本也用过 JPY→CNY，那些行会与换向后的行
-        # 撞主键，先删掉——fx_rates 是纯缓存，删了下次自动重取。
-        cur.execute(
-            "DELETE j FROM fx_rates j JOIN fx_rates c "
-            "ON c.rate_date = j.rate_date AND c.source = j.source "
-            "WHERE j.base = 'JPY' AND j.quote = 'CNY' AND c.base = 'CNY' AND c.quote = 'JPY'"
-        )
-        cur.execute(
-            "UPDATE fx_rates SET base = 'JPY', quote = 'CNY', rate = 1.000000000000 / rate "
-            "WHERE base = 'CNY' AND quote = 'JPY' AND rate > 0"
-        )
+        if current is None:
+            # 最早那版连缓存表的 base/quote 都是反的。那时留下的 JPY→CNY 行是另一套数值，
+            # 换向后混在一起没法分辨，直接删——fx_rates 是纯缓存，删了下次自动重取。
+            cur.execute("DELETE FROM fx_rates WHERE base = 'JPY' AND quote = 'CNY'")
+            cur.execute(
+                "UPDATE fx_rates SET base = 'JPY', quote = 'CNY', rate = {e} "
+                "WHERE base = 'CNY' AND quote = 'JPY' AND rate > 0".format(e=expr.format(c="rate"))
+            )
+        else:
+            cur.execute(
+                "UPDATE fx_rates SET rate = {e} "
+                "WHERE base = 'JPY' AND quote = 'CNY' AND rate > 0".format(e=expr.format(c="rate"))
+            )
         # 与 settings_store.set 同一条语句，只是必须走本事务的游标
         cur.execute(
             "INSERT INTO app_settings (`key`, `value`) VALUES (%s, %s) "

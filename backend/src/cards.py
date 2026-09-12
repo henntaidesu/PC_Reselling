@@ -15,7 +15,7 @@
 交易的盈亏是不会变的。要改只能显式改（fx_manual=1，自动刷新会跳过它）。
 
 **资金池例外**（fund_source='pool'）：这张卡的日元是从资金池里出的，那它的人民币成本
-就不是「金额 × 买卡那天的牌价」，而是「被吃掉的那几批注资，各按各自的换汇价折算再
+就不是「金额按买卡那天的牌价折」，而是「被吃掉的那几批注资，各按各自的换汇价折算再
 相加」——钱早就换好了，买卡那天的市场价与真实成本无关。分摊结果由 src.funds 算好后
 回写在 pool_purchase_cny / pool_intl_cny 上，这里直接取用。出售侧不受影响：卖卡收的是
 人民币，仍走 sale_fx_rate。
@@ -29,12 +29,13 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from src import db
-from src.fx import FxError, get_rate
+from src.fx import RATE_UNIT, FxError, get_rate
 from src.schema import CARD_STATUSES
 
 log = logging.getLogger(__name__)
 
 _CENT = Decimal("0.01")
+_RATE_UNIT = Decimal(str(RATE_UNIT))
 
 # 走到这些状态说明卡已经出手了，出售侧金额才算数
 SOLD_STATUSES = {"received", "paid"}
@@ -114,8 +115,8 @@ def _dec(value: Any) -> Optional[Decimal]:
 def _to_cny(amount: Any, currency: str, rate: Any) -> Optional[Decimal]:
     """把一笔金额折成人民币。JPY 需要汇率，CNY 原样返回。
 
-    rate 是「1 日元 = rate 人民币」（约 0.0421）。所以日元金额换人民币是**乘以** rate，
-    而不是除：390000 日元 × 0.043169 = 16836 元。
+    rate 的计价单位是 100 日元（fx.RATE_UNIT）：「100 日元 = rate 人民币」，约 4.32。
+    所以日元金额折人民币是 **× rate ÷ 100**：390000 × 4.3169 ÷ 100 = 16836 元。
     """
     amount = _dec(amount)
     if amount is None:
@@ -125,7 +126,7 @@ def _to_cny(amount: Any, currency: str, rate: Any) -> Optional[Decimal]:
     rate = _dec(rate)
     if rate is None or rate <= 0:
         return None  # 汇率还没取到：宁可显示「—」，也不要拿一个错的数字去凑
-    return amount * rate
+    return amount * rate / _RATE_UNIT
 
 
 def _round(value: Optional[Decimal]) -> Optional[float]:
@@ -212,10 +213,9 @@ def compute_money(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _round_rate(value: Any) -> Optional[float]:
-    # 汇率量级是 0.0421（1 日元 = ? 人民币），4 位小数只剩两位有效数字——两个差了 1% 的
-    # 汇率会显示成同一个数。6 位才看得出批次之间的差别。
+    # 汇率量级是 4.32（100 日元 = ? 人民币），4 位小数就有五位有效数字，够看出批次差别了
     value = _dec(value)
-    return float(value.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)) if value is not None else None
+    return float(value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)) if value is not None else None
 
 
 # ── 序列化 ──────────────────────────────────────────────────────────────── #

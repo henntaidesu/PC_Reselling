@@ -16,7 +16,7 @@
       <div v-for="(a, i) in d.allocations" :key="i" class="pool-alloc">
         <span class="pcr-dim pcr-mono">{{ a.inject_date }}</span>
         <span class="pcr-mono">{{ jpy(a.amount) }}</span>
-        <span class="pcr-dim">× {{ formatRate(a.fx_rate) }} =</span>
+        <span class="pcr-dim">× {{ formatRate(a.fx_rate) }}/{{ RATE_UNIT }} =</span>
         <span class="pcr-mono">{{ cny(a.cny_amount) }}</span>
       </div>
       <div v-if="d.shortfall" class="pool-alloc short">
@@ -30,7 +30,7 @@
 
 <script setup>
 import { useI18n } from 'vue-i18n'
-import { cny, formatMoney, formatRate } from '@/utils/format'
+import { RATE_UNIT, cny, formatMoney, formatRate } from '@/utils/format'
 
 defineProps({ draws: { type: Array, default: () => [] } })
 const { t } = useI18n()

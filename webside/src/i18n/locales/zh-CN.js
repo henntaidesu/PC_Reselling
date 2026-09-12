@@ -116,7 +116,7 @@ export default {
     media: '图片/视频',
     cover: '封面',
     fx: '汇率',
-    fxRate: '汇率（1 日元 = ? 人民币）',
+    fxRate: '汇率（100 日元 = ? 人民币）',
     fxDate: '牌价日',
     fxManual: '手工汇率',
     fxAuto: '自动获取',

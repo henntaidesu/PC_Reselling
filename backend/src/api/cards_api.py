@@ -64,9 +64,9 @@ class CardPayload(BaseModel):
     note: Optional[str] = None
 
     # 手工指定汇率：填了就用它，并置 fx_manual=1，之后自动刷新不再覆盖。
-    # 口径是「1 日元 = ? 人民币」（约 0.0421），lt=1 是防呆，理由见 funds_api.InjectionPayload。
-    purchase_fx_rate: Optional[float] = Field(default=None, gt=0, lt=1)
-    sale_fx_rate: Optional[float] = Field(default=None, gt=0, lt=1)
+    # 口径是「100 日元 = ? 人民币」（约 4.32），上下界是防呆，理由见 funds_api.InjectionPayload。
+    purchase_fx_rate: Optional[float] = Field(default=None, gt=0.5, lt=20)
+    sale_fx_rate: Optional[float] = Field(default=None, gt=0.5, lt=20)
 
     @field_validator("purchase_currency", "intl_shipping_currency",
                      "domestic_shipping_currency", "sale_currency")

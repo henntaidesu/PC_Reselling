@@ -23,12 +23,17 @@ from src.fx.providers import ProviderError, get_provider
 
 log = logging.getLogger(__name__)
 
-# 汇率方向：以日元为基准，rate = 「1 日元 = 多少人民币」（约 0.0421）。日元折人民币是**乘以**它。
-# 这两个常量是全系统唯一定义汇率方向的地方。要换向就得三件事一起做：改这里、改
-# cards._to_cny / funds._to_cny 的乘除、把库里存量的汇率整体取倒数
-# （schema._migrate_fx_rate_direction 就是上一次换向时留下的那一步）。
+# 汇率口径：rate = 「100 日元 = 多少人民币」（约 4.32），与银行牌价的写法一致。
+# 日元折人民币是 **× rate ÷ RATE_UNIT**。这几个常量是全系统唯一定义汇率口径的地方，
+# 换口径要四件事一起做：改这里、改 cards._to_cny / funds._to_cny 的算式、改前端
+# format.js 的 RATE_UNIT 与小数位、给库里的存量汇率写一条换算迁移
+# （schema._migrate_fx_rate_direction 里按「旧标记 → 换算表达式」登记一条即可）。
 BASE = "JPY"
 QUOTE = "CNY"
+
+# 汇率的计价单位：多少人民币兑 RATE_UNIT 日元。数据源给的是 1 日元 = ? 人民币
+# （0.0432 这种量级），乘进来一次之后，库里、接口上、页面上流转的就都是同一个口径了。
+RATE_UNIT = 100
 
 SETTING_SOURCE = "fx_source"
 SETTING_AUTO = "fx_auto_fetch"
@@ -72,13 +77,21 @@ def _cache_put(date: dt.date, base: str, quote: str, source: str, rate: float) -
     )
 
 
+def _scaled(rate: float) -> float:
+    """数据源的「1 日元 = ? 人民币」换成本系统的「RATE_UNIT 日元 = ? 人民币」。
+
+    只在这一个地方换：缓存表里存的也是换算后的值，所以读缓存的路径不用再乘一遍。
+    """
+    return round(float(rate) * RATE_UNIT, 8)
+
+
 def get_rate(
     date: dt.date | str,
     base: str = BASE,
     quote: str = QUOTE,
     allow_network: bool = True,
 ) -> Dict:
-    """取某天的 base→quote 汇率。
+    """取某天的 base→quote 汇率（口径是「RATE_UNIT 日元 = ? 人民币」）。
 
     返回 ``{"rate": float, "rate_date": date, "source": str, "stale": bool}``。
     ``stale=True`` 表示走了降级路径，用的是比请求日期更早的一条牌价——界面上要提示，
@@ -106,6 +119,7 @@ def get_rate(
         except ProviderError as exc:
             log.warning("汇率源取 %s 失败，转降级：%s", date, exc)
         else:
+            rate = _scaled(rate)
             # 请求日 8/30（周日）实际拿到 8/28 的牌价时，两个日期都要落库：
             # 8/28 是真实牌价，8/30 建成别名，下次查 8/30 直接命中，不再打网络。
             _cache_put(actual, base, quote, source, rate)
@@ -142,7 +156,7 @@ def refresh_range(start: dt.date, end: dt.date, base: str = BASE, quote: str = Q
     except ProviderError as exc:
         raise FxError(str(exc)) from exc
     for day, rate in rates.items():
-        _cache_put(day, base, quote, source, rate)
+        _cache_put(day, base, quote, source, _scaled(rate))
     return len(rates)
 
 
@@ -154,7 +168,7 @@ def convert(
 ) -> Optional[Decimal]:
     """按给定汇率换算金额。
 
-    只认 JPY 和 CNY 两种币，且 ``rate`` 恒定是「1 日元 = ? 人民币」（约 0.0421）。传进来的
+    只认 JPY 和 CNY 两种币，且 ``rate`` 恒定是「RATE_UNIT 日元 = ? 人民币」（约 4.32）。传进来的
     rate 一律是卡片行上存好的快照，这个函数**不去取汇率**——利润展示必须完全由行内数据
     决定，否则同一条记录在不同时刻会算出不同的利润。
     """
@@ -170,9 +184,9 @@ def convert(
     rate = Decimal(str(rate))
     if rate <= 0:
         return None
-    # rate = 1 日元 = rate 人民币。日元→人民币要乘，人民币→日元要除。
+    # rate = RATE_UNIT 日元 = rate 人民币，所以两个方向都要带上这个单位。
     if from_currency == "JPY" and to_currency == "CNY":
-        return amount * rate
+        return amount * rate / RATE_UNIT
     if from_currency == "CNY" and to_currency == "JPY":
-        return amount / rate
+        return amount * RATE_UNIT / rate
     return None

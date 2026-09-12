@@ -69,10 +69,12 @@ webside (Vue3 + Element Plus, hash 路由)
 
 两条贯穿全系统的硬约定：
 
-- **汇率方向**：`rate` = 「1 日元 = 多少人民币」（约 0.0421）。日元折人民币是**乘以** rate。
-  方向只定义在 `fx/service.py` 的 `BASE` / `QUOTE` 两个常量上；再要换向，得同时改那两个常量、
-  `cards._to_cny` / `funds._to_cny` 的乘除，以及库里全部存量汇率（照 `schema._migrate_fx_rate_direction`
-  的样子写一个取倒数的迁移）。前端显示取 6 位小数——0.0421 留 4 位只剩两位有效数字。
+- **汇率口径**：`rate` = 「100 日元 = 多少人民币」（约 4.32），与银行牌价的写法一致。日元折
+  人民币是 **× rate ÷ 100**。口径定义在 `fx/service.py` 的 `BASE` / `QUOTE` / `RATE_UNIT`，前端
+  `format.js` 里另有一份 `RATE_UNIT`，两边必须一致。数据源给的是每 1 日元的价，只在
+  `fx.service._scaled()` 里乘一次，此后库里、接口上、页面上流转的都是同一个口径。再要改口径，
+  得改这两处常量、`cards._to_cny` / `funds._to_cny` 的算式，并在 `schema._FX_DIRECTION_FIXUPS`
+  里按「旧标记 → 换算表达式」加一条，让存量数据跟着换过来。
 - **缺汇率不当零**：任何一项该折算却折不出来时，含它的合计返回 `None`（前端显示「—」），
   绝不按 0 计入——那会算出一个看着正常、实际严重偏高的利润。
 
@@ -106,9 +108,9 @@ webside (Vue3 + Element Plus, hash 路由)
 `schema.py` 在每次启动时无条件跑一遍：`CREATE TABLE IF NOT EXISTS` + `_MIGRATIONS` 里逐条
 `_ensure_column`。没有版本号表，新列往 `_MIGRATIONS` 里加即可，跑多少次都一样。
 
-唯一会**改存量数据**的是 `_migrate_fx_rate_direction()`（汇率换向取倒数），它跑第二遍就会把
-数据改回去，所以自己在 `app_settings` 里记了一个标记来保证只跑一次。再有这类迁移照它写，
-别塞进 `_MIGRATIONS`。
+唯一会**改存量数据**的是 `_migrate_fx_rate_direction()`（汇率换口径），它跑第二遍就会把数据
+换错，所以 `app_settings` 里记着这个库当前是哪个口径，按标记决定要不要动、怎么动；标记不认识
+就只记错误日志、一行都不动。再有这类迁移照它写，别塞进 `_MIGRATIONS`。
 
 ## 写代码时的具体约束
 

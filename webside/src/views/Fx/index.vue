@@ -7,7 +7,7 @@
         <el-card shadow="never" class="today-card">
           <div class="today-label">{{ t('fx.today') }}</div>
           <div class="today-rate pcr-mono" v-if="today">
-            1 <span class="unit">{{ t('currency.JPY_short') }}</span> =
+            {{ RATE_UNIT }} <span class="unit">{{ t('currency.JPY_short') }}</span> =
             {{ formatRate(today.rate) }} <span class="unit">{{ t('currency.CNY_short') }}</span>
           </div>
           <div class="today-rate" v-else>—</div>
@@ -74,7 +74,7 @@ import { useI18n } from 'vue-i18n'
 import { Refresh } from '@element-plus/icons-vue'
 import { fxApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
-import { formatRate } from '@/utils/format'
+import { RATE_UNIT, formatRate } from '@/utils/format'
 import EChart from '@/components/EChart.vue'
 
 const { t } = useI18n()
@@ -94,7 +94,7 @@ const trendOption = computed(() => ({
   tooltip: { trigger: 'axis', valueFormatter: (v) => formatRate(v) },
   grid: { left: 8, right: 12, bottom: 8, top: 20, containLabel: true },
   xAxis: { type: 'category', data: history.value.map((h) => h.date), axisLine: { lineStyle: { color: '#3a4456' } } },
-  yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#1c2740' } }, axisLabel: { formatter: (v) => v.toFixed(6) } },
+  yAxis: { type: 'value', scale: true, splitLine: { lineStyle: { color: '#1c2740' } }, axisLabel: { formatter: (v) => v.toFixed(4) } },
   series: [{
     type: 'line', smooth: true, showSymbol: false,
     data: history.value.map((h) => h.rate),

@@ -4,6 +4,7 @@
 from src.fx.service import (  # noqa: F401
     BASE,
     QUOTE,
+    RATE_UNIT,
     FxError,
     convert,
     get_rate,

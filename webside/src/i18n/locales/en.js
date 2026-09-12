@@ -116,7 +116,7 @@ export default {
     media: 'Images/Videos',
     cover: 'Cover',
     fx: 'FX',
-    fxRate: 'Rate (1 JPY = ? CNY)',
+    fxRate: 'Rate (100 JPY = ? CNY)',
     fxDate: 'Rate date',
     fxManual: 'Manual rate',
     fxAuto: 'Auto-fetched',

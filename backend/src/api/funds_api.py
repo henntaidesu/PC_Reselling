@@ -29,10 +29,11 @@ class InjectionPayload(BaseModel):
     inject_date: dt.date
     amount: float = Field(gt=0)
     currency: str = POOL_CURRENCY
-    # 手填汇率 = 实际换汇价（1 日元 = ? 人民币，约 0.0421）。填了就以它为准，牌价只是个近似。
-    # lt=1 是防呆：1 日元不可能换到 1 元以上，按旧口径填成 23.76 会让成本翻五百倍，
-    # 而页面上只是数字变大，看不出是填错了方向——不如直接拒收。
-    fx_rate: Optional[float] = Field(default=None, gt=0, lt=1)
+    # 手填汇率 = 实际换汇价（100 日元 = ? 人民币，约 4.32）。填了就以它为准，牌价只是个近似。
+    # 上下界是防呆：填成每 1 日元的价（0.0432）或填反方向（每元 23.16 日元）都会让成本
+    # 差出几百倍，而页面上只是数字变大，看不出是填错了——不如直接拒收。真实牌价这些年
+    # 在 4~9 之间，0.5~20 已经留得足够宽。
+    fx_rate: Optional[float] = Field(default=None, gt=0.5, lt=20)
     channel: Optional[str] = Field(default=None, max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
 
