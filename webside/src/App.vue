@@ -77,8 +77,8 @@ html, body, #app {
 
 /* ── 详情弹窗（views/Cards 持有，内容是 CardDetail / DeviceDetail）──────────
    el-dialog 被 teleport 到 body 下，页面里的 scoped 样式够不着，只能写在这里。
-   弹窗是**定高**的，自己不滚动：里面的 DetailShell 把内容拆成模块，一次只摆一个，
-   每个模块按一屏放得下来排。Element 自带的标题栏不用（DetailShell 有自己的顶栏），
+   弹窗是**定高**的，自己不滚动：里面的 DetailShell 把字段平铺在几张卡片里，次要内容
+   收进一张在卡内滚动的标签页卡。Element 自带的标题栏不用（DetailShell 有自己的顶栏），
    内边距清零交给骨架自己管。 */
 .pcr-detail-dialog {
   padding: 0;
@@ -130,6 +130,132 @@ html, body, #app {
 }
 @media (max-width: 768px) {
   .pcr-form { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* ── 详情弹窗里的分区卡片（DetailShell 的插槽内容用，显卡 / 整机共用）────────
+   版式照 FreeMarket_Manager 库存管理的商品表单，追求一屏看全：
+   .pd-card        分区卡片；.pd-card-head / -title 卡片标题行，.pd-badge 标题旁的小徽章
+   .pd-form        紧凑表单（配 size="small"，30px 高、12px 标签、行距 10px）
+   .pd-row         flex 折行的一排字段，每个字段由页面自己给基准宽度（.f-*）
+   .pd-grid        等宽网格（默认两列，--pd-cols 改列数）
+   .pd-tabs-card   最下面那张标签页卡：吃掉剩余高度，.pd-tab-body 在卡内滚
+   .pd-stat        顶栏的总账药丸；.pd-settle 结算明细
+   写在全局是因为它们出现在页面传给 DetailShell 的插槽里，两份页面的 scoped 各抄一遍
+   的下场是改了一边另一边对不上。 */
+.pd-card {
+  flex: none;
+  padding: 8px 12px 0;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  min-width: 0;
+}
+.pd-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; min-height: 20px; margin-bottom: 6px; }
+.pd-card-title { font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em; color: #a4aec1; }
+.pd-card-extra { margin-left: auto; font-size: 12px; color: #8a94a6; }
+.pd-badge {
+  padding: 0 7px;
+  border-radius: 8px;
+  background: rgba(91, 140, 255, 0.12);
+  color: #cbd5e1;
+  font-size: 11.5px;
+  line-height: 18px;
+}
+.pd-badge--warn { background: rgba(230, 162, 60, 0.14); color: #e6a23c; }
+.pd-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(91, 140, 255, 0.16);
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 17px;
+}
+/* 两张卡并排（显卡的购入 / 出售） */
+.pd-pair { flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+
+.pd-form .el-form-item { margin-bottom: 10px; }
+.pd-form .el-form-item__label {
+  padding: 0 0 3px !important;
+  margin-bottom: 0 !important;
+  font-size: 12px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: #99a3b6;
+}
+/* 13px 只给桌面：手机上输入框必须 16px（见下方 iOS 那条），这里特异度更高会把它压回去 */
+@media (min-width: 769px) {
+  .pd-form .el-input--small,
+  .pd-form .el-select--small .el-select__wrapper { font-size: 13px; }
+  .pd-form .el-textarea__inner { font-size: 13px; line-height: 1.6; }
+}
+.pd-form .el-select,
+.pd-form .el-date-editor.el-input,
+.pd-form .el-date-editor { width: 100% !important; }
+.pd-form .pcr-ro { min-height: 30px; font-size: 13px; padding: 0 9px; }
+.pd-row { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 10px; }
+.pd-row > .el-form-item { min-width: 0; }
+.pd-grid { display: grid; grid-template-columns: repeat(var(--pd-cols, 2), minmax(0, 1fr)); column-gap: 10px; }
+
+.pd-tabs-card {
+  flex: 1 1 auto;
+  min-height: 160px;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 12px 0;
+  container-type: inline-size;
+}
+.pd-tabbar { flex: none; }
+.pd-tabbar .el-tabs__header { margin: 0; }
+.pd-tabbar .el-tabs__content { display: none; }
+.pd-tabbar .el-tabs__nav-wrap::after { height: 1px; background: var(--pcr-border); }
+.pd-tabbar .el-tabs__item { height: 34px; font-size: 13px; }
+.pd-tab-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 0; }
+.pd-tab-body--split { overflow: hidden; padding: 0; }
+
+.pd-sub-title { font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em; color: #a4aec1; margin-bottom: 8px; }
+.pd-sub-label { font-size: 12px; color: #99a3b6; margin-bottom: 6px; }
+.pd-note { font-size: 12px; margin: 4px 0 0; line-height: 1.6; color: #8a94a6; }
+
+.pd-stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--pcr-border);
+  background: rgba(0, 0, 0, 0.18);
+}
+.pd-stat-k { font-size: 11.5px; color: #8a94a6; }
+.pd-stat-v { font-size: 13.5px; font-weight: 600; color: #e6edf7; }
+.pd-stat-sub { font-size: 11.5px; color: #8a94a6; }
+.pd-stat.is-up { border-color: rgba(103, 194, 58, 0.4); background: rgba(103, 194, 58, 0.08); }
+.pd-stat.is-up .pd-stat-v { color: #85ce61; }
+.pd-stat.is-down { border-color: rgba(245, 108, 108, 0.45); background: rgba(245, 108, 108, 0.1); }
+.pd-stat.is-down .pd-stat-v { color: #f89898; }
+.pd-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+.pd-flag.done { color: #67c23a; background: rgba(103, 194, 58, 0.1); }
+.pd-flag.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.1); }
+
+.pd-settle {
+  padding: 8px 12px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.pd-settle-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
+.pd-settle-row > span { color: #8a94a6; }
+.pd-settle-row > b { color: #e6edf7; font-size: 13.5px; }
+.pd-settle-sum { border-top: 1px dashed var(--pcr-border); margin-top: 3px; padding-top: 7px; }
+.pd-settle-big > b { font-size: 17px; }
+
+@media (max-width: 768px) {
+  .pd-pair { grid-template-columns: minmax(0, 1fr); }
+  .pd-row > .el-form-item { flex: 1 1 100% !important; max-width: none !important; }
+  .pd-grid { grid-template-columns: minmax(0, 1fr); }
+  .pd-tabs-card { flex: none; min-height: 0; }
+  .pd-tab-body, .pd-tab-body--split { overflow: visible; }
 }
 
 .el-loading-mask { background-color: var(--el-mask-color) !important; }

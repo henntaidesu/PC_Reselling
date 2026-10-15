@@ -48,24 +48,54 @@
           {{ t('common.filter') }}<span v-if="activeFilterCount" class="f-count">{{ activeFilterCount }}</span>
         </el-button>
         <template v-if="!isMobile || filtersOpen">
+          <!-- 所有下拉的选项都是联动的（后端 /inventory/facets）：按「其余筛选全部生效、
+               只放开它自己」时还剩几件来列，后面的数字就是选它之后会筛出的条数。
+               选了显卡，品牌 / 型号里就只剩显卡上出现过的；选了品牌，类型里也只剩有这个
+               品牌的那几类。 -->
+          <!-- 类型分两组：商品（显卡单品 / 整机）与部件。选部件时整机不再整台出现，而是
+               把每台里该类型的部件逐个列成一行（后端 _solo_part），点开进所属整机。
+               两组里都有「显卡」，靠分组标题区分：上面是单卖的卡，下面是整机拆出来的那块。 -->
           <el-select v-model="filters.kind" :placeholder="t('inv.allKinds')" clearable class="f-kind" @change="reload">
-            <el-option :label="t('inv.card')" value="card" />
-            <el-option :label="t('inv.device')" value="device" />
+            <el-option-group v-if="kindGoods.length" :label="t('inv.groupGoods')">
+              <el-option v-for="o in kindGoods" :key="o.value" :label="kindLabel(o.value)" :value="o.value">
+                <FacetLabel :label="kindLabel(o.value)" :count="o.count" />
+              </el-option>
+            </el-option-group>
+            <el-option-group v-if="kindParts.length" :label="t('inv.groupParts')">
+              <el-option v-for="o in kindParts" :key="o.value" :label="kindLabel(o.value)" :value="o.value">
+                <FacetLabel :label="kindLabel(o.value)" :count="o.count" />
+              </el-option>
+            </el-option-group>
           </el-select>
           <StatusSelect v-model="filters.status" multiple collapse-tags :placeholder="t('card.status')"
+            :options="facetValues('status', filters.status)" :counts="facetCounts('status')"
             clearable class="f-status" @change="reload" />
           <el-select v-model="filters.brand" :placeholder="t('card.brand')" clearable filterable class="f-brand" @change="reload">
-            <el-option v-for="b in usedBrands" :key="b.brand" :label="`${b.brand} (${b.count})`" :value="b.brand" />
+            <el-option v-for="o in facetOptions('brand', filters.brand)" :key="o.value" :label="o.value" :value="o.value">
+              <FacetLabel :label="o.value" :count="o.count" />
+            </el-option>
+          </el-select>
+          <!-- 型号：显卡单品与整机部件合在一起数。整机本身没有型号，所以类型没选「整机」时
+               命中的是那个部件，单独列成一行（后端 _select） -->
+          <el-select v-model="filters.model" :placeholder="t('card.model')" clearable filterable class="f-model" @change="reload">
+            <el-option v-for="o in facetOptions('model', filters.model)" :key="o.value" :label="o.value" :value="o.value">
+              <FacetLabel :label="o.value" :count="o.count" />
+            </el-option>
           </el-select>
           <el-select v-model="filters.source_platform" :placeholder="t('card.platform')" clearable class="f-platform" @change="reload">
-            <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
+            <el-option v-for="o in facetOptions('source_platform', filters.source_platform)" :key="o.value"
+              :label="platformLabel(o.value)" :value="o.value">
+              <FacetLabel :label="platformLabel(o.value)" :count="o.count" />
+            </el-option>
           </el-select>
           <!-- 出资人：比例里写了他、或扣款实际吃到了他的钱，都算（见 inventory_api._involved）。
                「未指定」挑出两样都没有的货——通常是该补出资比例的那些。 -->
           <el-select v-model="filters.contributor" multiple collapse-tags clearable filterable
             :placeholder="t('funds.contributor')" class="f-contributor" @change="reload">
-            <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
-            <el-option :label="t('inv.contributorNone')" :value="CONTRIBUTOR_NONE" />
+            <el-option v-for="o in facetOptions('contributor', filters.contributor)" :key="o.value"
+              :label="contributorLabel(o.value)" :value="o.value">
+              <FacetLabel :label="contributorLabel(o.value)" :count="o.count" />
+            </el-option>
           </el-select>
           <!-- 区间选择器在手机上摆不下：Element 的 daterange 面板是并排两个月历，
                写死 646px 宽（单个月历是 322px），360px 的屏上会被裁掉大半，右边那个月
@@ -159,18 +189,12 @@
             @update:model-value="(v) => setRangeEnd(saleRange, 1, v)"
           />
         </template>
-        <el-select v-model="filters.stock" :placeholder="t('inv.stock')" clearable class="f-small" @change="reload">
-          <el-option :label="t('inv.stockIn')" value="in_stock" />
-          <el-option :label="t('inv.settled')" value="settled" />
-        </el-select>
-        <el-select v-model="filters.profit" :placeholder="t('inv.profitState')" clearable class="f-small" @change="reload">
-          <el-option :label="t('inv.gain')" value="gain" />
-          <el-option :label="t('inv.loss')" value="loss" />
-          <el-option :label="t('inv.incomplete')" value="incomplete" />
-        </el-select>
-        <el-select v-model="filters.pool" :placeholder="t('card.poolDraw')" clearable class="f-small" @change="reload">
-          <el-option :label="t('inv.poolDrawn')" value="drawn" />
-          <el-option :label="t('inv.poolUndrawn')" value="undrawn" />
+        <el-select v-for="sel in DERIVED_SELECTS" :key="sel.key" v-model="filters[sel.key]"
+          :placeholder="t(sel.placeholder)" clearable class="f-small" @change="reload">
+          <el-option v-for="o in facetOptions(sel.key, filters[sel.key])" :key="o.value"
+            :label="t(sel.labels[o.value])" :value="o.value">
+            <FacetLabel :label="t(sel.labels[o.value])" :count="o.count" />
+          </el-option>
         </el-select>
         <!-- 成本区间按人民币总成本（含两笔运费），与「总成本」列同一个数。
              改完不立刻取数：敲「1500」会先后按 1、15、150 各筛一遍，等失焦或回车再说。 -->
@@ -208,7 +232,8 @@
                    结构，高度才统一得起来。 -->
               <template v-if="gridMode">
                 <span class="m-corner m-corner--tl">
-                  <el-tag size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
+                  <PartTypeTag v-if="row.kind === 'part'" :type="row.part_type" />
+                  <el-tag v-else size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
                     {{ t('inv.' + row.kind) }}
                   </el-tag>
                   <el-tag v-if="row.kind === 'device'" size="small" effect="plain" type="info" class="pcr-mono">
@@ -229,13 +254,19 @@
               <div class="m-name">{{ nameOf(row) }}</div>
               <!-- 卡片模式下这一行就算是空的也占位，否则有副标题和没副标题的卡差一行高 -->
               <!-- 卡片模式不显示管理编号：看图挑货时用不上，占掉的位置留给副标题 -->
-              <div v-if="gridMode" class="sub pcr-dim m-subline">{{ row.subtitle }}</div>
+              <!-- 单列出来的部件在这一行标它来自哪台整机：点开进的是那台整机，不标的话
+                   点完才发现打开的不是一张「卡」 -->
+              <div v-if="row.parent" class="sub pcr-dim" :class="{ 'm-subline': gridMode }">
+                {{ t('inv.partOf') }} <span class="pcr-mono">{{ row.parent.mgmt_no }}</span>
+              </div>
+              <div v-else-if="gridMode" class="sub pcr-dim m-subline">{{ row.subtitle }}</div>
               <div v-else-if="row.mgmt_no || row.subtitle" class="sub pcr-dim">
                 <span class="pcr-mono">{{ row.mgmt_no }}</span>
                 <template v-if="row.subtitle"> · {{ row.subtitle }}</template>
               </div>
               <div v-if="!gridMode" class="m-tags">
-                <el-tag size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
+                <PartTypeTag v-if="row.kind === 'part'" :type="row.part_type" />
+                <el-tag v-else size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
                   {{ t('inv.' + row.kind) }}
                 </el-tag>
                 <StatusTag :status="row.status" />
@@ -250,7 +281,18 @@
           <!-- 成本 / 利润两个数并排（收回了多少不在卡片上给，利润已经把它算进去了）。桌面端成本上挂着「购入 + 国际运费 + 国内运费」
                的悬浮明细，这里不复刻：触屏没有悬浮，改成点一下弹层就和「点整行进详情」
                抢同一次点击，而详情页里那三项本来就是分行列着的。 -->
-          <div class="m-metrics">
+          <!-- 单列的部件没有单件成本、算不出利润（总价不往部件上摊），这两格换成它的售价 -->
+          <div v-if="row.kind === 'part'" class="m-metrics">
+            <div class="m-metric">
+              <span class="m-label">{{ t('card.saleAmount') }}</span>
+              <b class="pcr-mono">{{ money(row.sale_cny) }}</b>
+            </div>
+            <div class="m-metric">
+              <span class="m-label">{{ t('card.saleDate') }}</span>
+              <b class="pcr-mono">{{ row.sale_date }}</b>
+            </div>
+          </div>
+          <div v-else class="m-metrics">
             <div class="m-metric">
               <span class="m-label">{{ t('card.cost') }}</span>
               <b class="pcr-mono">{{ money(row.cost_total_cny) }}</b>
@@ -306,7 +348,8 @@
           <template #default="{ row }">
             <!-- 二级行（部件）没有封面，这一格留空——树形展开的箭头和缩进由 el-table
                  画在第一列里，所以这一列要比原来宽一点 -->
-            <div v-if="row.kind !== 'part'" class="cover">
+            <!-- 单列出来的部件（row.solo）是顶层行，照样给封面，用的是部件自己的图 -->
+            <div v-if="row.kind !== 'part' || row.solo" class="cover">
               <img v-if="cover(row)" :src="cover(row)" alt="" loading="lazy" />
               <el-icon v-else class="cover-empty">
                 <component :is="row.kind === 'device' ? 'Monitor' : 'Picture'" />
@@ -328,7 +371,10 @@
           <template #default="{ row }">
             <div class="model-cell">
               <span class="model-name">{{ nameOf(row) }}</span>
-              <span v-if="row.mgmt_no || row.subtitle" class="pcr-dim sub">
+              <span v-if="row.parent" class="pcr-dim sub">
+                {{ t('inv.partOf') }} <span class="pcr-mono">{{ row.parent.mgmt_no }}</span>
+              </span>
+              <span v-else-if="row.mgmt_no || row.subtitle" class="pcr-dim sub">
                 <span class="pcr-mono">{{ row.mgmt_no }}</span>
                 <template v-if="row.subtitle"> · {{ row.subtitle }}</template>
               </span>
@@ -530,7 +576,7 @@ import { useI18n } from 'vue-i18n'
 import {
   ArrowDown, ArrowRight, ArrowUp, Cpu, Filter, Grid, List, Monitor, Plus, Refresh, Search, WarningFilled
 } from '@element-plus/icons-vue'
-import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
+import { cardsApi, devicesApi, inventoryApi } from '@/api'
 import { cny, firstImage, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsCompact, useIsMobile, useIsTouch } from '@/composables/useIsMobile'
@@ -539,6 +585,7 @@ import { useMetaStore } from '@/stores/meta'
 import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
+import FacetLabel from '@/components/FacetLabel.vue'
 import PartTypeTag from '@/components/PartTypeTag.vue'
 // 静态引入而不是 defineAsyncComponent：要拿 ref 调它们暴露的 beforeClose，
 // 异步组件包了一层壳，ref 拿到的是壳，调不到里面
@@ -560,14 +607,66 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
-const usedBrands = ref([])
 
 // 出资人筛选里「未指定」的取值，与后端 inventory_api.CONTRIBUTOR_NONE 同一个记号
 const CONTRIBUTOR_NONE = '__none__'
-const contributorNames = ref([])
+
+// ── 联动的下拉选项 ──────────────────────────────────────────────────────
+// 每个下拉的取值与件数都由后端按当前其余筛选算好（/inventory/facets），前端不自己
+// 维护任何一份候选清单——自己维护的那份不会随着别的筛选变化，也就谈不上联动。
+const facets = ref({})
+
+// 已选的值即使在当前条件下一件都没有了，也要留在选项里（件数 0）：el-select 找不到
+// 对应选项时，输入框里显示的是裸 value，多选的标签更会变成一串看不懂的 key。
+function facetOptions(key, selected) {
+  const list = facets.value[key] || []
+  const have = new Set(list.map((o) => o.value))
+  const picked = (Array.isArray(selected) ? selected : [selected]).filter((v) => v && !have.has(v))
+  return list.concat(picked.map((value) => ({ value, count: 0 })))
+}
+function facetValues(key, selected) {
+  return facetOptions(key, selected).map((o) => o.value)
+}
+function facetCounts(key) {
+  return Object.fromEntries((facets.value[key] || []).map((o) => [o.value, o.count]))
+}
+
+const kindOptions = computed(() => facetOptions('kind', filters.kind))
+const kindGoods = computed(() => kindOptions.value.filter((o) => !o.value.startsWith('part')))
+const kindParts = computed(() => kindOptions.value.filter((o) => o.value.startsWith('part')))
+function kindLabel(value) {
+  if (value === 'part') return t('inv.allParts')
+  if (value.startsWith('part:')) return t('partType.' + value.slice(5))
+  return t('inv.' + value)
+}
+function contributorLabel(value) {
+  return value === CONTRIBUTOR_NONE ? t('inv.contributorNone') : value
+}
+
+// 第二排那三个固定取值的下拉，选项同样来自 facets（件数为 0 的不出现）
+const DERIVED_SELECTS = [
+  { key: 'stock', placeholder: 'inv.stock', labels: { in_stock: 'inv.stockIn', settled: 'inv.settled' } },
+  {
+    key: 'profit',
+    placeholder: 'inv.profitState',
+    labels: { gain: 'inv.gain', loss: 'inv.loss', incomplete: 'inv.incomplete' }
+  },
+  { key: 'pool', placeholder: 'card.poolDraw', labels: { drawn: 'inv.poolDrawn', undrawn: 'inv.poolUndrawn' } }
+]
+
+// 只认最后一次请求的结果：筛选连着改几下时，先发的请求可能后回来，
+// 拿旧条件算的选项盖掉新的，下拉里就会出现选了也筛不出东西的值。
+let facetSeq = 0
+async function fetchFacets() {
+  const seq = ++facetSeq
+  try {
+    const res = await inventoryApi.facets(filterParams())
+    if (seq === facetSeq && res && typeof res === 'object') facets.value = res
+  } catch { /* 拦截器已提示；保留上一份选项 */ }
+}
 
 const blankFilters = () => ({
-  keyword: '', kind: null, status: [], brand: null, source_platform: null, contributor: [],
+  keyword: '', kind: null, status: [], brand: null, model: null, source_platform: null, contributor: [],
   stock: null, profit: null, pool: null, costMin: null, costMax: null
 })
 const filters = reactive(blankFilters())
@@ -588,7 +687,7 @@ const moreFilterCount = computed(() => {
 // 收起来的那几项才需要这个数提醒「现在看到的不是全部」。
 const activeFilterCount = computed(() => {
   const f = filters
-  return [f.kind, f.status.length, f.brand, f.source_platform, f.contributor.length, dateRange.value]
+  return [f.kind, f.status.length, f.brand, f.model, f.source_platform, f.contributor.length, dateRange.value]
     .filter(Boolean).length + moreFilterCount.value
 })
 
@@ -635,21 +734,22 @@ function openPart(part) {
 }
 
 const emptyStats = () => ({
-  total: 0, cards: 0, devices: 0, in_stock: 0, settled: 0,
+  total: 0, cards: 0, devices: 0, parts: 0, in_stock: 0, settled: 0,
   total_cost_cny: 0, total_cost_jpy: 0, total_revenue_cny: 0, total_profit_cny: 0,
   recovery: null, incomplete: 0
 })
 const stats = ref(emptyStats())
 const statsLoading = ref(false)
 
-const { platforms } = usePlatforms()
+const { platformLabel } = usePlatforms()
 
 // 顶部统计卡。顺序固定：先数量、后金额，颜色跟着指标走，不随数值变化重排
 const statCards = computed(() => {
   const s = stats.value
   const profit = s.total_profit_cny
   return [
-    { key: 'total', label: t('inv.total'), value: s.total, icon: 'Box', color: '#409EFF' },
+    // 按状态筛时会有从整机里单独列出来的部件，它们只算件数、不进金额合计，在这里说一声
+    { key: 'total', label: t('inv.total'), value: s.total, sub: s.parts ? t('inv.partsIncluded', { n: s.parts }) : undefined, icon: 'Box', color: '#409EFF' },
     { key: 'cards', label: t('inv.cards'), value: s.cards, icon: 'Cpu', color: '#5b8cff' },
     { key: 'devices', label: t('inv.devices'), value: s.devices, icon: 'Monitor', color: '#E6A23C' },
     { key: 'inStock', label: t('dashboard.inStock'), value: s.in_stock, icon: 'Goods', color: '#a78bfa' },
@@ -695,7 +795,8 @@ function contributorsOf(row) {
 }
 
 // 二级行（部件）整行淡一档，一眼能看出层级
-const rowClass = ({ row }) => (row.kind === 'part' ? 'part-row' : '')
+// 单列出来的部件是顶层行，不压暗
+const rowClass = ({ row }) => (row.kind === 'part' && !row.solo ? 'part-row' : '')
 
 // 图床按 w 参数出缩略图。卡片模式的头图有 300px 上下宽，再拿 200 的图拉伸会糊
 function cover(row, width = 200) {
@@ -714,9 +815,12 @@ function nameOf(row) {
 function filterParams() {
   return {
     keyword: filters.keyword || undefined,
-    kind: filters.kind || undefined,
+    // 部件类型在下拉里编成 part:cpu 这样一个值，传给后端时拆成 kind + part_type
+    kind: filters.kind ? filters.kind.split(':')[0] : undefined,
+    part_type: filters.kind?.startsWith('part:') ? filters.kind.slice(5) : undefined,
     status: filters.status.length ? filters.status.join(',') : undefined,
     brand: filters.brand || undefined,
+    model: filters.model || undefined,
     source_platform: filters.source_platform || undefined,
     purchase_from: dateRange.value?.[0] || undefined,
     purchase_to: dateRange.value?.[1] || undefined,
@@ -767,6 +871,7 @@ async function fetch() {
     if (seq === fetchSeq) loading.value = false
   }
   fetchStats()
+  fetchFacets()
   recheckSentinel()
 }
 
@@ -857,9 +962,6 @@ function resetFilters() {
 
 async function loadAux() {
   await meta.ensure()
-  const [ub, fc] = await Promise.all([optionsApi.usedBrands(), optionsApi.fundContributors()])
-  usedBrands.value = ub.items || []
-  contributorNames.value = (fc.items || []).map((x) => x.name)
 }
 
 // 新增 = 先建一行空草稿，再进详情页填。详情页本身就是编辑界面，没有第二套「新增
@@ -994,6 +1096,7 @@ onActivated(() => {
 .f-kind { width: 120px !important; }
 .f-status { width: 190px !important; }
 .f-brand { width: 150px !important; }
+.f-model { width: 160px !important; }
 .f-platform { width: 140px !important; }
 .f-date { width: 250px !important; }
 .f-contributor { width: 170px !important; }
@@ -1247,7 +1350,7 @@ onActivated(() => {
 @media (max-width: 768px) {
   /* 展开后的筛选器各占满一行——并排只会各自剩下小半个框，看不清选的是什么。
      搜索框是例外：它和「筛选」开关共一行，收起状态下这一行就是全部筛选界面。 */
-  .f-kind, .f-status, .f-brand, .f-platform, .f-contributor, .f-date, .f-small { width: 100% !important; }
+  .f-kind, .f-status, .f-brand, .f-model, .f-platform, .f-contributor, .f-date, .f-small { width: 100% !important; }
   .f-cost { width: 100%; }
   .f-cost-input { flex: 1 1 0; width: auto !important; }
   .filters { align-items: stretch; }

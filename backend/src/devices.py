@@ -298,28 +298,40 @@ def load_parts(device_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
     return grouped
 
 
+def _load_flat_media(table: str, fk: str, owner_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+    """一次 IN 查询取回一批归属方的平铺图片，按归属 id 分组。整机与部件两张媒体表
+    同构，只差表名和外键列（与 media_api._FLAT_OWNERS 同一个道理），所以共用这一份。
+    表名与列名只来自下面两个调用方写死的常量，不经用户输入。"""
+    if not owner_ids:
+        return {}
+    placeholders = ", ".join(["%s"] * len(owner_ids))
+    rows = db.query(
+        f"SELECT id, {fk}, kind, stored_name, public_url, filename, "
+        f"mime_type, size_bytes, sort_order, created_at "
+        f"FROM {table} WHERE {fk} IN ({placeholders}) "
+        f"ORDER BY {fk}, sort_order, id",
+        owner_ids,
+    )
+    grouped: Dict[int, List[Dict[str, Any]]] = {oid: [] for oid in owner_ids}
+    for row in rows:
+        item = dict(row)
+        item["created_at"] = _iso(row.get("created_at"))
+        item["size_bytes"] = int(row["size_bytes"]) if row.get("size_bytes") is not None else None
+        grouped.setdefault(row[fk], []).append(item)
+    return grouped
+
+
 def load_media(device_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
     """批量取多台设备自己的图，按 device_id 分组（口径与 cards.load_media 一致）。
 
     库存列表每行要显示一张封面，逐行查一次就是 N+1。
     """
-    if not device_ids:
-        return {}
-    placeholders = ", ".join(["%s"] * len(device_ids))
-    rows = db.query(
-        f"SELECT id, device_id, kind, stored_name, public_url, filename, "
-        f"mime_type, size_bytes, sort_order, created_at "
-        f"FROM device_media WHERE device_id IN ({placeholders}) "
-        f"ORDER BY device_id, sort_order, id",
-        device_ids,
-    )
-    grouped: Dict[int, List[Dict[str, Any]]] = {did: [] for did in device_ids}
-    for row in rows:
-        item = dict(row)
-        item["created_at"] = _iso(row.get("created_at"))
-        item["size_bytes"] = int(row["size_bytes"]) if row.get("size_bytes") is not None else None
-        grouped.setdefault(row["device_id"], []).append(item)
-    return grouped
+    return _load_flat_media("device_media", "device_id", device_ids)
+
+
+def load_part_media(part_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
+    """批量取多个部件的图，按 part_id 分组。库存列表把部件单独列成一行时拿它当封面。"""
+    return _load_flat_media("device_part_media", "part_id", part_ids)
 
 
 def part_media_counts(part_ids: List[int]) -> Dict[int, int]:

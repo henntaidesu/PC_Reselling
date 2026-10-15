@@ -1,8 +1,8 @@
 <template>
-  <!-- 显卡详情：弹窗里的定高骨架（DetailShell），内容拆成五个模块，一次只摆一个。
-       每个值仍然是直接可改的控件、改完自动保存——「详情就是编辑界面」这一条没变，
-       变的只是排法：原来是一长列字段要往下拉，现在每个模块按一屏放得下来排。 -->
-  <DetailShell v-model="active" :modules="modules" :loading="loading" @close="emit('close')">
+  <!-- 显卡详情：一屏平铺。基本信息、购入、出售三块字段一直摆着（显卡一共就这十几个值，
+       拆成页面来回切只会让人找不到东西），图片在右侧栏；只有资金明细和状态记录这两样
+       「偶尔才看」的收进最下面的标签页卡。每个值仍然是直接可改的控件、改完自动保存。 -->
+  <DetailShell :loading="loading" :ready="!!card" @close="emit('close')">
     <template #title>
       <template v-if="card">
         <!-- 封面缩略图：标题栏里最快认出「这是哪一张卡」的线索 -->
@@ -10,117 +10,122 @@
           <img v-if="coverUrl" :src="coverUrl" alt="" />
           <el-icon v-else><Picture /></el-icon>
         </div>
-        <div class="head-text">
-          <div class="head-line">
-            <h2 class="head-name">{{ [form.brand, form.model].filter(Boolean).join(' ') || t('card.noModel') }}</h2>
-            <StatusTag :status="form.status" />
-            <el-tag v-if="card.is_draft" size="small" type="warning" effect="plain">{{ t('common.draft') }}</el-tag>
-          </div>
-          <div class="head-sub pcr-dim">
-            <span class="pcr-mono">{{ card.mgmt_no }}</span>
-            <template v-if="form.core_no"> · {{ form.core_no }}</template>
-          </div>
-        </div>
+        <h2 class="head-name">{{ [form.brand, form.model].filter(Boolean).join(' ') || t('card.noModel') }}</h2>
+        <StatusTag :status="form.status" />
       </template>
     </template>
+
+    <!-- 总账药丸：切到哪个标签页都在眼前，改售价的时候得对着成本看 -->
+    <template v-if="card" #stats>
+      <span class="pd-stat">
+        <span class="pd-stat-k">{{ t('card.cost') }}</span>
+        <b class="pd-stat-v pcr-mono">{{ cny(card.money.cost_total_cny) }}</b>
+        <span class="pd-stat-sub pcr-mono">{{ jpy(card.money.cost_total_jpy) }}</span>
+      </span>
+      <span class="pd-stat">
+        <span class="pd-stat-k">{{ t('card.revenue') }}</span>
+        <b class="pd-stat-v pcr-mono">{{ cny(card.money.sale_cny) }}</b>
+      </span>
+      <span class="pd-stat" :class="profitTone(card.money.profit_cny)">
+        <span class="pd-stat-k">{{ t('card.profit') }}</span>
+        <b class="pd-stat-v pcr-mono">{{ cny(card.money.profit_cny) }}</b>
+      </span>
+      <span class="pd-stat">
+        <span class="pd-stat-k">{{ t('card.margin') }}</span>
+        <b class="pd-stat-v pcr-mono">{{ card.money.profit_margin === null ? '—' : card.money.profit_margin + '%' }}</b>
+      </span>
+      <el-tooltip v-if="card.money.incomplete" :content="t('card.incomplete')">
+        <span class="pd-flag warn"><el-icon><WarningFilled /></el-icon>{{ t('card.incomplete') }}</span>
+      </el-tooltip>
+    </template>
+
     <template #actions>
       <AutoSaveBadge v-if="card" :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
     </template>
 
-    <!-- 摘要条：总账一直在眼前，切到哪个模块都看得见 -->
-    <template v-if="card" #summary>
-      <div class="sum-item">
-        <span class="sum-label">{{ t('card.cost') }}</span>
-        <b class="pcr-mono">{{ cny(card.money.cost_total_cny) }}</b>
-        <span class="sum-sub pcr-mono pcr-dim">{{ jpy(card.money.cost_total_jpy) }}</span>
-      </div>
-      <div class="sum-item">
-        <span class="sum-label">{{ t('card.revenue') }}</span>
-        <b class="pcr-mono">{{ cny(card.money.sale_cny) }}</b>
-      </div>
-      <div class="sum-item">
-        <span class="sum-label">{{ t('card.profit') }}</span>
-        <b class="pcr-mono sum-big" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
-      </div>
-      <div class="sum-item">
-        <span class="sum-label">{{ t('card.margin') }}</span>
-        <b class="pcr-mono">{{ card.money.profit_margin === null ? '—' : card.money.profit_margin + '%' }}</b>
-      </div>
-      <el-tooltip v-if="card.money.incomplete" :content="t('card.incomplete')">
-        <span class="sum-flag"><el-icon><WarningFilled /></el-icon>{{ t('card.incomplete') }}</span>
-      </el-tooltip>
-    </template>
-
     <template v-if="card">
-      <!-- ── 基本信息 ──────────────────────────────────────────────── -->
-      <el-form v-if="active === 'basic'" label-position="top" class="pcr-form" @submit.prevent>
-        <el-form-item :label="t('card.brand')">
-          <el-select v-model="form.brand" filterable allow-create default-first-option clearable>
-            <el-option v-for="b in brands" :key="b.id" :label="b.name" :value="b.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('card.model')">
-          <el-select v-model="form.model" filterable allow-create default-first-option clearable>
-            <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('card.coreNo')">
-          <el-input v-model="form.core_no" />
-        </el-form-item>
-        <el-form-item :label="t('card.status')">
-          <StatusSelect v-model="form.status" />
-        </el-form-item>
-        <!-- 序列号 30 位字母数字，占满一行才看得全 -->
-        <el-form-item :label="t('card.serialNo')" class="pcr-span-2">
-          <el-input v-model="form.serial_no" class="mono-input" autocapitalize="off" autocorrect="off" spellcheck="false" />
-        </el-form-item>
-        <el-form-item :label="t('card.note')" class="pcr-span-2">
-          <el-input v-model="form.note" type="textarea" :rows="5" resize="none" />
-        </el-form-item>
-      </el-form>
-
-      <!-- ── 购入（含资金）：钱从哪儿来和花了多少是同一件事，放在一页里对着看。
-           左边是购入字段，下面接出资比例与确认扣款；右边是这笔钱实际扣到了哪几批注资、
-           按什么汇率折的，以及分红 ─────────────────────────────────── -->
-      <div v-else-if="active === 'purchase'" class="split">
-        <div class="split-main">
-          <el-form label-position="top" class="pcr-form" @submit.prevent>
-            <el-form-item :label="t('card.platform')">
+      <!-- ── 基本信息：flex 折行，各字段按内容给宽度（.f-*），不是等宽两列 ──────── -->
+      <section class="pd-card">
+        <div class="pd-card-head">
+          <span class="pd-card-title">{{ t('detail.modBasic') }}</span>
+          <span class="pd-badge pcr-mono">{{ t('card.mgmtNo') }} {{ card.mgmt_no }}</span>
+          <span v-if="card.is_draft" class="pd-badge pd-badge--warn">{{ t('common.draft') }}</span>
+        </div>
+        <el-form label-position="top" size="small" class="pd-form" @submit.prevent>
+          <div class="pd-row">
+            <el-form-item :label="t('card.brand')" class="f-brand">
+              <el-select v-model="form.brand" filterable allow-create default-first-option clearable>
+                <el-option v-for="b in brands" :key="b.id" :label="b.name" :value="b.name" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('card.model')" class="f-model">
+              <el-select v-model="form.model" filterable allow-create default-first-option clearable>
+                <el-option v-for="m in models" :key="m.id" :label="m.name" :value="m.name" />
+              </el-select>
+            </el-form-item>
+            <el-form-item :label="t('card.coreNo')" class="f-core">
+              <el-input v-model="form.core_no" />
+            </el-form-item>
+            <el-form-item :label="t('card.status')" class="f-status">
+              <StatusSelect v-model="form.status" />
+            </el-form-item>
+            <!-- 序列号 30 位字母数字，给它最宽的一格才看得全 -->
+            <el-form-item :label="t('card.serialNo')" class="f-serial">
+              <el-input v-model="form.serial_no" class="mono-input" autocapitalize="off" autocorrect="off" spellcheck="false" />
+            </el-form-item>
+          </div>
+          <div class="pd-row">
+            <el-form-item :label="t('card.platform')" class="f-platform">
               <el-select v-model="form.source_platform" clearable>
                 <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
               </el-select>
             </el-form-item>
-            <el-form-item :label="t('card.seller')">
+            <el-form-item :label="t('card.seller')" class="f-seller">
               <el-input v-model="form.seller" />
             </el-form-item>
-            <el-form-item :label="t('card.orderNo')">
-              <el-input v-model="form.order_no" />
+            <el-form-item :label="t('card.orderNo')" class="f-order">
+              <el-input v-model="form.order_no" autocapitalize="off" autocorrect="off" spellcheck="false" />
             </el-form-item>
-            <el-form-item :label="t('card.itemUrl')">
+            <el-form-item :label="t('card.itemUrl')" class="f-url">
               <el-input v-model="form.item_url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false">
                 <template v-if="form.item_url" #append>
                   <a :href="form.item_url" target="_blank" rel="noopener" class="url-open" :title="t('common.detail')">↗</a>
                 </template>
               </el-input>
             </el-form-item>
+            <!-- 备注随内容长高，封顶四行：再高就把下面的卡挤没了 -->
+            <el-form-item :label="t('card.note')" class="f-note">
+              <el-input v-model="form.note" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" resize="none" />
+            </el-form-item>
+          </div>
+        </el-form>
+      </section>
+
+      <!-- ── 购入 / 出售并排：一进一出，两边字段一一对应（日期、汇率、金额、运费），
+           并排摆着正好对照着看 ──────────────────────────────────────────── -->
+      <div class="pd-pair">
+        <section class="pd-card">
+          <div class="pd-card-head"><span class="pd-card-title">{{ t('detail.modPurchase') }}</span></div>
+          <el-form label-position="top" size="small" class="pd-form pd-grid" @submit.prevent>
             <el-form-item :label="t('card.purchaseDate')">
               <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
             </el-form-item>
             <!-- 汇率是按日期取的快照，不给手改：改了日期，保存之后这一格自己就变了。
-                 走资金池（已确认扣除）时显示池子的加权汇率，当日牌价降为小字作对照——
+                 走资金池（已确认扣除）时显示池子的加权汇率，当日牌价放进悬浮提示作对照——
                  否则页面上的汇率 × 金额对不上总成本 -->
             <el-form-item :label="t('card.purchaseFx')">
-              <div class="pcr-ro">
-                <template v-if="card.money.from_pool && card.money.pool_fx_rate">
-                  <span class="pcr-mono">{{ formatRate(card.money.pool_fx_rate) }}</span>
-                  <span class="pcr-dim">· {{ poolRateLabel }}</span>
-                  <span v-if="card.purchase_fx_rate" class="pcr-dim">· {{ t('card.marketRate') }} {{ formatRate(card.purchase_fx_rate) }}</span>
-                </template>
-                <template v-else>
-                  <span class="pcr-mono">{{ card.purchase_fx_rate ? formatRate(card.purchase_fx_rate) : '—' }}</span>
-                  <span v-if="card.purchase_fx_date" class="pcr-dim">· {{ card.purchase_fx_date }}</span>
-                </template>
-              </div>
+              <el-tooltip :disabled="!purchaseFxTip" :content="purchaseFxTip" placement="top">
+                <div class="pcr-ro">
+                  <template v-if="card.money.from_pool && card.money.pool_fx_rate">
+                    <span class="pcr-mono">{{ formatRate(card.money.pool_fx_rate) }}</span>
+                    <span class="pcr-dim ro-sub">· {{ poolRateLabel }}</span>
+                  </template>
+                  <template v-else>
+                    <span class="pcr-mono">{{ card.purchase_fx_rate ? formatRate(card.purchase_fx_rate) : '—' }}</span>
+                    <span v-if="card.purchase_fx_date" class="pcr-dim ro-sub">· {{ card.purchase_fx_date }}</span>
+                  </template>
+                </div>
+              </el-tooltip>
             </el-form-item>
             <el-form-item :label="t('card.purchaseAmount')">
               <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
@@ -128,89 +133,115 @@
             <el-form-item :label="t('card.intlShipping')">
               <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
             </el-form-item>
-            <!-- 汇率取自哪一天、有没有回退过，都在这里说清楚；空着就是一切正常 -->
-            <div v-if="card.warnings?.length" class="hint warn pcr-span-2">
-              <div v-for="(w, i) in card.warnings" :key="i">{{ w }}</div>
-            </div>
           </el-form>
-          <h4 class="pcr-sec-title sec-gap">{{ t('detail.modFund') }}</h4>
-          <div class="sub-label">{{ t('card.fundShares') }}</div>
-          <FundShares v-model="form.fund_shares" :options="contributorOptions" />
+        </section>
+        <section class="pd-card">
+          <div class="pd-card-head"><span class="pd-card-title">{{ t('detail.modSale') }}</span></div>
+          <el-form label-position="top" size="small" class="pd-form pd-grid" @submit.prevent>
+            <el-form-item :label="t('card.saleDate')">
+              <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
+            </el-form-item>
+            <el-form-item :label="t('card.saleFx')">
+              <div class="pcr-ro">
+                <span class="pcr-mono">{{ card.sale_fx_rate ? formatRate(card.sale_fx_rate) : '—' }}</span>
+                <span v-if="card.sale_fx_date" class="pcr-dim ro-sub">· {{ card.sale_fx_date }}</span>
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('card.saleAmount')">
+              <MoneyInput v-model:amount="form.sale_amount" v-model:currency="form.sale_currency" />
+            </el-form-item>
+            <el-form-item :label="t('card.domesticShipping')">
+              <MoneyInput v-model:amount="form.domestic_shipping_amount" v-model:currency="form.domestic_shipping_currency" />
+            </el-form-item>
+          </el-form>
+        </section>
+      </div>
+      <!-- 汇率取自哪一天、有没有回退过，都在这里说清楚；空着就是一切正常 -->
+      <div v-if="card.warnings?.length" class="hint warn">
+        <div v-for="(w, i) in card.warnings" :key="i">{{ w }}</div>
+      </div>
 
-          <div class="sub-label sub-gap">{{ t('card.poolDraw') }}</div>
-          <div class="pool-draw">
-            <template v-if="poolDrawn">
-              <span class="pool-done">{{ t('card.poolDrawn') }}</span>
-              <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">{{ t('card.poolUndo') }}</el-button>
+      <!-- ── 标签页卡：资金明细 / 记录。吃掉剩下的高度，内容在卡里滚 ────────────── -->
+      <section class="pd-card pd-tabs-card">
+        <el-tabs v-model="active" class="pd-tabbar">
+          <el-tab-pane name="fund">
+            <template #label>
+              {{ t('detail.tabFundSettle') }}<span v-if="card.fund_draws?.length" class="pd-count pcr-mono">{{ card.fund_draws.length }}</span>
             </template>
-            <el-button v-else type="primary" size="small" :loading="poolBusy"
-              :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
-              {{ t('card.poolConfirm') }}
-            </el-button>
-            <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
-          </div>
-          <p class="pcr-dim small">{{ t('detail.poolDrawHint') }}</p>
-        </div>
-        <div class="split-side">
-          <PoolBreakdown v-if="card.fund_draws?.length" :draws="card.fund_draws" />
-          <el-empty v-else :description="t('detail.noPool')" :image-size="60" />
-          <!-- 分红：利润全额按出资比例分。没卖出去时利润本身是空的，这里跟着显示「—」，
-               不拿成本当亏损分下去 -->
-          <template v-if="card.dividends?.length">
-            <h4 class="pcr-sec-title sec-gap">{{ t('card.dividends') }}</h4>
-            <div v-for="d in card.dividends" :key="d.contributor" class="settle-row">
-              <span>{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
-              <b class="pcr-mono" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</b>
+          </el-tab-pane>
+          <el-tab-pane name="log">
+            <template #label>
+              {{ t('detail.modLog') }}<span v-if="card.status_logs?.length" class="pd-count pcr-mono">{{ card.status_logs.length }}</span>
+            </template>
+          </el-tab-pane>
+        </el-tabs>
+
+        <div class="pd-tab-body">
+          <!-- 资金与结算：左边是钱从哪儿来（出资比例、确认扣款、扣到了哪几批注资），
+               右边是这张卡的账（成本三项摊开、利润、分红） -->
+          <div v-if="active === 'fund'" class="fund">
+            <div class="fund-main">
+              <div class="pd-sub-label">{{ t('card.fundShares') }}</div>
+              <FundShares v-model="form.fund_shares" :options="contributorOptions" />
+
+              <div class="pd-sub-label sub-gap">{{ t('card.poolDraw') }}</div>
+              <div class="pool-draw">
+                <template v-if="poolDrawn">
+                  <span class="pool-done">{{ t('card.poolDrawn') }}</span>
+                  <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">{{ t('card.poolUndo') }}</el-button>
+                </template>
+                <el-button v-else type="primary" size="small" :loading="poolBusy"
+                  :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
+                  {{ t('card.poolConfirm') }}
+                </el-button>
+                <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
+                <span class="pd-note">{{ t('detail.poolDrawHint') }}</span>
+              </div>
+
+              <PoolBreakdown v-if="card.fund_draws?.length" class="sub-gap" :draws="card.fund_draws" />
             </div>
+
+            <!-- 结算：成本拆成三项摊开，确认运费确实算进去了，而不是只看到一个总数 -->
+            <div class="fund-side">
+              <div class="pd-settle">
+                <div class="pd-settle-row"><span>{{ t('card.purchaseAmount') }}</span><b class="pcr-mono">{{ cny(card.money.purchase_cny) }}</b></div>
+                <div class="pd-settle-row"><span>{{ t('card.intlShipping') }}</span><b class="pcr-mono">{{ cny(card.money.intl_shipping_cny) }}</b></div>
+                <div class="pd-settle-row"><span>{{ t('card.domesticShipping') }}</span><b class="pcr-mono">{{ cny(card.money.domestic_shipping_cny) }}</b></div>
+                <div class="pd-settle-row pd-settle-sum"><span>{{ t('card.cost') }}</span><b class="pcr-mono">{{ cny(card.money.cost_total_cny) }}</b></div>
+                <div class="pd-settle-row"><span>{{ t('card.revenue') }}</span><b class="pcr-mono">{{ cny(card.money.sale_cny) }}</b></div>
+                <div class="pd-settle-row pd-settle-big">
+                  <span>{{ t('card.profit') }}</span>
+                  <b class="pcr-mono" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
+                </div>
+              </div>
+              <!-- 分红：利润全额按出资比例分。没卖出去时利润本身是空的，这里跟着显示「—」，
+                   不拿成本当亏损分下去 -->
+              <template v-if="card.dividends?.length">
+                <div class="pd-sub-title sub-gap">{{ t('card.dividends') }}</div>
+                <div v-for="d in card.dividends" :key="d.contributor" class="pd-settle-row">
+                  <span>{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
+                  <b class="pcr-mono" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</b>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <template v-else-if="active === 'log'">
+            <StatusTimeline v-if="card.status_logs?.length" :logs="card.status_logs" />
+            <el-empty v-else :description="t('detail.noLogs')" :image-size="60" />
           </template>
         </div>
+      </section>
+    </template>
+
+    <!-- ── 图片侧栏：五个分类竖排，侧栏自己滚 ─────────────────────────────── -->
+    <template v-if="card" #aside>
+      <div class="pd-card-head">
+        <span class="pd-card-title">{{ t('detail.modMedia') }}</span>
+        <span v-if="mediaCount" class="pd-count pcr-mono">{{ mediaCount }}</span>
       </div>
-
-      <!-- ── 出售：左边填卖价，右边对着结算看 ─────────────────────────── -->
-      <div v-else-if="active === 'sale'" class="split">
-        <el-form label-position="top" class="pcr-form split-main" @submit.prevent>
-          <el-form-item :label="t('card.saleDate')">
-            <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
-          </el-form-item>
-          <el-form-item :label="t('card.saleFx')">
-            <div class="pcr-ro">
-              <span class="pcr-mono">{{ card.sale_fx_rate ? formatRate(card.sale_fx_rate) : '—' }}</span>
-              <span v-if="card.sale_fx_date" class="pcr-dim">· {{ card.sale_fx_date }}</span>
-            </div>
-          </el-form-item>
-          <el-form-item :label="t('card.saleAmount')">
-            <MoneyInput v-model:amount="form.sale_amount" v-model:currency="form.sale_currency" />
-          </el-form-item>
-          <el-form-item :label="t('card.domesticShipping')">
-            <MoneyInput v-model:amount="form.domestic_shipping_amount" v-model:currency="form.domestic_shipping_currency" />
-          </el-form-item>
-        </el-form>
-
-        <!-- 结算：成本拆成三项摊开，确认运费确实算进去了，而不是只看到一个总数 -->
-        <aside class="settle split-side">
-          <h4 class="pcr-sec-title">{{ t('detail.settlement') }}</h4>
-          <div class="settle-row"><span>{{ t('card.purchaseAmount') }}</span><b class="pcr-mono">{{ cny(card.money.purchase_cny) }}</b></div>
-          <div class="settle-row"><span>{{ t('card.intlShipping') }}</span><b class="pcr-mono">{{ cny(card.money.intl_shipping_cny) }}</b></div>
-          <div class="settle-row"><span>{{ t('card.domesticShipping') }}</span><b class="pcr-mono">{{ cny(card.money.domestic_shipping_cny) }}</b></div>
-          <div class="settle-row settle-sum"><span>{{ t('card.cost') }}</span><b class="pcr-mono">{{ cny(card.money.cost_total_cny) }}</b></div>
-          <div class="settle-row"><span>{{ t('card.revenue') }}</span><b class="pcr-mono">{{ cny(card.money.sale_cny) }}</b></div>
-          <div class="settle-row settle-big">
-            <span>{{ t('card.profit') }}</span>
-            <b class="pcr-mono" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
-          </div>
-          <el-alert v-if="card.money.incomplete" :title="t('card.incomplete')" type="warning" :closable="false" show-icon class="mt" />
-        </aside>
-      </div>
-
-      <!-- ── 图片 ──────────────────────────────────────────────────── -->
-      <MediaManager v-else-if="active === 'media'" :card-id="card.id" :hosting-configured="hostingConfigured"
+      <MediaManager :card-id="card.id" :hosting-configured="hostingConfigured" compact
         @changed="onMediaChanged" />
-
-      <!-- ── 记录 ──────────────────────────────────────────────────── -->
-      <template v-else-if="active === 'log'">
-        <StatusTimeline v-if="card.status_logs?.length" :logs="card.status_logs" />
-        <el-empty v-else :description="t('detail.noLogs')" :image-size="60" />
-      </template>
     </template>
   </DetailShell>
 </template>
@@ -218,7 +249,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Clock, Document, Picture, Sell, ShoppingCart, WarningFilled } from '@element-plus/icons-vue'
+import { Picture, WarningFilled } from '@element-plus/icons-vue'
 import { cardsApi, optionsApi, systemApi } from '@/api'
 import { cny, firstImage, formatRate, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
@@ -255,17 +286,10 @@ const card = ref(null)
 const loading = ref(false)
 const hostingConfigured = ref(true)
 
-// 当前模块。打开时总是从「基本信息」开始：这是认货的那一页，其余几页都是在它之后才去看的
-const active = ref('basic')
-// 图片数单独记：导航角标要它，而 card 快照只在保存时才刷新，传图不触发保存
+// 最下面那张标签页卡停在哪一页。字段都平铺在上面了，这里只剩资金明细和记录
+const active = ref('fund')
+// 图片数单独记：侧栏标题的角标要它，而 card 快照只在保存时才刷新，传图不触发保存
 const mediaCount = ref(0)
-const modules = computed(() => [
-  { key: 'basic', label: t('detail.modBasic'), icon: Document },
-  { key: 'purchase', label: t('detail.modPurchase'), icon: ShoppingCart, badge: card.value?.fund_draws?.length || 0 },
-  { key: 'sale', label: t('detail.modSale'), icon: Sell },
-  { key: 'media', label: t('detail.modMedia'), icon: Picture, badge: mediaCount.value },
-  { key: 'log', label: t('detail.modLog'), icon: Clock }
-])
 // 标题栏的封面缩略图，和列表上的封面是同一张（format.firstImage）
 const coverUrl = computed(() => {
   const img = firstImage(card.value?.media)
@@ -277,6 +301,12 @@ const brands = computed(() => meta.brands)
 const models = computed(() => meta.models)
 const { platforms } = usePlatforms()
 const contributorOptions = computed(() => meta.contributors)
+
+// 顶栏利润药丸的色调：赚了绿、亏了红，算不出来（缺汇率）或刚好持平不上色
+function profitTone(v) {
+  if (v === null || v === undefined || Number(v) === 0) return ''
+  return Number(v) > 0 ? 'is-up' : 'is-down'
+}
 
 function blankForm() {
   return {
@@ -306,6 +336,12 @@ const poolRateLabel = computed(() => {
   if (shares.length === 1) return shares[0].contributor + ' ' + t('card.poolRate')
   if (shares.length > 1) return shares.map((s) => s.contributor).join('/') + ' ' + t('card.poolRate')
   return t('card.poolRate')
+})
+// 走资金池时格子里摆的是池子汇率，当日牌价收进悬浮提示：半宽的格子摆不下三段字
+const purchaseFxTip = computed(() => {
+  const c = card.value
+  if (!c?.money.from_pool || !c.money.pool_fx_rate || !c.purchase_fx_rate) return ''
+  return t('card.marketRate') + ' ' + formatRate(c.purchase_fx_rate)
 })
 const poolBusy = ref(false)
 
@@ -421,67 +457,57 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-/* 骨架（顶栏 / 摘要条 / 导航 / 模块区）在 DetailShell 里；表单网格 .pcr-form 在 App.vue */
+/* 骨架在 DetailShell 里；卡片、紧凑表单、药丸、结算这些共用类在 App.vue 的 .pd-* */
 .head-cover {
   flex: none;
-  width: 52px;
-  height: 40px;
-  border-radius: 6px;
+  width: 40px;
+  height: 30px;
+  border-radius: 5px;
   overflow: hidden;
   background: #0e1830;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #3a4a66;
-  font-size: 18px;
+  font-size: 16px;
 }
 .head-cover img { width: 100%; height: 100%; object-fit: cover; }
-.head-text { min-width: 0; }
-.head-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.head-name { margin: 0; font-size: 18px; color: #e6edf7; }
-.head-sub { font-size: 12px; margin-top: 2px; }
+.head-name { margin: 0; font-size: 17px; color: #e6edf7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.sum-item { display: flex; align-items: baseline; gap: 8px; }
-.sum-label { font-size: 12px; color: #8a94a6; }
-.sum-item b { font-size: 15px; color: #e6edf7; }
-.sum-item .sum-big { font-size: 18px; }
-.sum-sub { font-size: 12px; }
-.sum-flag { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #e6a23c; }
+/* 基本信息两行的字段宽度：基准宽度 + 上限，摆不下就折行 */
+.f-brand { flex: 1 1 140px; max-width: 200px; }
+.f-model { flex: 1 1 180px; max-width: 280px; }
+.f-core { flex: 0 1 130px; }
+.f-status { flex: 0 1 140px; }
+.f-serial { flex: 1 1 230px; }
+.f-platform { flex: 0 1 130px; }
+.f-seller { flex: 1 1 130px; max-width: 200px; }
+.f-order { flex: 0 1 170px; }
+.f-url { flex: 1 1 200px; max-width: 360px; }
+.f-note { flex: 1 1 200px; }
 
-/* 模块内左右分栏：左边填、右边对照（出售 ↔ 结算、出资 ↔ 分摊） */
-.split { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; align-items: start; }
-.split-main { min-width: 0; }
-.split-side { min-width: 0; }
-.sec-gap { margin-top: 22px; }
-.small { font-size: 12px; margin: 8px 0 0; }
+/* 只读格子里的副文字（日期、「池汇率」字样）放不下就省略，不把格子撑成两行 */
+.pcr-ro { flex-wrap: nowrap; overflow: hidden; }
+.ro-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 
-.settle {
-  padding: 14px 16px;
-  border: 1px solid var(--pcr-border);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02);
+/* 资金与结算：左边资金来源，右边账。卡片窄于 640px（平板竖屏、手机）上下叠放 */
+.fund { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@container (max-width: 640px) {
+  .fund { grid-template-columns: minmax(0, 1fr); }
 }
-.settle-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; }
-.settle-row span { color: #8a94a6; }
-.settle-row b { color: #e6edf7; font-size: 14px; }
-.settle-sum { border-top: 1px dashed var(--pcr-border); margin-top: 4px; padding-top: 10px; }
-.settle-big b { font-size: 20px; }
-.mt { margin-top: 10px; }
+.fund-main, .fund-side { min-width: 0; }
+.sub-gap { margin-top: 12px; }
 
 /* 序列号 30 位字母数字要完整看得见、0 和 O 分得清 */
 .mono-input :deep(.el-input__inner) { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
 .url-open { color: #8fb8ff; text-decoration: none; padding: 0 4px; }
-.hint {
-  padding: 6px 10px;
-  font-size: 12px;
-  line-height: 1.7;
-  border-radius: 6px;
-}
+.hint { flex: none; padding: 6px 10px; font-size: 12px; line-height: 1.7; border-radius: 6px; }
 .hint.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
 
-.pool-draw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pool-draw { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
 .pool-done { color: #4ade80; font-size: 13px; }
 .pool-warn { color: #e6a23c; font-size: 12px; }
+.pool-draw .pd-note { margin: 0; }
 
 /* 触屏：small 按钮只有指甲盖大 */
 @media (hover: none) {
@@ -493,7 +519,5 @@ onMounted(async () => {
      scoped 的 :deep 特异度更高，得在这里自己写一遍 */
   .mono-input :deep(.el-input__inner) { font-size: 16px; }
   .head-name { font-size: 16px; }
-  .split { grid-template-columns: minmax(0, 1fr); }
-  .sum-item .sum-big { font-size: 16px; }
 }
 </style>

@@ -16,7 +16,7 @@
       </el-button>
     </div>
 
-    <el-form label-position="top" size="small" class="pcr-form" @submit.prevent>
+    <el-form label-position="top" size="small" class="pcr-form pd-form" @submit.prevent>
       <el-form-item :label="t('card.brand')">
         <!-- 品牌候选按部件类型给：CPU 只有 Intel / AMD（不允许现场新建），显卡直接用
              系统里的品牌字典，其余给一份常见清单但可以现场输入 -->

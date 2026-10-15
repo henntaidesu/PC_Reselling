@@ -1,5 +1,5 @@
 <template>
-  <div class="media-manager">
+  <div class="media-manager" :class="{ compact }">
     <el-alert
       v-if="!hostingConfigured"
       :title="t('media.notConfigured')"
@@ -13,12 +13,14 @@
     <div v-for="(cat, idx) in categories" :key="cat" class="cat-block" :class="{ first: idx === 0 }">
       <div class="cat-head">
         <span class="cat-index">{{ idx + 1 }}</span>
-        <div class="cat-titles">
+        <div class="cat-titles" :title="compact ? t('categoryDesc.' + cat) : undefined">
           <span class="cat-name">
             {{ t('category.' + cat) }}
             <span v-if="countByCategory[cat]" class="cat-count">{{ countByCategory[cat] }}</span>
           </span>
-          <span class="cat-desc">{{ t('categoryDesc.' + cat) }}</span>
+          <!-- 紧凑模式（详情侧栏里）说明文字收进标题的悬浮提示：280px 宽摆两行说明，
+               五个分类下来图还没露头 -->
+          <span v-if="!compact" class="cat-desc">{{ t('categoryDesc.' + cat) }}</span>
         </div>
       </div>
 
@@ -101,7 +103,9 @@ import { useMetaStore } from '@/stores/meta'
 
 const props = defineProps({
   cardId: { type: Number, required: true },
-  hostingConfigured: { type: Boolean, default: true }
+  hostingConfigured: { type: Boolean, default: true },
+  // 放在详情弹窗的窄侧栏里：缩略图小一号、分类之间靠得更紧、不摆说明文字
+  compact: { type: Boolean, default: false }
 })
 const emit = defineEmits(['changed'])
 
@@ -390,4 +394,13 @@ defineExpose({ reload: load })
 .add-cell:hover { border-color: #5b8cff; color: #8fb8ff; }
 .add-cell.disabled { opacity: 0.5; cursor: not-allowed; }
 .video-player { width: 100%; max-height: 70vh; border-radius: 8px; }
+
+/* 紧凑模式：详情侧栏只有 280px，一行摆三张小图 */
+.compact .cat-block { padding-top: 10px; margin-top: 10px; }
+.compact .cat-head { margin-bottom: 6px; gap: 8px; }
+.compact .cat-index { flex-basis: 18px; width: 18px; height: 18px; font-size: 11px; }
+.compact .cat-name { font-size: 12.5px; }
+.compact .grid { grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
+.compact .cell { border-radius: 6px; }
+.compact .add-cell { border-radius: 6px; font-size: 11px; }
 </style>

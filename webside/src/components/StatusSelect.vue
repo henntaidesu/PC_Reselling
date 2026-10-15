@@ -17,6 +17,7 @@
     </template>
     <el-option v-for="s in statuses" :key="s" :label="t('status.' + s)" :value="s">
       <StatusTag :status="s" :round="false" class="opt-tag" />
+      <span v-if="counts" class="opt-count">{{ counts[s] ?? 0 }}</span>
     </el-option>
   </el-select>
 </template>
@@ -27,21 +28,30 @@ import { useI18n } from 'vue-i18n'
 import { useMetaStore } from '@/stores/meta'
 import StatusTag from './StatusTag.vue'
 
-defineProps({
+const props = defineProps({
   modelValue: { type: [String, Array, null], default: null },
-  multiple: { type: Boolean, default: false }
+  multiple: { type: Boolean, default: false },
+  // 只列这些状态（库存筛选的联动选项）。不给就是全部——详情页里改状态要能选任何一个
+  options: { type: Array, default: null },
+  // 每个状态后面显示的件数（库存筛选用），不给就不显示
+  counts: { type: Object, default: null }
 })
 const emit = defineEmits(['update:modelValue'])
 
 const { t } = useI18n()
 const meta = useMetaStore()
 // 取值与顺序都由后端 /options/enums 给，前端不另存一份状态列表
-const statuses = computed(() => meta.enums.statuses || [])
+// options 只做过滤、不决定顺序：顺序永远是状态流转的顺序
+const statuses = computed(() => {
+  const all = meta.enums.statuses || []
+  return props.options ? all.filter((s) => props.options.includes(s)) : all
+})
 </script>
 
 <style scoped>
 /* 选项里的色块定宽：长短不一的矩形排成一列会参差不齐，等宽才看得出这是一张色卡 */
 .opt-tag { min-width: 88px; }
+.opt-count { float: right; margin-left: 12px; color: var(--pcr-text-dim); font-size: 12px; font-variant-numeric: tabular-nums; }
 </style>
 
 <style>

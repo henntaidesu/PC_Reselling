@@ -29,7 +29,9 @@ export const cardsApi = {
 // 都在后端统一做，前端不必自己把两个列表拼起来。
 export const inventoryApi = {
   list: (params) => http.get('/inventory', { params }),
-  stats: (params) => http.get('/inventory/stats', { params })
+  stats: (params) => http.get('/inventory/stats', { params }),
+  // 筛选下拉的联动选项，参数与 list 相同
+  facets: (params) => http.get('/inventory/facets', { params })
 }
 
 // 整机设备的增删改查：一次购入（一个总价）拆成多个部件分别出售。部件随设备整体提交，
