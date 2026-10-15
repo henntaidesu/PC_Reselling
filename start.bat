@@ -31,6 +31,9 @@ if errorlevel 1 (
     exit /b 1
 )
 echo [*] Env "PC_Reselling" not found, creating ...
+call conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main >nul 2>&1
+call conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r >nul 2>&1
+call conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/msys2 >nul 2>&1
 call conda create -y -n PC_Reselling python=3.12
 if errorlevel 1 (
     echo [ERROR] conda create failed.

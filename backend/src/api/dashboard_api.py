@@ -241,7 +241,8 @@ def top_models(limit: int = Query(default=10, ge=1, le=50)):
         bucket = grouped.setdefault(key, {"model": key, "count": 0, "profit_cny": 0.0, "sold": 0})
         bucket["count"] += 1
         money = cards.compute_money(row)
-        if money["profit_cny"] is not None:
+        # 没卖的卡利润是「-成本」（见 cards.compute_money），不算进型号的赚钱排行
+        if money["profit_cny"] is not None and money["sale_cny"] is not None:
             bucket["profit_cny"] = round(bucket["profit_cny"] + money["profit_cny"], 2)
             bucket["sold"] += 1
     items = sorted(grouped.values(), key=lambda x: (-x["count"], -x["profit_cny"]))

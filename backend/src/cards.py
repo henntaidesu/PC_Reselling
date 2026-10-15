@@ -248,6 +248,11 @@ def compute_money(row: Dict[str, Any]) -> Dict[str, Any]:
         profit = revenue_value - cost_total
         if revenue_value > 0:
             margin = float((profit / revenue_value * 100).quantize(_CENT, rounding=ROUND_HALF_UP))
+    elif not has_revenue and not cost_incomplete:
+        # 还没卖：利润栏显示「-成本」，与整机未卖完时的口径一致（收入 0 − 成本）。
+        # 这是「钱压在货上」而不是亏损，分红那边按 sale_cny 是否为空区分（见 funds.split_dividends）；
+        # 利润率没有收入作分母，留空。
+        profit = -cost_total
 
     return {
         "purchase_cny": _round(purchase),

@@ -289,10 +289,8 @@ export default {
   },
   funds: {
     title: '資金プール',
-    explainer: '先に両替してプールへ入れ、そこからカードを買う運用です。各カードの人民元原価は、FIFO で消費した入金分ごとのレートで按分して合算します。',
     injections: '入金',
     draws: '使用明細',
-    drawsHint: '行を開くと按分内訳が見えます',
     addInjection: '入金する',
     editInjection: '入金を編集',
     addDraw: '支出を記録',
@@ -323,10 +321,11 @@ export default {
     incompleteWarn: 'レート未設定の入金があるため、それを使ったカードの原価が計算できません。',
     contributor: '出資者',
     contributors: '出資者別',
-    contributorHint: '行をクリックすると資金の流れを表示',
+
     contributorPlaceholder: '誰のお金か（新しい名前も直接入力できます）',
     drawContribPlaceholder: '誰の資金から引き落とすか（空欄＝全体FIFO）',
     flowDirection: '資金の流れ',
+    consumed: '消費額',
     noContributor: '未設定',
     injected: '入金額',
     dividend: '配当',
@@ -338,7 +337,7 @@ export default {
     rebuild: '再計算',
     rebuilt: '再計算しました',
     ownerDrawLocked: 'この支出は GPU / 本体に連動します。該当レコード側で修正してください',
-    drawDialogHint: 'ここには GPU・本体に紐づかないプール内支出（手数料、代行料など）のみ記録します。GPU と本体の仕入価格・国際送料は、それぞれのフォームで「資金プールから支出」をオンにしてください。',
+
     requireDateAmount: '日付と金額を入力してください',
     noInjections: '入金はまだありません',
     noDraws: '支出はまだありません',

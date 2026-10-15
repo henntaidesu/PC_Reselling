@@ -352,6 +352,33 @@ def owner_shares(kind: str, owner_id: int) -> List[Dict[str, Any]]:
     return load_shares(kind, [owner_id]).get(owner_id, [])
 
 
+def load_draw_contributors(kind: str, owner_ids: List[int]) -> Dict[int, List[Optional[str]]]:
+    """多件货的扣款**实际吃到了谁的钱**，按归属 id 分组，名字去重、按分摊顺序排。
+
+    取的是分摊结果（注资批次上的出资人），而不是 ``fund_shares`` 里写的比例：没写比例的
+    扣款在全池上跑 FIFO，钱照样落在某几个人头上，只看比例的话这类货一个名字都给不出来。
+    没登记出资人的批次记作 None，前端据此退回显示「池」。
+    """
+    if not owner_ids:
+        return {}
+    col, _table = _OWNERS[kind]
+    placeholders = ", ".join(["%s"] * len(owner_ids))
+    rows = db.query(
+        f"SELECT d.{col} AS owner_id, i.contributor FROM fund_draws d "
+        f"JOIN fund_allocations a ON a.draw_id = d.id "
+        f"JOIN fund_injections i ON i.id = a.injection_id "
+        f"WHERE d.{col} IN ({placeholders}) ORDER BY d.draw_date, d.id, a.seq",
+        list(owner_ids),
+    )
+    grouped: Dict[int, List[Optional[str]]] = {}
+    for row in rows:
+        names = grouped.setdefault(int(row["owner_id"]), [])
+        name = row.get("contributor") or None
+        if name not in names:
+            names.append(name)
+    return grouped
+
+
 def write_shares(kind: str, owner_id: int, shares: Optional[List[Dict[str, Any]]]) -> bool:
     """整体替换一件货的出资比例，返回是否真的变了。
 

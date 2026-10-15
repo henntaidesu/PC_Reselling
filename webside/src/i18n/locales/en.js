@@ -289,10 +289,8 @@ export default {
   },
   funds: {
     title: 'Fund Pool',
-    explainer: 'Exchange money into the pool first, then buy cards from it. Each card CNY cost is split across the injection batches consumed FIFO, converted at each batch own rate and summed.',
     injections: 'Injections',
     draws: 'Usage',
-    drawsHint: 'Expand a row for the per-batch split',
     addInjection: 'Add funds',
     editInjection: 'Edit injection',
     addDraw: 'Add expense',
@@ -323,10 +321,11 @@ export default {
     incompleteWarn: 'Some injections have no rate yet, so the cost of the cards using them cannot be computed.',
     contributor: 'Contributor',
     contributors: 'By contributor',
-    contributorHint: 'Click a row to see fund flow',
+
     contributorPlaceholder: 'Whose money is this (type a new name to add)',
     drawContribPlaceholder: 'Deduct from whose funds (empty = whole pool FIFO)',
     flowDirection: 'Fund flow',
+    consumed: 'Consumed',
     noContributor: 'Unassigned',
     injected: 'Injected',
     dividend: 'Dividend',
@@ -338,7 +337,7 @@ export default {
     rebuild: 'Recompute',
     rebuilt: 'Recomputed',
     ownerDrawLocked: 'This draw follows its GPU / system — edit it on that record',
-    drawDialogHint: 'Only pool expenses unrelated to a GPU or a system belong here (fees, agent charges…). Purchase price and international shipping belong on the GPU or system itself — turn on “pay from fund pool” there.',
+
     requireDateAmount: 'Date and amount are required',
     noInjections: 'No injections yet',
     noDraws: 'No usage yet',

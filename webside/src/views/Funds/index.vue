@@ -16,7 +16,6 @@
           <StatCard :label="card.label" :value="card.value" :icon="card.icon" :color="card.color" />
         </el-col>
       </el-row>
-      <p class="pool-note pcr-dim">{{ t('funds.explainer') }}</p>
       <el-alert v-if="summary.shortfall" type="warning" :closable="false" show-icon class="mt"
         :title="t('funds.shortfallWarn', { amount: jpy(summary.shortfall) })" />
       <el-alert v-if="summary.incomplete" type="warning" :closable="false" show-icon class="mt"
@@ -31,7 +30,6 @@
         <div class="card-head">
           <span>{{ t('funds.contributors') }}</span>
           <span class="pcr-dim count">
-            {{ t('funds.contributorHint') }}
             <el-button v-if="contributorFilter !== null" link type="primary"
               @click="clearContributorExpand">
               {{ t('funds.clearFilter') }}
@@ -49,43 +47,82 @@
               <!-- 注资批次 -->
               <div class="detail-section">
                 <div class="detail-title">{{ t('funds.injections') }}</div>
-                <template v-if="contribInjections(row).length">
-                  <div v-for="inj in contribInjections(row)" :key="inj.id" class="flow-line">
-                    <span class="pcr-mono pcr-dim">{{ inj.inject_date }}</span>
-                    <span class="pcr-mono">{{ jpy(inj.amount) }}</span>
-                    <template v-if="inj.fx_rate">
-                      <span class="pcr-dim">@{{ formatRate(inj.fx_rate) }}</span>
-                      <span class="pcr-dim">=</span>
+                <el-table v-if="contribInjections(row).length" :data="contribInjections(row)"
+                  class="pcr-table inner-table" size="small" empty-text=" " :show-header="true">
+                  <el-table-column :label="t('funds.injectDate')" width="104">
+                    <template #default="{ row: inj }">
+                      <span class="pcr-mono pcr-dim">{{ inj.inject_date }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.amount')" align="right" min-width="110">
+                    <template #default="{ row: inj }">
+                      <span class="pcr-mono">{{ jpy(inj.amount) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.rate')" align="right" width="96">
+                    <template #default="{ row: inj }">
+                      <span class="pcr-mono">{{ inj.fx_rate ? formatRate(inj.fx_rate) : '—' }}</span>
+                      <el-tag v-if="inj.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.cnyCost')" align="right" min-width="100">
+                    <template #default="{ row: inj }">
                       <span class="pcr-mono">{{ cny(inj.cny_cost) }}</span>
                     </template>
-                    <span class="pcr-dim">（{{ t('funds.used') }} {{ jpy(inj.used_amount) }} · {{ t('funds.remaining') }} {{ jpy(inj.remaining_amount) }}）</span>
-                  </div>
-                </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.used')" align="right" min-width="100">
+                    <template #default="{ row: inj }">
+                      <span class="pcr-mono">{{ jpy(inj.used_amount) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.remaining')" align="right" min-width="100">
+                    <template #default="{ row: inj }">
+                      <span class="pcr-mono">{{ jpy(inj.remaining_amount) }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
                 <div v-else class="pcr-dim flow-empty">{{ t('funds.noInjections') }}</div>
               </div>
               <!-- 资金去向 -->
               <div class="detail-section">
                 <div class="detail-title">{{ t('funds.flowDirection') }}</div>
-                <template v-if="(contributorFlows[row.name || ''] || []).length">
-                  <div v-for="f in contributorFlows[row.name || '']" :key="f.id" class="flow-line">
-                    <span class="pcr-mono pcr-dim">{{ f.draw_date }}</span>
-                    <router-link v-if="f.card_id" :to="`/cards/${f.card_id}`" class="link" @click.stop>
-                      {{ f.owner_name || f.mgmt_no }}
-                    </router-link>
-                    <router-link v-else-if="f.device_id" :to="`/devices/${f.device_id}`" class="link" @click.stop>
-                      {{ f.owner_name || f.mgmt_no }}
-                    </router-link>
-                    <span v-else>{{ f.note || t('funds.cat.other') }}</span>
-                    <el-tag v-if="f.owner_kind" size="small" effect="plain"
-                      :type="f.owner_kind === 'device' ? 'warning' : 'primary'" class="owner-tag">
-                      {{ t('inv.' + f.owner_kind) }}
-                    </el-tag>
-                    <span class="pcr-dim">{{ t('funds.cat.' + f.category) }}</span>
-                    <span class="pcr-mono">{{ jpy(f.contrib_amount) }}</span>
-                    <span class="pcr-dim">→</span>
-                    <span class="pcr-mono">{{ cny(f.contrib_cny) }}</span>
-                  </div>
-                </template>
+                <el-table v-if="(contributorFlows[row.name || ''] || []).length"
+                  :data="contributorFlows[row.name || '']"
+                  class="pcr-table inner-table" size="small" empty-text=" " :show-header="true">
+                  <el-table-column :label="t('funds.drawDate')" width="104">
+                    <template #default="{ row: f }">
+                      <span class="pcr-mono pcr-dim">{{ f.draw_date }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.purpose')" min-width="160">
+                    <template #default="{ row: f }">
+                      <router-link v-if="f.card_id" :to="`/cards/${f.card_id}`" class="link" @click.stop>
+                        {{ f.owner_name || f.mgmt_no }}
+                      </router-link>
+                      <router-link v-else-if="f.device_id" :to="`/devices/${f.device_id}`" class="link" @click.stop>
+                        {{ f.owner_name || f.mgmt_no }}
+                      </router-link>
+                      <span v-else>{{ f.note || t('funds.cat.other') }}</span>
+                      <div class="pcr-dim sub">
+                        <el-tag v-if="f.owner_kind" size="small" effect="plain"
+                          :type="f.owner_kind === 'device' ? 'warning' : 'primary'" class="owner-tag">
+                          {{ t('inv.' + f.owner_kind) }}
+                        </el-tag>
+                        {{ t('funds.cat.' + f.category) }}
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.consumed')" align="right" min-width="110">
+                    <template #default="{ row: f }">
+                      <span class="pcr-mono">{{ jpy(f.contrib_amount) }}</span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column :label="t('funds.cnyCost')" align="right" min-width="110">
+                    <template #default="{ row: f }">
+                      <span class="pcr-mono">{{ cny(f.contrib_cny) }}</span>
+                    </template>
+                  </el-table-column>
+                </el-table>
                 <div v-else class="pcr-dim flow-empty">{{ t('funds.noDraws') }}</div>
               </div>
             </div>
@@ -189,7 +226,7 @@
           <template #header>
             <div class="card-head">
               <span>{{ t('funds.draws') }}</span>
-              <span class="pcr-dim count">{{ t('funds.drawsHint') }}</span>
+              <span class="pcr-dim count">{{ t('common.total', { n: draws.length }) }}</span>
             </div>
           </template>
           <el-table :data="draws" class="pcr-table" size="small" row-key="id" empty-text=" ">
@@ -315,7 +352,6 @@
 
     <!-- 手工支出弹窗 -->
     <el-dialog v-model="drawVisible" :title="drawForm.id ? t('funds.editDraw') : t('funds.addDraw')" width="440px">
-      <el-alert type="info" :closable="false" :title="t('funds.drawDialogHint')" class="mb" />
       <el-form :model="drawForm" label-position="top">
         <el-form-item :label="t('funds.drawDate')">
           <el-date-picker v-model="drawForm.draw_date" type="date" value-format="YYYY-MM-DD" class="full" />
@@ -612,7 +648,6 @@ onMounted(reload)
 .head-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .stats-card { margin-bottom: 16px; }
 .stats-card :deep(.el-col) { margin-bottom: 12px; }
-.pool-note { font-size: 12px; line-height: 1.7; margin: 4px 0 0; }
 .mt { margin-top: 10px; }
 .mb { margin-bottom: 12px; }
 .table-card { margin-bottom: 16px; }
@@ -638,11 +673,15 @@ onMounted(reload)
 .contrib-table :deep(.el-table__row.row-active) { background: rgba(91, 140, 255, 0.14); }
 /* 出资人展开区 */
 .contrib-detail { padding: 8px 12px 12px 46px; }
-.detail-section { margin-bottom: 10px; }
+.detail-section { margin-bottom: 12px; }
 .detail-section:last-child { margin-bottom: 0; }
-.detail-title { font-size: 12px; font-weight: 600; color: #8fb8ff; margin-bottom: 4px; }
-.flow-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; flex-wrap: wrap; }
+.detail-title { font-size: 12px; font-weight: 600; color: #8fb8ff; margin-bottom: 6px; }
 .flow-empty { font-size: 12px; padding: 2px 0; }
+/* 展开区内嵌表格：去掉外边框，背景半透明，与外层表区分 */
+.inner-table { --el-table-bg-color: transparent; --el-table-tr-bg-color: transparent; }
+.inner-table :deep(.el-table__inner-wrapper::before) { display: none; }
+.inner-table :deep(th.el-table__cell) { background: rgba(91, 140, 255, 0.06) !important; font-size: 12px; }
+.inner-table :deep(td.el-table__cell) { font-size: 12px; }
 .alloc { padding: 4px 12px 8px 46px; }
 .alloc-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; }
 .alloc-line.short { color: #e6a23c; }
@@ -661,6 +700,5 @@ onMounted(reload)
   .alloc { padding: 4px 6px 8px 12px; }
   .alloc-line { flex-wrap: wrap; gap: 4px 8px; }
   .contrib-detail { padding: 8px 6px 12px 12px; }
-  .flow-line { gap: 4px 8px; }
 }
 </style>

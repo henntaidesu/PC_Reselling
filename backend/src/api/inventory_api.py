@@ -23,7 +23,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from src import cards, db, devices
+from src import cards, db, devices, funds
 from src.auth import require_auth
 from src.schema import CARD_STATUSES
 
@@ -46,7 +46,8 @@ _SORT_KEYS = {
 
 # ── 规范化：两种货 → 同一种行 ───────────────────────────────────────────── #
 
-def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
+               contributors: List[Optional[str]]) -> Dict[str, Any]:
     data = cards.serialize(row, media)
     money = data["money"]
     return {
@@ -86,6 +87,8 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         # 选了池子但还没点确认的行，fund_source 是 pool 而 from_pool 是 false，列表里
         # 不该给它贴任何一个标（成本这会儿还是按购入日牌价折的）。
         "fund_source": row.get("fund_source") or "own",
+        # 扣款实际吃到了谁的钱（见 funds.load_draw_contributors），列表在金额后面标名字
+        "pool_contributors": contributors if money["from_pool"] else [],
         "media": data["media"],
     }
 
@@ -131,12 +134,13 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "from_pool": False,
         # 部件不单独出钱：整机是一口价买的，资金来源在整机那一行上
         "fund_source": None,
+        "pool_contributors": [],
         "media": [],
     }
 
 
 def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
-                 media: List[Dict[str, Any]]) -> Dict[str, Any]:
+                 media: List[Dict[str, Any]], contributors: List[Optional[str]]) -> Dict[str, Any]:
     data = devices.serialize(row, parts)
     money = data["money"]
     # 整机没有单一的「出售日期」——部件是分批卖的，这里取最后成交的那天。
@@ -172,6 +176,7 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
         "fund_source": row.get("fund_source") or "own",
+        "pool_contributors": contributors if money["from_pool"] else [],
         # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
         "media": media,
     }
@@ -224,8 +229,10 @@ def _fetch_cards(
         params.append(purchase_to)
 
     rows = db.query("SELECT * FROM cards WHERE " + " AND ".join(where), params)
-    media_map = cards.load_media([r["id"] for r in rows])
-    return [_card_item(r, media_map.get(r["id"], [])) for r in rows]
+    ids = [r["id"] for r in rows]
+    media_map = cards.load_media(ids)
+    contrib_map = funds.load_draw_contributors("card", ids)
+    return [_card_item(r, media_map.get(r["id"], []), contrib_map.get(r["id"], [])) for r in rows]
 
 
 def _fetch_devices(
@@ -272,7 +279,9 @@ def _fetch_devices(
     ids = [r["id"] for r in rows]
     parts_map = devices.load_parts(ids)
     media_map = devices.load_media(ids)
-    return [_device_item(r, parts_map.get(r["id"], []), media_map.get(r["id"], [])) for r in rows]
+    contrib_map = funds.load_draw_contributors("device", ids)
+    return [_device_item(r, parts_map.get(r["id"], []), media_map.get(r["id"], []),
+                         contrib_map.get(r["id"], [])) for r in rows]
 
 
 def _collect(

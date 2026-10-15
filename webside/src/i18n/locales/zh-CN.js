@@ -289,10 +289,8 @@ export default {
   },
   funds: {
     title: '资金池',
-    explainer: '先换汇进池、再用池里的钱买卡：每张卡的人民币成本按 FIFO 吃掉的注资批次各自的汇率分段折算，跨多笔注资时分别计算后相加。',
     injections: '注资批次',
     draws: '使用明细',
-    drawsHint: '点开每行可看分段折算',
     addInjection: '注资',
     editInjection: '编辑注资',
     addDraw: '记一笔支出',
@@ -323,10 +321,11 @@ export default {
     incompleteWarn: '有注资批次缺少汇率，相关卡片的成本暂时算不出来。请在注资上补填汇率。',
     contributor: '出资人',
     contributors: '按出资人',
-    contributorHint: '点一行展开资金走向',
+
     contributorPlaceholder: '这笔钱是谁出的（可直接输入新名字）',
     drawContribPlaceholder: '从谁的资金中扣除（留空则全池 FIFO）',
     flowDirection: '资金去向',
+    consumed: '消耗金额',
     noContributor: '未指定',
     injected: '投入',
     dividend: '分红',
@@ -338,7 +337,7 @@ export default {
     rebuild: '重算分摊',
     rebuilt: '已重算',
     ownerDrawLocked: '这笔扣款跟着显卡 / 整机走，请到对应的那条记录上修改',
-    drawDialogHint: '这里只记与显卡、整机无关的池内支出（手续费、代购费等）。显卡与整机的购入价、国际运费请在各自的表单上打开「从资金池扣除」。',
+
     requireDateAmount: '请填写日期和金额',
     noInjections: '还没有注资记录',
     noDraws: '还没有支出记录',
