@@ -431,15 +431,6 @@
                 </template>
                 <span class="pcr-mono cost-value">{{ money(row.cost_total_cny) }}</span>
               </el-tooltip>
-              <!-- 这笔成本的钱从哪儿出的，用一个字标在金额后面：
-                   「池」= 按资金池的注资汇率折的，不是买入当天的牌价（不标出来对不上账）；
-                   「自」= 自有资金，按购入日牌价折。两者都标才有意义——只标「池」的话，
-                   没有标记的行到底是自有资金，还是选了池子但还没点「确认扣除」，看不出来。
-                   后一种两个标都不给，它的成本此刻仍按牌价算。
-                   走池子的标的是**实际被扣了钱的出资人**名字；批次没登记出资人的退回「池」。 -->
-              <el-tooltip v-if="row.from_pool" :content="t('card.poolDrawn')">
-                <el-tag size="small" type="primary" effect="plain" class="pool-tag">{{ poolHolders(row) }}</el-tag>
-              </el-tooltip>
             </template>
           </template>
         </el-table-column>
@@ -787,11 +778,6 @@ function money(value, fmt = cny) {
   return value === null || value === undefined ? '' : fmt(value)
 }
 
-// 资金池那个标上写谁的钱：后端给的是实际分摊到的出资人，null 是没登记出资人的批次
-function poolHolders(row) {
-  const names = (row.pool_contributors || []).map((n) => n || t('card.poolTag'))
-  return names.length ? [...new Set(names)].join('、') : t('card.poolTag')
-}
 
 
 // 二级行（部件）整行淡一档，一眼能看出层级
@@ -1059,7 +1045,6 @@ onActivated(() => {
 </script>
 
 <style scoped>
-.pool-tag { margin-left: 5px; transform: scale(0.85); }
 /* 成本上有明细可看：加条虚下划线提示可以悬浮，否则没人会想到把鼠标停上去 */
 .cost-value { border-bottom: 1px dotted #5a6478; cursor: help; }
 .net-profit-head { border-bottom: 1px dotted #5a6478; cursor: help; }

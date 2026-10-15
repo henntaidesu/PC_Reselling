@@ -4,8 +4,6 @@
        序列号 / 图片），两边的价格、资金、归属人、状态都不动（规则见后端 src/swaps.py）。 -->
   <el-dialog :model-value="modelValue" :title="t('swap.title')" width="min(680px, 94vw)" align-center
     append-to-body @update:model-value="(v) => emit('update:modelValue', v)" @open="onOpen">
-    <p class="pd-note sw-hint">{{ t('swap.hint') }}</p>
-
     <div class="sw-self">
       <span class="sw-k">{{ t('swap.self') }}</span>
       <span class="sw-v">{{ describe(source) }}</span>
@@ -15,19 +13,25 @@
     <div v-loading="loading" class="sw-list">
       <button v-for="c in candidates" :key="keyOf(c)" type="button" class="sw-row"
         :class="{ 'is-active': keyOf(c) === picked }" @click="picked = keyOf(c)">
+        <!-- 固定两行 + 右侧标签列：整机标题动辄几十个字，放开折行的话每行高矮不一、标签东一个西一个 -->
         <span class="sw-main">
-          <b>{{ [c.brand, c.model].filter(Boolean).join(' ') || '—' }}</b>
-          <span class="pcr-dim pcr-mono sw-ids">
-            <template v-if="c.core_no">{{ t('card.coreNo') }} {{ c.core_no }}</template>
-            <template v-if="c.serial_no"> · SN {{ c.serial_no }}</template>
+          <span class="sw-line">
+            <b>{{ [c.brand, c.model].filter(Boolean).join(' ') || '—' }}</b>
+            <span v-if="c.core_no || c.serial_no" class="pcr-dim pcr-mono sw-ids">
+              <template v-if="c.core_no">{{ t('card.coreNo') }} {{ c.core_no }}</template>
+              <template v-if="c.core_no && c.serial_no"> · </template>
+              <template v-if="c.serial_no">SN {{ c.serial_no }}</template>
+            </span>
+          </span>
+          <span class="sw-where pcr-dim" :title="mode === 'card' ? c.device_title : ''">
+            <span class="pcr-mono">{{ mode === 'card' ? c.device_mgmt_no : c.mgmt_no }}</span>
+            <template v-if="mode === 'card' && c.device_title"> · {{ c.device_title }}</template>
           </span>
         </span>
-        <span class="sw-where pcr-dim">
-          <span class="pcr-mono">{{ mode === 'card' ? c.device_mgmt_no : c.mgmt_no }}</span>
-          <template v-if="mode === 'card' && c.device_title"> · {{ c.device_title }}</template>
+        <span class="sw-tags">
+          <el-tag v-if="c.owner" size="small" effect="dark" type="info">{{ c.owner }}</el-tag>
+          <StatusTag :status="c.status" />
         </span>
-        <el-tag v-if="c.owner" size="small" effect="dark" type="info">{{ c.owner }}</el-tag>
-        <StatusTag :status="c.status" />
       </button>
       <el-empty v-if="!loading && !candidates.length" :description="t('swap.noCandidates')" :image-size="50" />
     </div>
@@ -136,23 +140,23 @@ async function submit() {
 </script>
 
 <style scoped>
-.sw-hint { margin: 0 0 10px; }
 .sw-self { display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; border-radius: 7px; background: rgba(91, 140, 255, 0.08); }
 .sw-k { color: #8a94a6; font-size: 12px; flex: none; }
 .sw-v { color: #e6edf7; font-size: 13px; }
 .sw-pick-label { margin: 12px 0 6px; }
 .sw-list { display: flex; flex-direction: column; gap: 4px; max-height: 42vh; overflow-y: auto; min-height: 60px; }
 .sw-row {
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  width: 100%; padding: 7px 10px; border: 1px solid transparent; border-radius: 7px;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px;
+  flex: none; width: 100%; padding: 8px 12px; border: 1px solid transparent; border-radius: 7px;
   background: rgba(255, 255, 255, 0.02); color: inherit; font-size: 13px; text-align: left; cursor: pointer;
 }
 .sw-row:hover { background: rgba(91, 140, 255, 0.06); }
 .sw-row.is-active { border-color: rgba(91, 140, 255, 0.6); background: rgba(91, 140, 255, 0.12); }
-.sw-main { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.sw-main b { color: #e6edf7; font-weight: 500; }
-.sw-ids { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sw-where { font-size: 12px; }
+.sw-main { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sw-line { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.sw-main b { flex: none; color: #e6edf7; font-weight: 500; }
+.sw-ids, .sw-where { min-width: 0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sw-tags { display: flex; gap: 6px; align-items: center; justify-content: flex-end; }
 .sw-form { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .sw-note { flex: 1 1 220px; }
 @media (hover: none) {

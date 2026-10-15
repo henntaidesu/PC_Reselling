@@ -107,8 +107,6 @@ export default {
     status: '状态',
     note: '备注',
     poolDraw: '池内扣除',
-    poolDrawn: '已从资金池扣除',
-    poolTag: '池',
     poolCurrencyWarn: '资金池里是日元，购入价选了人民币时不会从池中扣除。',
     media: '图片/视频',
     cover: '封面',
@@ -324,7 +322,6 @@ export default {
   swap: {
     action: '置换',
     title: '实物置换',
-    hint: '单卡与整机里的显卡部件互换实物：品牌、型号、核心编号、序列号和图片对调；两边的价格、资金、归属人和状态都不变。',
     self: '当前',
     pickPart: '选择要换的整机显卡部件（未出售）',
     pickCard: '选择要换的单卡（未出售）',

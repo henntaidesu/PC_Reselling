@@ -316,34 +316,6 @@ def ensure_contributor(name: Optional[str]) -> Optional[str]:
     return name
 
 
-# ── 扣款实际吃到了谁的钱 ────────────────────────────────────────────────── #
-
-def load_draw_contributors(kind: str, owner_ids: List[int]) -> Dict[int, List[Optional[str]]]:
-    """多件货的扣款**实际吃到了谁的钱**，按归属 id 分组，名字去重、按分摊顺序排。
-
-    取的是分摊结果（注资批次上的出资人）。货的扣款只在归属人名下扣，所以这里通常就是
-    归属人本人；欠着还没补上的那部分没有批次，自然不在里面。
-    """
-    if not owner_ids:
-        return {}
-    col, _table = _OWNERS[kind]
-    placeholders = ", ".join(["%s"] * len(owner_ids))
-    rows = db.query(
-        f"SELECT d.{col} AS owner_id, i.contributor FROM fund_draws d "
-        f"JOIN fund_allocations a ON a.draw_id = d.id "
-        f"JOIN fund_injections i ON i.id = a.injection_id "
-        f"WHERE d.{col} IN ({placeholders}) ORDER BY d.draw_date, d.id, a.seq",
-        list(owner_ids),
-    )
-    grouped: Dict[int, List[Optional[str]]] = {}
-    for row in rows:
-        names = grouped.setdefault(int(row["owner_id"]), [])
-        name = row.get("contributor") or None
-        if name not in names:
-            names.append(name)
-    return grouped
-
-
 # ── 重算 ────────────────────────────────────────────────────────────────── #
 
 def _market_rate_lookup():

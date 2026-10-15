@@ -107,8 +107,6 @@ export default {
     status: 'Status',
     note: 'Note',
     poolDraw: 'Pool draw',
-    poolDrawn: 'Drawn from pool',
-    poolTag: 'Pool',
     poolCurrencyWarn: 'The pool holds JPY; a CNY purchase price is not drawn from it.',
     media: 'Images/Videos',
     cover: 'Cover',
@@ -324,7 +322,6 @@ export default {
   swap: {
     action: 'Swap',
     title: 'Physical swap',
-    hint: 'Swap a standalone card with a GPU inside a device: brand, model, core no., serial and photos are exchanged; prices, funds, owners and statuses stay as they are.',
     self: 'This one',
     pickPart: 'Pick a device GPU to swap with (unsold)',
     pickCard: 'Pick a card to swap with (unsold)',

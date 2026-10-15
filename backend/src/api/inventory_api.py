@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from src import cards, db, devices, funds
+from src import cards, db, devices
 from src.auth import require_auth
 from src.schema import CARD_STATUSES, DEVICE_PART_TYPES
 
@@ -47,8 +47,7 @@ _SORT_KEYS = {
 
 # ── 规范化：两种货 → 同一种行 ───────────────────────────────────────────── #
 
-def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
-               contributors: List[Optional[str]]) -> Dict[str, Any]:
+def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, Any]:
     data = cards.serialize(row, media)
     money = data["money"]
     return {
@@ -83,10 +82,8 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
         "sale_cny": money["sale_cny"],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
-        # 成本按资金池算的（有归属人）。列表在金额后面标「扣款实际吃到了谁的钱」
-        # （见 funds.load_draw_contributors），欠着还没补上的那部分不在其中
+        # 成本按资金池算的（有归属人），「池内扣除」筛选用它
         "from_pool": money["from_pool"],
-        "pool_contributors": contributors if money["from_pool"] else [],
         "owner": row.get("owner"),
         # 按归属人筛选看的是这一份（整机要把部件的也算上，见 _device_item）
         "owners": [row["owner"]] if row.get("owner") else [],
@@ -136,7 +133,6 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str])
         "incomplete": money["incomplete"],
         # 部件不单独出钱：整机是一口价买的，资金来源在整机那一行上
         "from_pool": False,
-        "pool_contributors": [],
         "owner": owner,
         # 归属人是部件自己填的，而不是跟随整机——列表上据此区分显示
         "owner_own": bool(part.get("owner")),
@@ -146,7 +142,7 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str])
 
 
 def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
-                 media: List[Dict[str, Any]], contributors: List[Optional[str]]) -> Dict[str, Any]:
+                 media: List[Dict[str, Any]]) -> Dict[str, Any]:
     data = devices.serialize(row, parts)
     money = data["money"]
     # 整机没有单一的「出售日期」——部件是分批卖的，这里取最后成交的那天。
@@ -188,7 +184,6 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
-        "pool_contributors": contributors if money["from_pool"] else [],
         "owner": row.get("owner"),
         "owners": owners,
         # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
@@ -251,9 +246,8 @@ def _load_universe() -> Dict[str, List[tuple]]:
     card_rows = db.query("SELECT * FROM cards WHERE is_draft = 0")
     cids = [r["id"] for r in card_rows]
     media_map = cards.load_media(cids)
-    contrib_map = funds.load_draw_contributors("card", cids)
     card_list = [
-        (_card_item(r, media_map.get(r["id"], []), contrib_map.get(r["id"], [])), r)
+        (_card_item(r, media_map.get(r["id"], [])), r)
         for r in card_rows
     ]
 
@@ -261,11 +255,10 @@ def _load_universe() -> Dict[str, List[tuple]]:
     dids = [r["id"] for r in dev_rows]
     parts_map = devices.load_parts(dids)
     dmedia_map = devices.load_media(dids)
-    dcontrib_map = funds.load_draw_contributors("device", dids)
     device_list = []
     for r in dev_rows:
         parts = parts_map.get(r["id"], [])
-        item = _device_item(r, parts, dmedia_map.get(r["id"], []), dcontrib_map.get(r["id"], []))
+        item = _device_item(r, parts, dmedia_map.get(r["id"], []))
         device_list.append((item, r, {p["id"]: p for p in parts}))
     return {"cards": card_list, "devices": device_list}
 
