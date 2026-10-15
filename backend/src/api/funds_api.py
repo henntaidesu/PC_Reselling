@@ -66,10 +66,14 @@ class DrawPayload(BaseModel):
 
     卡片与整机的购入价、国际运费**不走这里**——那两类由各自表单上的「从资金池扣除」
     开关自动同步，手工再记一笔就会重复扣钱。
+
+    ``contributor`` 指定这笔支出从谁的钱里扣：FIFO 只在那个人的注资批次里跑，
+    不影响别人的余额。留空则按全池 FIFO（老行为）。
     """
 
     draw_date: dt.date
     amount: float = Field(gt=0)
+    contributor: Optional[str] = Field(default=None, max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
 
 
@@ -226,10 +230,11 @@ def list_draws(
 
 @router.post("/draws")
 def create_draw(payload: DrawPayload):
+    contributor = funds.ensure_contributor(payload.contributor) if payload.contributor else None
     db.insert(
-        "INSERT INTO fund_draws (card_id, device_id, category, draw_date, amount, currency, note) "
-        "VALUES (NULL, NULL, 'other', %s, %s, %s, %s)",
-        (payload.draw_date, payload.amount, POOL_CURRENCY, _clean(payload.note)),
+        "INSERT INTO fund_draws (card_id, device_id, category, draw_date, amount, currency, "
+        "contributor, note) VALUES (NULL, NULL, 'other', %s, %s, %s, %s, %s)",
+        (payload.draw_date, payload.amount, POOL_CURRENCY, contributor, _clean(payload.note)),
     )
     return _state()
 
@@ -245,9 +250,11 @@ def update_draw(draw_id: int, payload: DrawPayload):
             status_code=400,
             detail="这笔扣款跟着显卡 / 整机走，请到对应的那条记录上修改金额或关闭「从资金池扣除」。",
         )
+    contributor = funds.ensure_contributor(payload.contributor) if payload.contributor else None
     db.execute(
-        "UPDATE fund_draws SET draw_date = %s, amount = %s, note = %s WHERE id = %s",
-        (payload.draw_date, payload.amount, _clean(payload.note), draw_id),
+        "UPDATE fund_draws SET draw_date = %s, amount = %s, contributor = %s, note = %s "
+        "WHERE id = %s",
+        (payload.draw_date, payload.amount, contributor, _clean(payload.note), draw_id),
     )
     return _state()
 

@@ -613,6 +613,8 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("devices", "pool_confirmed_at", "pool_confirmed_at DATETIME NULL"),
     ("fund_draws", "device_id", "device_id INT UNSIGNED NULL"),
     ("fund_injections", "contributor", "contributor VARCHAR(64) NULL"),
+    # 手工支出可指定出资人，从该出资人的注资批次中扣除（FIFO 只在那个人名下跑）
+    ("fund_draws", "contributor", "contributor VARCHAR(64) NULL"),
 ]
 
 

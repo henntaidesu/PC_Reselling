@@ -394,8 +394,8 @@ def _draw_share_lookup(draws: List[Dict[str, Any]]) -> None:
     """给每笔扣款挂上它那件货的出资比例（原地改 ``draw["shares"]``）。
 
     比例存在货上而不是扣款上，所以这里要绕一道：购入价和国际运费是同一件货的两笔扣款，
-    自然共用同一个比例。手工记的池内支出两列都为空，永远没有 shares——它不属于任何
-    一件货，也就谈不上由谁出。
+    自然共用同一个比例。手工记的池内支出若指定了出资人（``fund_draws.contributor``），
+    等价于 100% 比例挂在那个人名下——FIFO 只在那个人的批次里跑。
     """
     for kind, (col, _table) in _OWNERS.items():
         ids = sorted({int(d[col]) for d in draws if d.get(col)})
@@ -403,6 +403,10 @@ def _draw_share_lookup(draws: List[Dict[str, Any]]) -> None:
         for draw in draws:
             if draw.get(col):
                 draw["shares"] = shares.get(int(draw[col]), [])
+    # 手工支出指定了出资人：等价于该人占 100%，FIFO 只在他的批次里扣
+    for draw in draws:
+        if not draw.get("card_id") and not draw.get("device_id") and draw.get("contributor"):
+            draw["shares"] = [{"contributor": draw["contributor"], "share_pct": 100}]
 
 
 # ── 重算 ────────────────────────────────────────────────────────────────── #
@@ -435,8 +439,8 @@ def rebuild() -> Dict[str, Any]:
         "ORDER BY inject_date, id"
     )
     draws = db.query(
-        "SELECT id, card_id, device_id, category, draw_date, amount FROM fund_draws "
-        "ORDER BY draw_date, id"
+        "SELECT id, card_id, device_id, category, draw_date, amount, contributor "
+        "FROM fund_draws ORDER BY draw_date, id"
     )
     # 扣款要在谁的钱里扣，取决于它那件货上的出资比例
     _draw_share_lookup(draws)
@@ -944,6 +948,7 @@ def list_draws(
             "draw_date": _iso(row["draw_date"]),
             "amount": _float(amount),
             "currency": row["currency"],
+            "contributor": row.get("contributor") or None,
             "note": row["note"],
             "cny_amount": _float(cny),
             "shortfall": _float(row["shortfall"]),

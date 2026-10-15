@@ -24,21 +24,73 @@
     </el-card>
 
     <!-- 按出资人：池子里的钱是谁出的、被花掉多少、还剩多少。
-         全部由注资与分摊反算，没有单独的「账户」——余额有第二个地方存着就一定会对不上。 -->
+         全部由注资与分摊反算，没有单独的「账户」——余额有第二个地方存着就一定会对不上。
+         点击展开看该出资人的注资批次与资金去向。 -->
     <el-card v-if="contributors.length" class="table-card" shadow="never">
       <template #header>
         <div class="card-head">
           <span>{{ t('funds.contributors') }}</span>
           <span class="pcr-dim count">
             {{ t('funds.contributorHint') }}
-            <el-button v-if="contributorFilter !== null" link type="primary" @click="contributorFilter = null">
+            <el-button v-if="contributorFilter !== null" link type="primary"
+              @click="clearContributorExpand">
               {{ t('funds.clearFilter') }}
             </el-button>
           </span>
         </div>
       </template>
-      <el-table :data="contributors" class="pcr-table contrib-table" size="small" empty-text=" "
-        :row-class-name="contributorRowClass" @row-click="toggleContributorFilter">
+      <el-table ref="contribTableRef" :data="contributors" class="pcr-table contrib-table" size="small"
+        empty-text=" " :row-key="r => r.name ?? '__none__'" :row-class-name="contributorRowClass"
+        @row-click="toggleContributorExpand" @expand-change="onContribExpandChange">
+        <!-- 展开行：该出资人的注资批次 + 资金去向 -->
+        <el-table-column type="expand">
+          <template #default="{ row }">
+            <div class="contrib-detail">
+              <!-- 注资批次 -->
+              <div class="detail-section">
+                <div class="detail-title">{{ t('funds.injections') }}</div>
+                <template v-if="contribInjections(row).length">
+                  <div v-for="inj in contribInjections(row)" :key="inj.id" class="flow-line">
+                    <span class="pcr-mono pcr-dim">{{ inj.inject_date }}</span>
+                    <span class="pcr-mono">{{ jpy(inj.amount) }}</span>
+                    <template v-if="inj.fx_rate">
+                      <span class="pcr-dim">@{{ formatRate(inj.fx_rate) }}</span>
+                      <span class="pcr-dim">=</span>
+                      <span class="pcr-mono">{{ cny(inj.cny_cost) }}</span>
+                    </template>
+                    <span class="pcr-dim">（{{ t('funds.used') }} {{ jpy(inj.used_amount) }} · {{ t('funds.remaining') }} {{ jpy(inj.remaining_amount) }}）</span>
+                  </div>
+                </template>
+                <div v-else class="pcr-dim flow-empty">{{ t('funds.noInjections') }}</div>
+              </div>
+              <!-- 资金去向 -->
+              <div class="detail-section">
+                <div class="detail-title">{{ t('funds.flowDirection') }}</div>
+                <template v-if="(contributorFlows[row.name || ''] || []).length">
+                  <div v-for="f in contributorFlows[row.name || '']" :key="f.id" class="flow-line">
+                    <span class="pcr-mono pcr-dim">{{ f.draw_date }}</span>
+                    <router-link v-if="f.card_id" :to="`/cards/${f.card_id}`" class="link" @click.stop>
+                      {{ f.owner_name || f.mgmt_no }}
+                    </router-link>
+                    <router-link v-else-if="f.device_id" :to="`/devices/${f.device_id}`" class="link" @click.stop>
+                      {{ f.owner_name || f.mgmt_no }}
+                    </router-link>
+                    <span v-else>{{ f.note || t('funds.cat.other') }}</span>
+                    <el-tag v-if="f.owner_kind" size="small" effect="plain"
+                      :type="f.owner_kind === 'device' ? 'warning' : 'primary'" class="owner-tag">
+                      {{ t('inv.' + f.owner_kind) }}
+                    </el-tag>
+                    <span class="pcr-dim">{{ t('funds.cat.' + f.category) }}</span>
+                    <span class="pcr-mono">{{ jpy(f.contrib_amount) }}</span>
+                    <span class="pcr-dim">→</span>
+                    <span class="pcr-mono">{{ cny(f.contrib_cny) }}</span>
+                  </div>
+                </template>
+                <div v-else class="pcr-dim flow-empty">{{ t('funds.noDraws') }}</div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('funds.contributor')" min-width="120">
           <template #default="{ row }">
             <el-tag size="small" :type="row.name ? 'primary' : 'info'" effect="plain">
@@ -181,6 +233,8 @@
                     {{ t('inv.' + row.owner_kind) }}
                   </el-tag>
                   {{ t('funds.cat.' + row.category) }}
+                  <el-tag v-if="row.contributor && !row.owner_kind" size="small" type="primary"
+                    effect="plain" class="tag">{{ row.contributor }}</el-tag>
                 </div>
               </template>
             </el-table-column>
@@ -269,6 +323,12 @@
         <el-form-item :label="t('funds.amount') + '（' + t('currency.JPY_short') + '）'">
           <el-input-number v-model="drawForm.amount" :min="1" :step="1000" :precision="0" :controls="false" class="full" />
         </el-form-item>
+        <el-form-item :label="t('funds.contributor')">
+          <el-select v-model="drawForm.contributor" filterable allow-create default-first-option
+            clearable class="full" :placeholder="t('funds.drawContribPlaceholder')">
+            <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
+          </el-select>
+        </el-form-item>
         <el-form-item :label="t('card.note')">
           <el-input v-model="drawForm.note" type="textarea" :rows="2" />
         </el-form-item>
@@ -314,15 +374,80 @@ const shownInjections = computed(() => {
   return injections.value.filter((r) => (r.contributor || '') === contributorFilter.value)
 })
 
-// 再点一次同一行就取消筛选——这一列没有别的点击含义，不给一个「取消」的出口
-// 就只能去找表头那个链接
-function toggleContributorFilter(row) {
+// 点击出资人行：展开 / 折叠资金走向明细，同时筛选注资批次
+const contribTableRef = ref(null)
+function toggleContributorExpand(row) {
   const key = row.name || ''
-  contributorFilter.value = contributorFilter.value === key ? null : key
+  if (contributorFilter.value === key) {
+    contributorFilter.value = null
+  } else {
+    contributorFilter.value = key
+  }
+  contribTableRef.value?.toggleRowExpansion(row)
+}
+// 点展开箭头时同步筛选状态
+function onContribExpandChange(row, expandedRows) {
+  const key = row.name || ''
+  const isExpanded = expandedRows.includes(row)
+  if (isExpanded && contributorFilter.value !== key) {
+    contributorFilter.value = key
+  } else if (!isExpanded && contributorFilter.value === key) {
+    contributorFilter.value = null
+  }
+}
+
+// 「显示全部」按钮：清筛选 + 收起展开的行
+function clearContributorExpand() {
+  if (contributorFilter.value !== null) {
+    const row = contributors.value.find(c => (c.name || '') === contributorFilter.value)
+    if (row) contribTableRef.value?.toggleRowExpansion(row, false)
+  }
+  contributorFilter.value = null
 }
 
 function contributorRowClass({ row }) {
   return contributorFilter.value === (row.name || '') ? 'row-active' : ''
+}
+
+// 出资人的资金去向：从每笔扣款的分摊明细里，按出资人（注资方）分组汇总。
+// 一笔扣款里可能吃了多个出资人的批次，所以要把属于某人的那些段加起来。
+const contributorFlows = computed(() => {
+  const map = {}
+  for (const d of draws.value) {
+    for (const a of (d.allocations || [])) {
+      const name = a.contributor || ''
+      if (!map[name]) map[name] = []
+      let entry = map[name].find(e => e.id === d.id)
+      if (!entry) {
+        entry = {
+          id: d.id, draw_date: d.draw_date,
+          card_id: d.card_id, device_id: d.device_id,
+          owner_kind: d.owner_kind, owner_name: d.owner_name, mgmt_no: d.mgmt_no,
+          category: d.category, note: d.note,
+          contrib_amount: 0, contrib_cny: 0, _broken: false,
+        }
+        map[name].push(entry)
+      }
+      entry.contrib_amount += a.amount || 0
+      if (a.cny_amount == null) entry._broken = true
+      else entry.contrib_cny += a.cny_amount
+    }
+  }
+  for (const flows of Object.values(map)) {
+    for (const e of flows) {
+      if (e._broken) e.contrib_cny = null
+      delete e._broken
+      e.contrib_amount = Math.round(e.contrib_amount * 100) / 100
+      if (e.contrib_cny != null) e.contrib_cny = Math.round(e.contrib_cny * 100) / 100
+    }
+  }
+  return map
+})
+
+// 某个出资人名下的注资批次（从已有的 injections 列表中过滤）
+function contribInjections(row) {
+  const name = row.name || ''
+  return injections.value.filter(r => (r.contributor || '') === name)
 }
 
 const statCards = computed(() => {
@@ -443,13 +568,14 @@ async function saveInjection() {
 
 // ── 手工支出 ────────────────────────────────────────────────────────────
 const drawVisible = ref(false)
-const drawForm = reactive({ id: null, draw_date: null, amount: null, note: null })
+const drawForm = reactive({ id: null, draw_date: null, amount: null, contributor: null, note: null })
 
 function openDraw(row = null) {
   Object.assign(drawForm, {
     id: row?.id ?? null,
     draw_date: row?.draw_date ?? new Date().toISOString().slice(0, 10),
     amount: row?.amount ?? null,
+    contributor: row?.contributor ?? null,
     note: row?.note ?? null
   })
   drawVisible.value = true
@@ -460,7 +586,10 @@ async function saveDraw() {
     ElMessage.warning(t('funds.requireDateAmount'))
     return
   }
-  const payload = { draw_date: drawForm.draw_date, amount: drawForm.amount, note: drawForm.note }
+  const payload = {
+    draw_date: drawForm.draw_date, amount: drawForm.amount,
+    contributor: drawForm.contributor || null, note: drawForm.note,
+  }
   saving.value = true
   try {
     const res = drawForm.id
@@ -504,10 +633,16 @@ onMounted(reload)
   background: rgba(91, 140, 255, 0.08);
   border-radius: 6px;
 }
-/* 「按出资人」整行可点（点了筛注资），所以要有手型和选中态——否则那张表看着只是个
-   报表，没人会去点它 */
+/* 「按出资人」整行可点（点了展开资金走向 + 筛注资），手型和选中态必须有 */
 .contrib-table :deep(.el-table__row) { cursor: pointer; }
 .contrib-table :deep(.el-table__row.row-active) { background: rgba(91, 140, 255, 0.14); }
+/* 出资人展开区 */
+.contrib-detail { padding: 8px 12px 12px 46px; }
+.detail-section { margin-bottom: 10px; }
+.detail-section:last-child { margin-bottom: 0; }
+.detail-title { font-size: 12px; font-weight: 600; color: #8fb8ff; margin-bottom: 4px; }
+.flow-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; flex-wrap: wrap; }
+.flow-empty { font-size: 12px; padding: 2px 0; }
 .alloc { padding: 4px 12px 8px 46px; }
 .alloc-line { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; color: #c7d0de; }
 .alloc-line.short { color: #e6a23c; }
@@ -525,5 +660,7 @@ onMounted(reload)
      而里面恰恰是「哪批注资 × 什么汇率 = 多少人民币」这条最长的算式 */
   .alloc { padding: 4px 6px 8px 12px; }
   .alloc-line { flex-wrap: wrap; gap: 4px 8px; }
+  .contrib-detail { padding: 8px 6px 12px 12px; }
+  .flow-line { gap: 4px 8px; }
 }
 </style>

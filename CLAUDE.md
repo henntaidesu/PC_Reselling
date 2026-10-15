@@ -27,14 +27,15 @@ $env:PC_RESELLING_ENABLE_DOCS = "1" # 打开 /docs，默认关闭（局域网里
 # 单独起前端（监听 9911，/api 代理到 127.0.0.1:9910）
 cd webside; npm install; npm run dev
 
-pyinstaller.bat           # 打包成单 exe，产物在 Releases\v1.0.0\
+# 打包成单 exe
+conda activate PC_Reselling
+python -m PyInstaller pc_reselling.spec
 ```
 
-- Python 在 conda 环境 `PC_Reselling`（3.12）里。`start.bat` / `pyinstaller.bat` 都先调
-  `ensure_env.bat`：按全路径找环境的 `python.exe`（不依赖 `conda activate`——它需要 `conda init`
-  做过 shell 集成，双击打开的终端里用不了），找不到就 `conda create` 建一个，依赖缺失就补装
-  `requirements.txt`。环境名、Python 版本、依赖路径只写在 `ensure_env.bat` 一处，改这些改那里。
-- 在 `pyinstaller.bat` 所在目录**不能**直接敲 `pyinstaller`——cmd 会解析到这个 bat 自身，要用 `python -m PyInstaller`。
+- Python 在 conda 环境 `PC_Reselling`（3.12）里。`start.bat` 通过 `conda activate` 激活环境
+  （与 `D:\Project\FreeMarket_Manager` 同一套做法），激活失败时会回退到 `activate.bat` 的全路径。
+  首次使用需先手动建环境：`conda create -y -n PC_Reselling python=3.12`，再
+  `pip install -r requirements.txt`。
 - **项目里没有任何测试、linter 或 formatter 配置**，不要假装有；验证靠起服务点页面。
 - 首次运行需要 `conf.ini`（gitignore，后端会生成一份默认的），建表在启动时自动跑。
 
@@ -105,8 +106,7 @@ DLL 在 conda 里不跟 `python.exe` 放一起，而是单独住在 `<env>\Libra
 DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 
 `pc_reselling.spec` 顶部因此把 `sys.prefix` 下的 `Library\bin` / `DLLs` / 环境根目录顶到 PATH 最前，
-**别删**。放在 spec 而不是 `pyinstaller.bat` 里，是为了手敲 `python -m PyInstaller pc_reselling.spec`
-时同样生效。这不是缺依赖，pip 装不出来，换台机器或装了别的软件就可能捞到另一份。
+**别删**。这不是缺依赖，pip 装不出来，换台机器或装了别的软件就可能捞到另一份。
 
 调试打包后的启动问题时注意：**onefile 的 exe 是父子两个进程**，引导进程只持有
 `PyInstallerOnefileHiddenWindow`，真正跑 Python、持有运行窗口与托盘图标的是它的子进程。
