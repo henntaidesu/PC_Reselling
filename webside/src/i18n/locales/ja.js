@@ -327,8 +327,6 @@ export default {
     consumed: '消費額',
     noContributor: '未設定',
     injected: '入金額',
-    dividend: '配当',
-    stockCost: '在庫の元本',
     share: '構成比',
     rateMissingTag: 'レート未設定の入金あり',
     clearFilter: 'すべて表示',

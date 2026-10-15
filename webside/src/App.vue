@@ -199,7 +199,28 @@ body { -webkit-tap-highlight-color: transparent; }
   .el-table { --el-table-row-hover-bg-color: transparent; }
   /* 表格里的图标按钮（编辑 / 删除）只有图标那么大，手指点不中还容易点到隔壁那个。
      只加内边距不动图标尺寸：热区撑到 30px 见方，行高不变。 */
-  .el-table .el-button.is-link { padding: 7px 5px; }
+  .el-table .el-button.is-link,
+  .el-table .el-button.is-text { padding: 7px 5px; height: auto; }
+
+  /* 当二级菜单用的 el-tabs（整机详情的部件类型、系统配置的五块）：Element 溢出时靠
+     「平移 nav + 两端 20px 的小箭头」翻页，手指划不动、箭头又点不准，手机上等于只看得见
+     前几个标签。挂上 .pcr-touch-tabs 就改成原生横向滚动，箭头藏掉。
+     注意 nav 的 transform 被压掉之后，Element 也不会再替你把选中项挪进可视区——
+     可能从别处直接跳到靠后那个标签的页面，要自己 scrollIntoView（见整机详情页）。 */
+  .pcr-touch-tabs .el-tabs__nav-wrap.is-scrollable { padding: 0; }
+  .pcr-touch-tabs .el-tabs__nav-prev,
+  .pcr-touch-tabs .el-tabs__nav-next { display: none; }
+  .pcr-touch-tabs .el-tabs__nav-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .pcr-touch-tabs .el-tabs__nav-scroll::-webkit-scrollbar { display: none; }
+  .pcr-touch-tabs .el-tabs__nav { transform: none !important; }
+  .pcr-touch-tabs .el-tabs__item { height: 44px; }
+}
+@media (max-width: 768px) {
+  .pcr-touch-tabs .el-tabs__item { padding: 0 12px; }
 }
 
 /* 通用工具类 */

@@ -6,7 +6,7 @@
          挂进 el-tab-pane 的话五块会一次性全挂载，图床配置与数据库状态（含整库表清单）
          每次进页面都要白拉一遍——配 ensureSection 的按需加载，把这两发请求推迟到真点开 -->
     <div class="tabs-row">
-      <el-tabs v-model="activeTab" class="settings-tabs">
+      <el-tabs v-model="activeTab" class="settings-tabs pcr-touch-tabs">
         <el-tab-pane v-for="s in SECTIONS" :key="s.name" :name="s.name">
           <template #label>
             <span class="tab-label">
@@ -23,21 +23,21 @@
         <template #header>{{ t('settings.imageHosting') }}</template>
         <el-form label-width="150px" label-position="left">
           <el-form-item :label="t('settings.baseUrl')">
-            <el-input v-model="hosting.base_url" />
+            <el-input v-model="hosting.base_url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </el-form-item>
           <el-form-item :label="t('settings.publicBase')">
-            <el-input v-model="hosting.public_base" />
+            <el-input v-model="hosting.public_base" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </el-form-item>
           <el-form-item :label="t('settings.project')">
-            <el-input v-model="hosting.project" />
+            <el-input v-model="hosting.project" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </el-form-item>
           <el-form-item :label="t('settings.token')">
-            <el-input v-model="hosting.token" type="password" show-password />
+            <el-input v-model="hosting.token" type="password" show-password autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </el-form-item>
           <el-row :gutter="16">
             <el-col :xs="24" :sm="12">
               <el-form-item :label="t('settings.timeout')">
-                <el-input-number v-model="hosting.timeout" :min="5" :max="600" :controls="false" class="full" />
+                <el-input-number v-model="hosting.timeout" :min="5" :max="600" :controls="false" inputmode="numeric" class="full" />
               </el-form-item>
             </el-col>
             <el-col :xs="24" :sm="12">
@@ -177,10 +177,10 @@
             <template #header>{{ t('settings.changePwd') }}</template>
             <el-form ref="pwdFormRef" :model="pwd" :rules="pwdRules" label-width="130px" label-position="left">
               <el-form-item :label="t('settings.newPwd')" prop="new_password">
-                <el-input v-model="pwd.new_password" type="password" show-password />
+                <el-input v-model="pwd.new_password" type="password" show-password autocomplete="new-password" />
               </el-form-item>
               <el-form-item :label="t('settings.confirmPwd')" prop="confirm">
-                <el-input v-model="pwd.confirm" type="password" show-password @keyup.enter="changePwd" />
+                <el-input v-model="pwd.confirm" type="password" show-password autocomplete="new-password" @keyup.enter="changePwd" />
               </el-form-item>
               <div class="form-actions">
                 <el-button type="primary" :loading="changingPwd" @click="changePwd">{{ t('settings.changePwd') }}</el-button>
@@ -411,6 +411,11 @@ onMounted(async () => {
 .add-row { display: flex; gap: 8px; margin-bottom: 14px; }
 .head-count { font-size: 12px; font-weight: 400; margin-left: 6px; }
 .head-tag { margin-left: 8px; }
+
+@media (hover: none) {
+  /* 「+」按钮与输入框等高，热区就是整个按钮 */
+  .add-row .el-button { min-width: 48px; }
+}
 
 @media (max-width: 768px) {
   /* 「键 —— 值」两边拉开，靠的是值那侧有富余宽度。数据库这几行的值恰恰是最长的那种

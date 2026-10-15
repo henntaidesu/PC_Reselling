@@ -75,7 +75,7 @@
            el-tabs 只当标签条用，内容自己在下面渲染——挂在 tab-pane 里的话所有部件会
            一次性全部挂载，每个都去拉一遍图片 -->
       <div class="tabs-row">
-        <el-tabs ref="tabsRef" v-model="activeTab" class="part-tabs">
+        <el-tabs ref="tabsRef" v-model="activeTab" class="part-tabs pcr-touch-tabs">
           <el-tab-pane name="device">
             <template #label>
               <span class="tab-label">{{ t('device.tabDevice') }}</span>
@@ -120,7 +120,7 @@
                   <el-input v-model="form.order_no" />
                 </InlineField>
                 <InlineField :label="t('card.itemUrl')">
-                  <el-input v-model="form.item_url" />
+                  <el-input v-model="form.item_url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" />
                   <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
                     :title="t('common.detail')">↗</a>
                 </InlineField>
@@ -355,7 +355,7 @@ const { platforms } = usePlatforms()
 const { isCompact } = useIsCompact()
 const { isTouch } = useIsTouch()
 
-// 触屏上标签条改成原生横滑（样式里的 @media (hover: none)），Element 自己那套
+// 触屏上标签条改成原生横滑（App.vue 的 .pcr-touch-tabs），Element 自己那套
 // 「平移 nav + 左右箭头」就不再管滚动了。从部件一览点进某个部件时，被选中的标签
 // 可能在可视区外面——得自己把它滚进来，不然人看不到现在在哪一页。
 const tabsRef = ref(null)
@@ -776,22 +776,8 @@ onMounted(async () => {
    状态标签会各自停在不同的横坐标上，一列扫下来是锯齿状的 */
 .mp-money { flex: 0 0 auto; min-width: 62px; text-align: right; }
 
-/* ── 触屏 ────────────────────────────────────────────────────────────
-   标签条：Element 溢出时靠「平移 nav + 两端 20px 的小箭头」翻页，手指既划不动、
-   箭头又点不准，十个部件类型在手机上等于只能看见前四个。改成原生横向滚动，
-   箭头藏掉。选中标签自动滚进可视区由脚本里那个 watch 负责。 */
+/* 触屏上标签条的原生横滑在 App.vue 的 .pcr-touch-tabs 里 */
 @media (hover: none) {
-  .part-tabs :deep(.el-tabs__nav-wrap.is-scrollable) { padding: 0; }
-  .part-tabs :deep(.el-tabs__nav-prev),
-  .part-tabs :deep(.el-tabs__nav-next) { display: none; }
-  .part-tabs :deep(.el-tabs__nav-scroll) {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .part-tabs :deep(.el-tabs__nav-scroll)::-webkit-scrollbar { display: none; }
-  .part-tabs :deep(.el-tabs__nav) { transform: none !important; }
-  .part-tabs :deep(.el-tabs__item) { height: 44px; }
   /* 改名的铅笔平时是淡的、悬浮才亮——触屏上它就一直淡着，看着像不能点 */
   .title-edit { color: #8fb8ff; padding: 8px; }
   .pool-draw :deep(.el-button) { min-height: 34px; padding: 8px 14px; }
@@ -800,7 +786,6 @@ onMounted(async () => {
 
 @media (max-width: 768px) {
   .tabs-row { flex-direction: column; align-items: stretch; gap: 8px; }
-  .part-tabs :deep(.el-tabs__item) { padding: 0 12px; }
   .model { font-size: 17px; }
   .title-input { max-width: none; flex: 1 1 100%; }
   /* 摘要条排成三列网格：flex 换行时五六个数各按自己的宽度折，每行个数不一，

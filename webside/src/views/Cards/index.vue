@@ -180,7 +180,7 @@
             <div v-for="part in row.children" :key="part.row_key" class="m-part">
               <PartTypeTag :type="part.part_type" />
               <span class="m-part-name">{{ nameOf(part) }}</span>
-              <StatusTag v-if="part.sold" :status="part.status" />
+              <StatusTag v-if="part.status" :status="part.status" />
               <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
               <span class="pcr-mono m-part-money">{{ money(part.sale_cny) }}</span>
             </div>
@@ -234,8 +234,9 @@
         </el-table-column>
         <el-table-column :label="t('card.status')" width="110">
           <template #default="{ row }">
-            <!-- 没卖出去的部件谈不上「已购入 / 已打款」这些流转状态，标成未出售更准 -->
-            <StatusTag v-if="row.kind !== 'part' || row.sold" :status="row.status" />
+            <!-- 部件行也照实显示详情页里选的那个状态，不再按「有没有售价」改写成未出售——
+                 状态是用户手选的，列表擅自换掉它就和详情页对不上了。只有老数据没存状态时才兜底 -->
+            <StatusTag v-if="row.status" :status="row.status" />
             <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
           </template>
         </el-table-column>

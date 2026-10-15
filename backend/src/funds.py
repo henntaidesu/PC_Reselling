@@ -47,7 +47,6 @@ from typing import Any, Dict, List, Optional, Tuple
 from src import db
 # uses_pool 的定义只有 cards.py 那一份（「选了资金池 **且** 已确认扣除」）。
 # 在这里照抄一遍条件的下场是某天只改了其中一处，成本按池子算、扣款却没同步。
-from src.cards import compute_money as cards_compute_money
 from src.cards import uses_pool
 from src.fx import RATE_UNIT, FxError, get_rate
 from src.schema import POOL_CURRENCY
@@ -246,8 +245,9 @@ def allocate(
                     continue
                 take = available if available < need else need
                 rate = _dec(inj.get("fx_rate"))
-                # 现金注资没有人民币成本，CNY 按 0 计而不是当作「缺汇率」
-                cny = _ZERO if inj.get("inject_type") == "cash" else _to_cny(take, rate)
+                # 现金注资也按它自己的汇率（注资日牌价）折算，不当 0：那等于说这笔钱是
+                # 白来的，吃到它的货成本归零、利润凭空多出一整份购入价。
+                cny = _to_cny(take, rate)
                 remaining[int(inj["id"])] = available - take
                 need -= take
                 lines.append({
@@ -703,9 +703,8 @@ def list_injections() -> List[Dict[str, Any]]:
         amount = _dec(row["amount"]) or _ZERO
         used = _dec(row["used_amount"]) or _ZERO
         rate = _dec(row["fx_rate"])
-        is_cash = (row.get("inject_type") or "forex") == "cash"
-        cny_cost = _ZERO if is_cash else _to_cny(amount, rate)
-        remaining_cny = _ZERO if is_cash else _to_cny(amount - used, rate)
+        cny_cost = _to_cny(amount, rate)
+        remaining_cny = _to_cny(amount - used, rate)
         out.append({
             "id": row["id"],
             "inject_date": _iso(row["inject_date"]),
@@ -743,7 +742,7 @@ def split_dividends(
     profit = _dec(money.get("profit_cny"))
     cost = _dec(money.get("cost_total_cny"))
     # 还没有任何收入的货，利润栏是「-成本」或空，那不是亏损而是没卖——分红留空，
-    # 占用的本金另算一档（见 contributor_totals 的 stock_cost_cny）
+    # 占用的本金另记在 cost_cny 上
     has_revenue = money.get("sale_cny") is not None
     total_pct = sum(_dec(sh.get("share_pct")) or _ZERO for sh in shares) or _ZERO
 
@@ -763,73 +762,15 @@ def split_dividends(
     return out
 
 
-def _owner_money() -> List[Tuple[List[Dict[str, Any]], Dict[str, Any]]]:
-    """所有带出资比例的货，连同它各自那份钱的计算结果。
-
-    利润用的就是显卡 / 整机详情页上那个数（``cards.compute_money`` /
-    ``devices.compute_money``），不在这里另算一份——两份口径迟早会分叉，而分红对不上
-    详情页的利润，没人会相信哪一个。
-    """
-    from src import devices  # 局部 import：devices 只在这一处用到，放模块顶端会多一条
-                             # 「funds 依赖 devices」的关系，而它们在别处并不互相依赖
-    out: List[Tuple[List[Dict[str, Any]], Dict[str, Any]]] = []
-
-    card_shares = _all_shares("card")
-    if card_shares:
-        ids = list(card_shares)
-        placeholders = ", ".join(["%s"] * len(ids))
-        for row in db.query(f"SELECT * FROM cards WHERE id IN ({placeholders})", ids):
-            out.append((card_shares[int(row["id"])], cards_compute_money(row)))
-
-    device_shares = _all_shares("device")
-    if device_shares:
-        ids = list(device_shares)
-        placeholders = ", ".join(["%s"] * len(ids))
-        rows = db.query(f"SELECT * FROM devices WHERE id IN ({placeholders})", ids)
-        parts = devices.load_parts(ids)
-        for row in rows:
-            money = devices.compute_money(row, parts.get(int(row["id"]), []))
-            out.append((device_shares[int(row["id"])], money))
-    return out
-
-
-def _all_shares(kind: str) -> Dict[int, List[Dict[str, Any]]]:
-    """某一类归属方上全部的出资比例，按 id 分组。
-
-    只算**当前还走资金池**的那些货。比例行本身不会因为改回「自有资金」就被删掉
-    （改回去再改回来不该丢掉填过的比例），但那时候这件货的钱不是从池里出的，
-    再按比例分红就是凭空给人记一笔——所以在这里把它们滤掉，而不是删数据。
-    """
-    col, table = _OWNERS[kind]
-    rows = db.query(
-        f"SELECT s.{col} AS owner_id, s.contributor, s.share_pct FROM fund_shares s "
-        f"JOIN {table} o ON o.id = s.{col} "
-        f"WHERE s.{col} IS NOT NULL AND o.fund_source = 'pool' ORDER BY s.id"
-    )
-    grouped: Dict[int, List[Dict[str, Any]]] = {}
-    for row in rows:
-        grouped.setdefault(int(row["owner_id"]), []).append({
-            "contributor": row["contributor"],
-            "share_pct": _float(row["share_pct"]),
-        })
-    return grouped
-
-
 def _bucket(buckets: Dict[Any, Dict[str, Any]], name: Optional[str]) -> Dict[str, Any]:
-    """取（或新建）某个出资人的汇总档。
-
-    出资人可能只出现在其中一头：注过资但还没买过货，或者货上写了他、名下却一笔注资
-    都没有（那种情况下他那段扣款会全部记成余额不足）。两头都用这一个入口建档，
-    就不会有人因为「只在另一张表里出现过」而从汇总里消失。
-    """
+    """取（或新建）某个出资人的汇总档。"""
     return buckets.setdefault(name, {
         "name": name,
         "injection_count": 0,
         "injected": 0.0, "injected_cny": 0.0,
         "used": 0.0, "used_cny": 0.0,
         "remaining": 0.0, "remaining_cny": 0.0,
-        "dividend_cny": 0.0, "stock_cost_cny": 0.0,
-        "incomplete": False, "pnl_incomplete": False,
+        "incomplete": False,
     })
 
 
@@ -849,10 +790,9 @@ def contributor_totals() -> List[Dict[str, Any]]:
     由前端打标提示，而不是让整个人的合计变成「—」——那样一批缺汇率会把这个人
     另外十批已经算清楚的钱也一起藏掉。
 
-    另外两档来自货那边（见 ``_owner_money``）：``dividend_cny`` 是已经卖出去的那些货
-    按比例分到的盈亏，``stock_cost_cny`` 是还压在没卖的货上的本金。**分开两档是必须的**：
-    合成一个数的话，一台刚买回来还没拆卖的整机会以「亏了一整台的钱」的形式记进分红，
-    而它其实只是还没卖。
+
+    这里只管钱本身，**不算分红**：分红按货算、看详情页（``split_dividends``），
+    在池子页上按人再汇总一遍只会多一个和详情页对不上的数。
     """
     rows = list_injections()
     total_in = sum(r["amount"] or 0 for r in rows)
@@ -867,28 +807,11 @@ def contributor_totals() -> List[Dict[str, Any]]:
         b["used_cny"] += row["used_cny"] or 0
         b["remaining"] += row["remaining_amount"] or 0
         b["remaining_cny"] += row["remaining_cny"] or 0
-        if row["fx_rate"] is None and row.get("inject_type") != "cash":
+        if row["fx_rate"] is None:
             b["incomplete"] = True
-
-    # 货那边：卖掉的按比例分盈亏，没卖的按比例记在库本金
-    for shares, money in _owner_money():
-        has_revenue = money.get("sale_cny") is not None
-        for line in split_dividends(shares, money):
-            b = _bucket(buckets, line["contributor"])
-            if has_revenue:
-                if line["dividend_cny"] is None:
-                    b["pnl_incomplete"] = True
-                else:
-                    b["dividend_cny"] += line["dividend_cny"]
-            elif line["cost_cny"] is None:
-                b["pnl_incomplete"] = True
-            else:
-                b["stock_cost_cny"] += line["cost_cny"]
 
     out = []
     for b in buckets.values():
-        for key in ("dividend_cny", "stock_cost_cny"):
-            b[key] = round(b[key], 2)
         for key in ("injected", "injected_cny", "used", "used_cny", "remaining", "remaining_cny"):
             b[key] = round(b[key], 2)
         b["avg_rate"] = (
@@ -1013,7 +936,7 @@ def summary() -> Dict[str, Any]:
     forex_in_cny = sum(i["cny_cost"] or 0 for i in forex)
     incomplete_injections = sum(
         1 for i in injections
-        if i["fx_rate"] is None and i.get("inject_type") != "cash"
+        if i["fx_rate"] is None
     )
     remaining = sum(i["remaining_amount"] or 0 for i in injections)
     remaining_cny = sum(i["remaining_cny"] or 0 for i in injections)

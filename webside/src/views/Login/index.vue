@@ -23,7 +23,9 @@
         </div>
       </template>
 
-      <!-- 关闭浏览器账号密码自动填充：密码框用 new-password（Chrome 忽略 off 但认它） -->
+      <!-- 关闭浏览器账号密码自动填充：密码框用 new-password（Chrome 忽略 off 但认它）。
+           用户名框关掉 iOS 的自动首字母大写与纠错：不关的话在 iPhone 上敲 admin 会变成
+           Admin，登录失败，而输入框里那个大写 A 很难被注意到。 -->
       <el-form
         ref="formRef"
         :model="form"
@@ -38,6 +40,10 @@
             size="large"
             clearable
             autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            enterkeyhint="next"
           />
         </el-form-item>
         <el-form-item prop="password">
@@ -48,6 +54,7 @@
             size="large"
             show-password
             autocomplete="new-password"
+            enterkeyhint="go"
           />
         </el-form-item>
         <el-form-item>

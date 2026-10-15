@@ -327,8 +327,6 @@ export default {
     consumed: '消耗金额',
     noContributor: '未指定',
     injected: '投入',
-    dividend: '分红',
-    stockCost: '在库本金',
     share: '占比',
     rateMissingTag: '含缺汇率的批次',
     clearFilter: '显示全部',

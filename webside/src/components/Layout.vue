@@ -12,14 +12,14 @@
 
     <Teleport to="body" :disabled="!isMobile">
       <el-aside
-        width="216px"
+        :width="isRail ? '68px' : '216px'"
         class="sidebar"
-        :class="{ 'sidebar--mobile': isMobile, 'sidebar--open': isMobile && drawerOpen }"
+        :class="{ 'sidebar--mobile': isMobile, 'sidebar--open': isMobile && drawerOpen, 'sidebar--rail': isRail }"
       >
         <div class="sidebar-inner">
           <div class="logo">
             <img class="logo-img" src="/static/logo.svg" alt="logo" />
-            <span class="logo-text">{{ t('app.short') }}</span>
+            <span v-if="!isRail" class="logo-text">{{ t('app.short') }}</span>
           </div>
 
           <el-menu
@@ -28,6 +28,8 @@
             background-color="transparent"
             text-color="#a6adb4"
             active-text-color="#ffffff"
+            :collapse="isRail"
+            :collapse-transition="false"
             @select="onSelect"
           >
             <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
@@ -36,7 +38,26 @@
             </el-menu-item>
           </el-menu>
 
-          <div class="sidebar-footer">
+          <!-- 图标栏模式下底部只留一个按钮，语言和退出收进它的下拉里：216px 时那一排
+               「语言下拉 + 用户名 + 退出」在 68px 里一样也摆不下 -->
+          <div v-if="isRail" class="sidebar-footer sidebar-footer--rail">
+            <el-dropdown trigger="click" placement="right-end" @command="onRailCommand">
+              <button type="button" class="rail-user" :title="userName">
+                <el-icon :size="20"><UserFilled /></el-icon>
+              </button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item disabled>{{ userName }}</el-dropdown-item>
+                  <el-dropdown-item v-for="opt in localeOptions" :key="opt.value" :command="'lang:' + opt.value"
+                    :divided="opt === localeOptions[0]">
+                    {{ opt.label }}<span v-if="opt.value === locale" class="rail-check"> ✓</span>
+                  </el-dropdown-item>
+                  <el-dropdown-item command="logout" divided>{{ t('common.logout') }}</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+          </div>
+          <div v-else class="sidebar-footer">
             <el-select :model-value="locale" size="small" class="lang-select" @change="onLocaleChange">
               <el-option v-for="opt in localeOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
             </el-select>
@@ -67,13 +88,18 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { currentLocale, localeOptions, setLocale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
-import { useIsMobile } from '@/composables/useIsMobile'
+import { useIsCompact, useIsMobile } from '@/composables/useIsMobile'
 
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const { isMobile } = useIsMobile()
+const { isCompact } = useIsCompact()
+// 平板（769～1200px：iPad 竖屏 / 横屏、手机横屏）侧栏收成 68px 的图标栏。
+// 216px 在 iPad 竖屏（820）上要吃掉四分之一屏，内容区只剩 550 多像素——各页面为这个
+// 宽度做了卡片列表，但能多还回 150px 总是更好。手机仍是抽屉，桌面仍是完整侧栏。
+const isRail = computed(() => isCompact.value && !isMobile.value)
 
 const drawerOpen = ref(false)
 const locale = currentLocale
@@ -105,6 +131,10 @@ function onLocaleChange(value) {
 }
 function handleLogout() {
   auth.logout()
+}
+function onRailCommand(cmd) {
+  if (cmd === 'logout') return handleLogout()
+  if (cmd.startsWith('lang:')) setLocale(cmd.slice(5))
 }
 </script>
 
@@ -169,8 +199,37 @@ function handleLogout() {
   white-space: nowrap;
 }
 
+/* ---- 平板图标栏 ---- */
+/* 手机横屏也落在这一档：刘海在左边时会压住图标，内边距让出安全区 */
+.sidebar--rail .sidebar-inner { padding-left: env(safe-area-inset-left, 0px); }
+.sidebar--rail .logo { justify-content: center; padding: 18px 0 14px; }
+/* el-menu 折叠态自带一个写死的宽度（图标 24px + 两侧各 20px = 64px），再加上这里的
+   内边距会比 68px 的栏宽，菜单项右缘被裁掉一截。宽度交给外面的栏来定。 */
+.sidebar--rail .menu { padding: 6px; width: 100%; }
+.sidebar--rail .menu :deep(.el-menu-item) {
+  justify-content: center;
+  padding: 0 !important;
+  height: 48px;
+}
+.sidebar--rail .menu :deep(.el-menu-item .el-icon) { margin-right: 0; font-size: 20px; }
+.sidebar-footer--rail { align-items: center; padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)); }
+.rail-user {
+  width: 44px;
+  height: 44px;
+  border: 1px solid #28354a;
+  border-radius: 50%;
+  background: #131c2f;
+  color: #a6adb4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.rail-check { color: var(--pcr-accent); }
+
 .main {
   padding: 20px 24px;
+  padding-right: max(24px, env(safe-area-inset-right, 0px));
   height: 100%;
   overflow-y: auto;
   background: #0b1220;

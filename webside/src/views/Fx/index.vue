@@ -21,7 +21,8 @@
         <el-card shadow="never" class="query-card">
           <template #header>{{ t('fx.query') }}</template>
           <div class="query-row">
-            <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" :placeholder="t('fx.queryDate')" class="full" @change="doQuery" />
+            <el-date-picker v-model="queryDate" type="date" value-format="YYYY-MM-DD" :placeholder="t('fx.queryDate')" class="full"
+              :editable="!isTouch" @change="doQuery" />
           </div>
           <div v-if="queryResult" class="query-result pcr-mono">
             {{ formatRate(queryResult.rate) }}
@@ -39,7 +40,7 @@
               <el-button size="small" :icon="Refresh" :loading="refreshing" @click="backfill">{{ t('fx.refresh') }}</el-button>
             </div>
           </template>
-          <EChart v-if="history.length" :option="trendOption" height="300px" />
+          <EChart v-if="history.length" :option="trendOption" :height="isMobile ? '230px' : '300px'" />
           <el-empty v-else :description="t('common.noData')" :image-size="80" />
         </el-card>
 
@@ -51,7 +52,9 @@
               <el-option v-for="a in config.available" :key="a.key" :label="a.label" :value="a.key" />
             </el-select>
           </div>
-          <div class="cfg-row">
+          <!-- 开关这一行在手机上也保持左右排：开关本身只有 40px 宽，上下排时它孤零零
+               挂在一整行的左边，看着像漏排了 -->
+          <div class="cfg-row cfg-row--inline">
             <span>{{ t('fx.autoFetch') }}<br /><small class="pcr-dim">{{ t('fx.autoFetchHint') }}</small></span>
             <el-switch v-model="config.auto_fetch" @change="saveConfig" />
           </div>
@@ -77,8 +80,11 @@ import { ElMessage } from '@/utils/notify'
 import { RATE_UNIT, formatRate } from '@/utils/format'
 import { INK, tooltipStyle } from '@/utils/chartTheme.js'
 import EChart from '@/components/EChart.vue'
+import { useIsMobile, useIsTouch } from '@/composables/useIsMobile'
 
 const { t } = useI18n()
+const { isMobile } = useIsMobile()
+const { isTouch } = useIsTouch()
 
 const loading = ref(false)
 const refreshing = ref(false)
@@ -102,7 +108,9 @@ const trendOption = computed(() => ({
     type: 'category',
     data: history.value.map((h) => h.date),
     axisLine: { lineStyle: { color: INK.axis } },
-    axisLabel: { color: INK.muted, fontSize: 11 }
+    // 刻度只写月-日：九十天都在一年左右之内，带上年份的十个字符在手机上一屏只放得下
+    // 三四个刻度。提示框里仍是完整日期（取的是类目原值，不经这个 formatter）。
+    axisLabel: { color: INK.muted, fontSize: 11, formatter: (v) => String(v).slice(5) }
   },
   yAxis: {
     type: 'value',
@@ -190,7 +198,17 @@ onMounted(loadAll)
 .cfg-row > span { color: #c7d0de; font-size: 14px; }
 .cfg-select { width: 220px !important; }
 
+/* iPad 横屏（≥992 左右分栏）左列只有 250～300px，26px 的「100 日元 = 4.3210 人民币」
+   会在等号处折行，看着像两个数 */
+@media (min-width: 769px) and (max-width: 1200px) {
+  .today-rate { font-size: 22px; }
+}
+@media (hover: none) {
+  .chart-head :deep(.el-button) { min-height: 34px; padding: 8px 12px; }
+}
+
 @media (max-width: 768px) {
+  .cfg-row.cfg-row--inline { flex-direction: row; align-items: center; }
   /* 「说明文字 —— 控件」两边拉开的排法要有富余宽度才成立。360px 的屏上，
      定宽 220px 的下拉会把左边那句带副标题的说明挤成每行两三个字。窄屏改成上下排：
      说明占满一行，控件自己占满下一行，顺带也把下拉的点击热区撑到整行宽。 */

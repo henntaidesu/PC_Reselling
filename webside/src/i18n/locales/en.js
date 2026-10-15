@@ -327,8 +327,6 @@ export default {
     consumed: 'Consumed',
     noContributor: 'Unassigned',
     injected: 'Injected',
-    dividend: 'Dividend',
-    stockCost: 'Capital in stock',
     share: 'Share',
     rateMissingTag: 'has batches without a rate',
     clearFilter: 'Show all',

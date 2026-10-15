@@ -314,19 +314,24 @@ def _sort(items: List[Dict[str, Any]], sort_by: str, sort_dir: str) -> List[Dict
     缺失值（没卖出去所以没有出售日、缺汇率所以没有利润）一律排在最后，无论升序降序：
     把 NULL 当 0 排会让「算不出来的」混进「利润最低的」里，那是会看错的排序。
     """
-    key = sort_by if sort_by in _SORT_KEYS else "created_at"
+    key = sort_by if sort_by in _SORT_KEYS else "purchase_date"
     reverse = str(sort_dir).lower() != "asc"
 
-    def sort_key(item: Dict[str, Any]):
-        value = item.get(key)
-        missing = value is None
-        # 元组第一位专管「缺失值垫底」，并跟着 reverse 取反：升序时缺失取 True（排最大），
-        # 降序时取 False（排最小、翻转后到末尾），两个方向下都落在最后。
-        # 第二位只在第一位相同时才参与比较，也就是只在「都缺失」或「都不缺失」之间比，
-        # 因此 0 与字符串永远不会撞上（每个排序列自己的类型是固定的）。
-        return (missing != reverse, 0 if missing else value)
+    def keyed(field: str):
+        def sort_key(item: Dict[str, Any]):
+            value = item.get(field)
+            missing = value is None
+            # 元组第一位专管「缺失值垫底」，并跟着 reverse 取反：升序时缺失取 True（排最大），
+            # 降序时取 False（排最小、翻转后到末尾），两个方向下都落在最后。
+            # 第二位只在第一位相同时才参与比较，也就是只在「都缺失」或「都不缺失」之间比，
+            # 因此 0 与字符串永远不会撞上（每个排序列自己的类型是固定的）。
+            return (missing != reverse, 0 if missing else value)
+        return sort_key
 
-    return sorted(items, key=sort_key, reverse=reverse)
+    # 购入日期只精确到天，同一天买的好几件得有个确定的先后，否则翻页时会忽前忽后。
+    # 先按录入时间排一遍，再按主键排——sorted 是稳定的，主键相同的就保留录入时间的顺序。
+    items = sorted(items, key=keyed("created_at"), reverse=reverse)
+    return sorted(items, key=keyed(key), reverse=reverse)
 
 
 @router.get("/stats")
@@ -388,7 +393,8 @@ def list_inventory(
     purchase_to: Optional[dt.date] = Query(default=None),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=200),
-    sort_by: str = Query(default="created_at"),
+    # 默认按购入日期倒序：列表是按「哪天买的」来翻的，录入顺序（补录老货时）和它对不上
+    sort_by: str = Query(default="purchase_date"),
     sort_dir: str = Query(default="desc"),
 ):
     items = _collect(kind, keyword, status, brand, source_platform, purchase_from, purchase_to)

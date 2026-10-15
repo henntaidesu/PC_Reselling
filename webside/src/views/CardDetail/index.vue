@@ -60,7 +60,7 @@
               <el-input v-model="form.order_no" />
             </InlineField>
             <InlineField :label="t('card.itemUrl')">
-              <el-input v-model="form.item_url" />
+              <el-input v-model="form.item_url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" />
               <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
                 :title="t('common.detail')">↗</a>
             </InlineField>
