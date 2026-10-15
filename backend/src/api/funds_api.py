@@ -48,8 +48,18 @@ class InjectionPayload(BaseModel):
     # 外汇注资**实际付出去的人民币**。汇率不收——由它和 amount 自动算出来
     # （funds.manual_rate），让人自己先除一遍再填只会多一个填错的机会。现金注资忽略它。
     cny_cost: Optional[float] = Field(default=None, gt=0)
-    contributor: Optional[str] = Field(default=None, max_length=64)
+    # 注资必须写明是谁的钱：没有出资人的批次只能被全池 FIFO 吃掉，指定了出资人的货
+    # 永远扣不到它，按人汇总时也只能归进「未指定」——等于这笔钱在账上找不到主人。
+    contributor: str = Field(max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("contributor")
+    @classmethod
+    def _check_contributor(cls, v: str) -> str:
+        v = (v or "").strip()
+        if not v:
+            raise ValueError("注资要选出资人")
+        return v
 
     @field_validator("inject_type")
     @classmethod

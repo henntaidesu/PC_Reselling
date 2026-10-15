@@ -27,9 +27,8 @@ $env:PC_RESELLING_ENABLE_DOCS = "1" # 打开 /docs，默认关闭（局域网里
 # 单独起前端（监听 9911，/api 代理到 127.0.0.1:9910）
 cd webside; npm install; npm run dev
 
-# 打包成单 exe
-conda activate PC_Reselling
-python -m PyInstaller pc_reselling.spec
+# 打包成单 exe：激活环境 → npm run build → PyInstaller，产物在 Releases\<VERSION>\
+pyinstaller.bat           # 版本号改脚本顶部的 VERSION；只替换旧 exe，同目录的 conf.ini 保留
 ```
 
 - Python 在 conda 环境 `PC_Reselling`（3.12）里。`start.bat` 通过 `conda activate` 激活环境

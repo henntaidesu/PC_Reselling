@@ -414,7 +414,7 @@
             </el-form-item>
           </el-col>
           <el-col :xs="24" :sm="12">
-            <el-form-item :label="t('funds.contributor')">
+            <el-form-item :label="t('funds.contributor')" required>
               <el-select v-model="injectionForm.contributor" filterable allow-create default-first-option
                 clearable class="full" :placeholder="t('funds.contributorPlaceholder')">
                 <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
@@ -452,7 +452,7 @@
       </el-form>
       <template #footer>
         <el-button @click="injectionVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" @click="saveInjection">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!injectionContributor" @click="saveInjection">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
 
@@ -657,6 +657,10 @@ const injectionVisible = ref(false)
 const ratePreview = ref(null)
 const injectionForm = reactive({ id: null, inject_type: 'forex', inject_date: null, amount: null, cny_cost: null, contributor: null, note: null })
 
+// 出资人必选（后端同样校验）：没写出资人的批次在按人分摊里找不到主人，只能被全池 FIFO 吃掉。
+// allow-create 能敲进一串空格，所以按 trim 后判断。
+const injectionContributor = computed(() => (injectionForm.contributor || '').trim())
+
 // 现金注资按牌价记，先让人看到「这笔钱折多少人民币」——注资的意义就在这个数上。
 // 外汇注资的这个数就是上面填的实付，不用再显示一遍。
 const injectionCostPreview = computed(() => {
@@ -714,7 +718,7 @@ async function saveInjection() {
     amount: injectionForm.amount,
     inject_type: injectionForm.inject_type,
     cny_cost: isCash ? null : injectionForm.cny_cost,
-    contributor: injectionForm.contributor || null,
+    contributor: injectionContributor.value,
     note: injectionForm.note
   }
   saving.value = true
