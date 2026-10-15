@@ -319,6 +319,30 @@ export default {
     platformCompare: 'プラットフォーム比較',
     allCardsNote: '全件基準'
   },
+  owner: {
+    label: '所有者',
+    none: '未指定',
+    followDevice: '本体に従う',
+    followDeviceOf: '本体に従う（{name}）'
+  },
+  swap: {
+    action: '交換',
+    title: '現物交換',
+    hint: '単品カードと本体内のグラボを現物交換します：ブランド・型番・コア番号・シリアル・画像を入れ替え、価格・資金・所有者・ステータスはそのままです。',
+    self: '現在',
+    pickPart: '交換する本体内のグラボを選択（未販売）',
+    pickCard: '交換する単品カードを選択（未販売）',
+    noCandidates: '交換できる対象がありません',
+    date: '交換日',
+    confirm: '交換する',
+    confirmText: 'この2枚を交換しますか？{a}  ⇄  {b}',
+    done: '交換しました',
+    history: '交換履歴',
+    cardBefore: '単品の交換前',
+    partBefore: '本体部品の交換前',
+    mediaCount: '画像 {n} 枚',
+    deleted: '削除済み'
+  },
   fundShare: {
     placeholder: '出資者を選択',
     sum: '合計 {n}%',

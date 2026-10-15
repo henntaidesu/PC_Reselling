@@ -319,6 +319,30 @@ export default {
     platformCompare: '平台对比',
     allCardsNote: '全库口径'
   },
+  owner: {
+    label: '归属人',
+    none: '未指定',
+    followDevice: '跟随整机',
+    followDeviceOf: '跟随整机（{name}）'
+  },
+  swap: {
+    action: '置换',
+    title: '实物置换',
+    hint: '单卡与整机里的显卡部件互换实物：品牌、型号、核心编号、序列号和图片对调；两边的价格、资金、归属人和状态都不变。',
+    self: '当前',
+    pickPart: '选择要换的整机显卡部件（未出售）',
+    pickCard: '选择要换的单卡（未出售）',
+    noCandidates: '没有可置换的对象',
+    date: '置换日期',
+    confirm: '确认置换',
+    confirmText: '确定要互换这两张卡吗？{a}  ⇄  {b}',
+    done: '置换完成',
+    history: '置换记录',
+    cardBefore: '单卡原为',
+    partBefore: '整机部件原为',
+    mediaCount: '{n} 张图',
+    deleted: '已删除'
+  },
   fundShare: {
     placeholder: '选择出资人',
     sum: '合计 {n}%',

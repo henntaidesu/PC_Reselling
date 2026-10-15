@@ -41,7 +41,7 @@ KIND_PART = "part"
 # 允许的排序列。全部是**规范化之后**的字段名，两种类型共用同一套。
 _SORT_KEYS = {
     "created_at", "updated_at", "purchase_date", "sale_date",
-    "mgmt_no", "title", "status", "cost_total_cny", "sale_cny", "profit_cny",
+    "mgmt_no", "title", "status", "owner", "cost_total_cny", "sale_cny", "profit_cny",
 }
 
 
@@ -105,11 +105,14 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
         # 扣款实际吃到了谁的钱（见 funds.load_draw_contributors），列表在金额后面标名字
         "pool_contributors": contributors if money["from_pool"] else [],
         "fund_contributors": _involved(contributors, shares),
+        "owner": row.get("owner"),
+        # 按归属人筛选看的是这一份（整机要把部件的也算上，见 _device_item）
+        "owners": [row["owner"]] if row.get("owner") else [],
         "media": data["media"],
     }
 
 
-def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
+def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str]) -> Dict[str, Any]:
     """把一个部件规范化成**和顶层行同样的形状**，作为整机的二级行。
 
     不适用的列一律给 None，前端统一显示成「—」：部件没有购入日（整机是一口价买的），
@@ -118,6 +121,8 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
     """
     money = part["money"]
     title = " ".join(x for x in (part.get("brand"), part.get("model"), part.get("spec")) if x)
+    # 部件没单独指定归属人就是整机的
+    owner = part.get("owner") or device_owner
     return {
         "row_key": f"{KIND_PART}-{part['id']}",
         "kind": KIND_PART,
@@ -152,6 +157,10 @@ def _part_row(part: Dict[str, Any], device_id: int) -> Dict[str, Any]:
         "fund_source": None,
         "pool_contributors": [],
         "fund_contributors": [],
+        "owner": owner,
+        # 归属人是部件自己填的，而不是跟随整机——列表上据此区分显示
+        "owner_own": bool(part.get("owner")),
+        "owners": [owner] if owner else [],
         "media": [],
     }
 
@@ -165,6 +174,13 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
     # **列表的顶层行不显示它**（逐件的出售日期在展开的二级行上，那才是实情），
     # 这个值留着是给按出售日期排序用的：整机得有个可比的位置，不然排序时全落到末尾。
     sale_dates = [p["sale_date"] for p in data["parts"] if p["sale_date"]]
+    children = [_part_row(p, row["id"], row.get("owner")) for p in data["parts"]]
+    # 一台机器牵涉到的归属人：整机自己的，加上单独归别人的部件。按「单」筛选时，
+    # 一台甘的整机里装着单的那块卡，这台机器也该出现
+    owners: List[str] = []
+    for name in [row.get("owner")] + [c["owner"] for c in children]:
+        if name and name not in owners:
+            owners.append(name)
     item = {
         "row_key": f"{KIND_DEVICE}-{row['id']}",
         "kind": KIND_DEVICE,
@@ -196,13 +212,15 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "fund_source": row.get("fund_source") or "own",
         "pool_contributors": contributors if money["from_pool"] else [],
         "fund_contributors": _involved(contributors, shares),
+        "owner": row.get("owner"),
+        "owners": owners,
         # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
         "media": media,
     }
     # 二级行。没有部件时**不带 children 这个键**——给个空数组的话 el-table 仍会画出
     # 一个点开是空的展开箭头。
-    if data["parts"]:
-        item["children"] = [_part_row(p, row["id"]) for p in data["parts"]]
+    if children:
+        item["children"] = children
     return item
 
 
@@ -370,6 +388,7 @@ def _inventory_filters(
     purchase_from: Optional[dt.date] = Query(default=None),
     purchase_to: Optional[dt.date] = Query(default=None),
     contributor: Optional[str] = Query(default=None, description=f"逗号分隔的出资人，{CONTRIBUTOR_NONE} 表示未指定"),
+    owner: Optional[str] = Query(default=None, description=f"逗号分隔的归属人，{CONTRIBUTOR_NONE} 表示未指定"),
     sale_from: Optional[dt.date] = Query(default=None),
     sale_to: Optional[dt.date] = Query(default=None),
     stock: Optional[str] = Query(default=None, description="in_stock / settled"),
@@ -390,6 +409,7 @@ def _inventory_filters(
         source_platform=(source_platform or "").strip() or None,
         purchase_from=purchase_from, purchase_to=purchase_to,
         contributors=[c.strip() for c in (contributor or "").split(",") if c.strip()],
+        owners=[c.strip() for c in (owner or "").split(",") if c.strip()],
         sale_from=sale_from, sale_to=sale_to,
         stock=stock if stock in _STOCK_STATES else None,
         profit=profit if profit in _PROFIT_STATES else None,
@@ -424,6 +444,12 @@ def _match_derived(item: Dict[str, Any], f: Dict[str, Any]) -> bool:
         names = item["fund_contributors"]
         want_none = CONTRIBUTOR_NONE in f["contributors"]
         if not (any(n in names for n in f["contributors"]) or (want_none and not names)):
+            return False
+    if f["owners"]:
+        # 与出资人同一套：命中任一人即可，「未指定」= 这件货上一个归属人都没有
+        names = item["owners"]
+        want_none = CONTRIBUTOR_NONE in f["owners"]
+        if not (any(n in names for n in f["owners"]) or (want_none and not names)):
             return False
     if (f["sale_from"] or f["sale_to"]) and not _sold_in_range(item, f["sale_from"], f["sale_to"]):
         return False
@@ -533,6 +559,8 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
     all_parts = [p for _, _, parts in universe["devices"] for p in parts.values()]
     contributors = distinct(
         n for entry in universe["cards"] + universe["devices"] for n in entry[0]["fund_contributors"])
+    owners = distinct(
+        n for entry in universe["cards"] + universe["devices"] for n in entry[0]["owners"])
 
     kinds = [(k, {"kind": k, "part_type": None}) for k in (KIND_CARD, KIND_DEVICE, KIND_PART)]
     kinds += [(f"{KIND_PART}:{t}", {"kind": KIND_PART, "part_type": t}) for t in DEVICE_PART_TYPES]
@@ -546,6 +574,7 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
         "source_platform": [(v, {"source_platform": v}) for v in distinct(
             r.get("source_platform") for r in card_rows + device_rows)],
         "contributor": [(v, {"contributors": [v]}) for v in contributors + [CONTRIBUTOR_NONE]],
+        "owner": [(v, {"owners": [v]}) for v in owners + [CONTRIBUTOR_NONE]],
         "stock": [(v, {"stock": v}) for v in sorted(_STOCK_STATES)],
         "profit": [(v, {"profit": v}) for v in ("gain", "loss", "incomplete")],
         "pool": [(v, {"pool": v}) for v in ("drawn", "undrawn")],

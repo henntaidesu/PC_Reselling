@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from src import db, devices, funds
+from src import db, devices, funds, swaps
 # 出资比例的载荷与校验只有 funds_api 那一份，显卡和整机都从那儿取
 from src.api import funds_api
 from src.auth import require_auth
@@ -37,7 +37,7 @@ _WRITABLE = [
     "purchase_date", "purchase_amount", "purchase_currency",
     "intl_shipping_amount", "intl_shipping_currency",
     "fund_source",
-    "status", "note",
+    "owner", "status", "note",
 ]
 
 # 允许写入 device_parts 的列，顺序即 INSERT / UPDATE 里的顺序。
@@ -47,7 +47,7 @@ _PART_COLUMNS = [
     "part_type", "brand", "model", "spec", "serial_no",
     "sale_date", "sale_amount", "sale_currency",
     "domestic_shipping_amount", "domestic_shipping_currency",
-    "status", "note", "sort_order",
+    "owner", "status", "note", "sort_order",
 ]
 
 
@@ -69,6 +69,8 @@ class PartPayload(BaseModel):
     domestic_shipping_amount: Optional[float] = Field(default=None, ge=0)
     domestic_shipping_currency: str = "CNY"
 
+    # 这一件归谁。空 = 跟随整机的归属人，只有确实归别人时才填。
+    owner: Optional[str] = Field(default=None, max_length=64)
     status: str = "purchased"
     note: Optional[str] = Field(default=None, max_length=500)
     sort_order: int = 0
@@ -126,6 +128,9 @@ class DevicePayload(BaseModel):
     # 这台机器的钱由哪几位出资人按什么比例出。None = 本次请求没提交，保持原样；
     # [] = 明确清空。校验与写入与显卡共用 funds_api 那一份。
     fund_shares: Optional[List[funds_api.SharePayload]] = None
+
+    # 这台机器是谁的（与 cards.owner 同义）。部件不另填时跟随它。
+    owner: Optional[str] = Field(default=None, max_length=64)
 
     status: str = "purchased"
     note: Optional[str] = None
@@ -228,6 +233,7 @@ def _write_parts(device_id: int, payload: DevicePayload, fx: Dict[str, Any]) -> 
     with db.transaction() as cur:
         for index, part in enumerate(payload.parts):
             values = {name: _clean(getattr(part, name)) for name in _PART_COLUMNS}
+            values["owner"] = funds.ensure_contributor(values["owner"])
             # 排序按提交顺序重排，前端拖动 / 插入后不必自己维护 sort_order
             values["sort_order"] = index
             rate, rate_date = fx["part_rates"][index]
@@ -287,6 +293,7 @@ def _result(device_id: int, warnings: List[str]) -> Dict[str, Any]:
             (device_id,),
         )
     ]
+    out["swaps"] = swaps.history_for_device(device_id)
     out["warnings"] = warnings
     return out
 
@@ -325,6 +332,7 @@ def create_draft():
 def create_device(payload: DevicePayload):
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
+    values["owner"] = funds.ensure_contributor(values["owner"])
     values["mgmt_no"] = devices.next_mgmt_no()
     values["purchase_fx_rate"] = fx["purchase_fx_rate"]
     values["purchase_fx_date"] = fx["purchase_fx_date"]
@@ -354,6 +362,8 @@ def update_device(device_id: int, payload: DevicePayload):
 
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
+    # 归属人落进字典并取字典里的写法，理由同出资人
+    values["owner"] = funds.ensure_contributor(values["owner"])
     values["purchase_fx_rate"] = fx["purchase_fx_rate"]
     values["purchase_fx_date"] = fx["purchase_fx_date"]
     # 一旦保存就转正：草稿变正式设备，从此进列表与统计

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator
 
-from src import cards, db, funds
+from src import cards, db, funds, swaps
 # 出资比例的载荷与校验只有 funds_api 那一份，显卡和整机都从那儿取
 from src.api import funds_api
 from src.auth import require_auth
@@ -29,7 +29,7 @@ _WRITABLE = [
     "domestic_shipping_amount", "domestic_shipping_currency",
     "sale_date", "sale_amount", "sale_currency",
     "fund_source",
-    "status", "note",
+    "owner", "status", "note",
 ]
 
 
@@ -65,6 +65,10 @@ class CardPayload(BaseModel):
     # 这张卡的钱由哪几位出资人按什么比例出。None = 本次请求没提交，保持原样；
     # [] = 明确清空（不指定出资人，回到全池 FIFO）。校验与写入都在 funds_api 那一份。
     fund_shares: Optional[List[funds_api.SharePayload]] = None
+
+    # 这张卡是谁的。取值与出资人同一份名单（fund_contributors），现敲的新名字由
+    # funds.ensure_contributor 顺手落进字典。空 = 未指定。
+    owner: Optional[str] = Field(default=None, max_length=64)
 
     status: str = "purchased"
     note: Optional[str] = None
@@ -313,6 +317,8 @@ def _result(card_id: int, warnings: List[str]) -> Dict[str, Any]:
             (card_id,),
         )
     ]
+    # 置换记录：这一行现在指的那张卡未必是当初买回来的那张，详情页要能看出来
+    data["swaps"] = swaps.history_for_card(card_id)
     data["warnings"] = warnings
     return data
 
@@ -345,6 +351,7 @@ def create_draft():
 def create_card(payload: CardPayload):
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
+    values["owner"] = funds.ensure_contributor(values["owner"])
     values["mgmt_no"] = cards.next_mgmt_no()
     values.update({k: fx[k] for k in
                    ("purchase_fx_rate", "purchase_fx_date", "sale_fx_rate", "sale_fx_date", "fx_manual")})
@@ -373,6 +380,8 @@ def update_card(card_id: int, payload: CardPayload):
 
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
+    # 归属人落进字典并取字典里的写法，理由同出资人（"小王 " 与 "小王" 得是同一个人）
+    values["owner"] = funds.ensure_contributor(values["owner"])
     values.update({k: fx[k] for k in
                    ("purchase_fx_rate", "purchase_fx_date", "sale_fx_rate", "sale_fx_date", "fx_manual")})
     # 一旦保存就转正：草稿变正式卡，从此进列表与统计

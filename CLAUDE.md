@@ -162,6 +162,18 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 记进分红。分红只在显卡 / 整机详情页上按件显示，资金池页的「按出资人」**不汇总分红**
 （`contributor_totals()` 只算注资、已用、剩余）。
 
+### 归属人与实物置换
+
+`owner`（`cards` / `devices` / `device_parts` 三列）标「货是谁的」，候选与出资人共用
+`fund_contributors` 字典（写入时走 `funds.ensure_contributor`），**与出资比例互不影响**。
+部件的 `owner` 为 NULL 表示跟随整机；库存列表按归属人筛选时，整机命中自己的或任一部件的。
+前端三处都用 `components/OwnerSelect.vue`。
+
+置换（`swaps.py`，规则看它的 docstring）只在单卡 ↔ 整机显卡部件之间，**换实物不换账**：
+品牌 / 型号 / 核心编号（部件上是 `spec`）/ 序列号和图片互换，价格、资金池、归属人、状态不动，
+所以不触发 `funds.rebuild()`。显卡图搬到部件上时原分类记在 `device_part_media.category`，
+换回来能归位。记录在 `item_swaps`（含置换前快照），跟着两头详情响应的 `swaps` 字段下发。
+
 ### 枚举的单一事实来源在后端，文案在前端
 
 `schema.py` 顶部的 `CARD_STATUSES` / `MEDIA_CATEGORIES` / `DEVICE_PART_TYPES` /

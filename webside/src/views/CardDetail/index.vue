@@ -50,6 +50,9 @@
           <span class="pd-card-title">{{ t('detail.modBasic') }}</span>
           <span class="pd-badge pcr-mono">{{ t('card.mgmtNo') }} {{ card.mgmt_no }}</span>
           <span v-if="card.is_draft" class="pd-badge pd-badge--warn">{{ t('common.draft') }}</span>
+          <!-- 置换：和某台整机里的显卡部件互换实物。已卖出的卡在买家手里，换不了 -->
+          <el-button v-if="!card.is_draft && !isSoldCard" class="head-action" link type="primary" size="small"
+            :icon="Switch" @click="openSwap">{{ t('swap.action') }}</el-button>
         </div>
         <el-form label-position="top" size="small" class="pd-form" @submit.prevent>
           <div class="pd-row">
@@ -68,6 +71,9 @@
             </el-form-item>
             <el-form-item :label="t('card.status')" class="f-status">
               <StatusSelect v-model="form.status" />
+            </el-form-item>
+            <el-form-item :label="t('owner.label')" class="f-owner">
+              <OwnerSelect v-model="form.owner" />
             </el-form-item>
             <!-- 序列号 30 位字母数字，给它最宽的一格才看得全 -->
             <el-form-item :label="t('card.serialNo')" class="f-serial">
@@ -171,7 +177,7 @@
           </el-tab-pane>
           <el-tab-pane name="log">
             <template #label>
-              {{ t('detail.modLog') }}<span v-if="card.status_logs?.length" class="pd-count pcr-mono">{{ card.status_logs.length }}</span>
+              {{ t('detail.modLog') }}<span v-if="card.status_logs?.length || card.swaps?.length" class="pd-count pcr-mono">{{ (card.status_logs?.length || 0) + (card.swaps?.length || 0) }}</span>
             </template>
           </el-tab-pane>
         </el-tabs>
@@ -227,6 +233,7 @@
           </div>
 
           <template v-else-if="active === 'log'">
+            <SwapHistory v-if="card.swaps?.length" :swaps="card.swaps" />
             <StatusTimeline v-if="card.status_logs?.length" :logs="card.status_logs" />
             <el-empty v-else :description="t('detail.noLogs')" :image-size="60" />
           </template>
@@ -240,16 +247,18 @@
         <span class="pd-card-title">{{ t('detail.modMedia') }}</span>
         <span v-if="mediaCount" class="pd-count pcr-mono">{{ mediaCount }}</span>
       </div>
-      <MediaManager :card-id="card.id" :hosting-configured="hostingConfigured" compact
+      <!-- key 带上置换次数：置换会整组换掉这张卡的图，组件得重新拉一遍 -->
+      <MediaManager :key="mediaKey" :card-id="card.id" :hosting-configured="hostingConfigured" compact
         @changed="onMediaChanged" />
     </template>
   </DetailShell>
+  <SwapDialog v-if="card" v-model="swapVisible" mode="card" :source-id="card.id" :source="form" @done="onSwapped" />
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Picture, WarningFilled } from '@element-plus/icons-vue'
+import { Picture, Switch, WarningFilled } from '@element-plus/icons-vue'
 import { cardsApi, optionsApi, systemApi } from '@/api'
 import { cny, firstImage, formatRate, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
@@ -261,6 +270,9 @@ import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import MediaManager from '@/components/MediaManager.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
+import OwnerSelect from '@/components/OwnerSelect.vue'
+import SwapDialog from '@/components/SwapDialog.vue'
+import SwapHistory from '@/components/SwapHistory.vue'
 import FundShares from '@/components/FundShares.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -320,6 +332,7 @@ function blankForm() {
     fund_source: 'pool',
     // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
     fund_shares: [],
+    owner: null,
     status: 'purchased', note: null
     // 汇率一律按日期自动获取，不在这里填
   }
@@ -412,9 +425,10 @@ async function persistDict() {
       await optionsApi.createModel({ name: form.model })
       meta.reloadModels()
     }
-    // 出资人不用在这里建：后端存比例时已经顺手把新名字落进字典了，这里只把候选刷新一下，
-    // 否则同一次会话里换一张卡，刚敲的那个名字又不在下拉里了
-    if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor))) {
+    // 出资人 / 归属人不用在这里建：后端存的时候已经顺手把新名字落进字典了，这里只把
+    // 候选刷新一下，否则同一次会话里换一张卡，刚敲的那个名字又不在下拉里了
+    if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor)) ||
+        (form.owner && !meta.contributors.includes(form.owner))) {
       meta.reloadContributors()
     }
   } catch { /* 字典写入失败不影响卡片本身 */ }
@@ -433,6 +447,27 @@ async function onMediaChanged() {
     mediaCount.value = res.media?.length || 0
     if (card.value) card.value = { ...card.value, media: res.media }
   } catch { /* 角标晚一点对上也无妨 */ }
+}
+
+// ── 置换 ──────────────────────────────────────────────────────────────
+const SOLD = ['received', 'paid']
+const isSoldCard = computed(() =>
+  SOLD.includes(card.value?.status) || (card.value?.sale_amount ?? null) !== null)
+const swapVisible = ref(false)
+const mediaKey = ref(0)
+
+// 先把没落盘的改动存完再开：置换按库里的值互换，表单里还没存的序列号会被换丢
+async function openSwap() {
+  if (autosave.pending.value) {
+    try { await autosave.flush() } catch { return }
+  }
+  swapVisible.value = true
+}
+
+// 品牌、型号、序列号、图片都换成了对方的，整份重载（表单也要换，这时没有正在敲的字）
+async function onSwapped() {
+  await load()
+  mediaKey.value++
 }
 
 // 关闭前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这张空卡删掉。
@@ -479,6 +514,8 @@ onMounted(async () => {
 .f-model { flex: 1 1 180px; max-width: 280px; }
 .f-core { flex: 0 1 130px; }
 .f-status { flex: 0 1 140px; }
+.f-owner { flex: 0 1 120px; }
+.head-action { margin-left: auto; }
 .f-serial { flex: 1 1 230px; }
 .f-platform { flex: 0 1 130px; }
 .f-seller { flex: 1 1 130px; max-width: 200px; }

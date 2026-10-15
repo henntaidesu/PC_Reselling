@@ -97,6 +97,14 @@ export const fundsApi = {
   rebuild: () => http.post('/funds/rebuild')
 }
 
+// 实物置换：单卡 ↔ 整机显卡部件（只换实物信息与图片，账目不动，见后端 src/swaps.py）。
+// 记录本身跟着两头的详情响应走（swaps 字段），这里只有挑对象和执行两件事。
+export const swapsApi = {
+  // { card_id } 列出可换的整机显卡部件；{ part_id } 列出可换的单卡
+  candidates: (params) => http.get('/swaps/candidates', { params }),
+  create: (payload) => http.post('/swaps', payload)
+}
+
 export const optionsApi = {
   enums: () => http.get('/options/enums'),
   brands: () => http.get('/options/brands'),

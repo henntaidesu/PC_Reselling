@@ -218,6 +218,9 @@ _TABLES: List[Tuple[str, str]] = [
             pool_intl_cny     DECIMAL(14,2) NULL COMMENT '国际运费按各注资批次汇率折算后的人民币合计',
             pool_fx_rate      DECIMAL(18,8) NULL COMMENT '这张卡实际吃到的加权汇率，仅供展示',
 
+            -- 这件东西是谁的。存名字，取值来自 fund_contributors 字典（与出资人同一份名单）。
+            -- 与出资比例是两回事：比例管「钱谁出、利润怎么分」，归属人只标「货在谁手上」。
+            owner      VARCHAR(64) NULL COMMENT '归属人名字；NULL = 未指定',
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       TEXT NULL,
             -- 草稿卡：点「新增」就先建一张（好让图片能立刻挂上去），存下第一笔改动即转 0。
@@ -312,6 +315,7 @@ _TABLES: List[Tuple[str, str]] = [
             pool_intl_cny     DECIMAL(14,2) NULL COMMENT '国际运费按各注资批次汇率折算后的人民币合计',
             pool_fx_rate      DECIMAL(18,8) NULL COMMENT '这台设备实际吃到的加权汇率，仅供展示',
 
+            owner      VARCHAR(64) NULL COMMENT '归属人名字（与 cards.owner 同义）；部件不另填时跟随它',
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       TEXT NULL,
             -- 与卡片同一套草稿机制：点「新增」就先建一台，存下第一笔改动即转 0。
@@ -354,6 +358,9 @@ _TABLES: List[Tuple[str, str]] = [
             sale_fx_date DATE NULL,
 
             buyer      VARCHAR(128) NULL,
+            -- NULL = 跟随整机的归属人。只有这一件确实归别人时才填，否则改整机的归属人
+            -- 还得把十来个部件挨个改一遍。
+            owner      VARCHAR(64) NULL COMMENT '部件自己的归属人；NULL = 跟随整机',
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       VARCHAR(500) NULL,
             sort_order INT NOT NULL DEFAULT 0,
@@ -377,6 +384,9 @@ _TABLES: List[Tuple[str, str]] = [
             id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
             part_id     INT UNSIGNED NOT NULL,
             kind        VARCHAR(8) NOT NULL DEFAULT 'image' COMMENT 'image / video',
+            -- 只有经「置换」从显卡搬过来的图才有值：记下它在显卡那边属于哪个分类，
+            -- 再置换回显卡时能回到原分类，而不是全部堆进「外观」（见 src.swaps）
+            category    VARCHAR(24) NULL COMMENT '原 card_media 分类；部件自己传的图为 NULL',
             stored_name VARCHAR(255) NOT NULL COMMENT '图床侧的存储名，删除靠它',
             public_url  VARCHAR(1024) NOT NULL,
             filename    VARCHAR(255) NULL COMMENT '上传时的原始文件名，仅供展示',
@@ -586,6 +596,39 @@ _TABLES: List[Tuple[str, str]] = [
                    任何注资/扣款变动后由 funds.rebuild() 整体重算'
         """,
     ),
+    (
+        "item_swaps",
+        """
+        CREATE TABLE IF NOT EXISTS item_swaps (
+            id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            swap_date   DATE NOT NULL,
+            -- 一次置换的两头：一张单卡 ↔ 某台整机里的一个显卡部件。
+            -- device_id 是冗余的（部件就知道自己在哪台机器里），留着是为了部件被删之后
+            -- 整机详情页仍查得到「这台机器做过一次置换」。
+            card_id     INT UNSIGNED NULL,
+            device_id   INT UNSIGNED NULL,
+            part_id     INT UNSIGNED NULL,
+            -- 置换**之前**两边的实物信息快照（JSON：brand / model / core_no / serial_no /
+            -- owner / 图片张数）。互换之后行上的值已经是对方的了，不留快照就说不清
+            -- 「原来那张是什么」。
+            card_before JSON NULL,
+            part_before JSON NULL,
+            note        VARCHAR(500) NULL,
+            created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (id),
+            KEY idx_item_swaps_card (card_id),
+            KEY idx_item_swaps_device (device_id),
+            CONSTRAINT fk_item_swaps_card FOREIGN KEY (card_id)
+                REFERENCES cards (id) ON DELETE SET NULL,
+            CONSTRAINT fk_item_swaps_device FOREIGN KEY (device_id)
+                REFERENCES devices (id) ON DELETE SET NULL,
+            CONSTRAINT fk_item_swaps_part FOREIGN KEY (part_id)
+                REFERENCES device_parts (id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='实物置换记录：单卡与整机显卡部件互换实物信息与图片，账目不动。
+                   外键用 SET NULL：删掉其中一头不该连带抹掉另一头的历史'
+        """,
+    ),
 ]
 
 
@@ -617,6 +660,12 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("fund_draws", "contributor", "contributor VARCHAR(64) NULL"),
     # 注资类型：forex（外汇注资，按实付人民币算汇率）/ cash（现金注资，按注资日牌价记人民币成本）
     ("fund_injections", "inject_type", "inject_type VARCHAR(16) NOT NULL DEFAULT 'forex'"),
+    # 归属人：货是谁的（与出资比例无关）。部件为 NULL 时跟随整机
+    ("cards", "owner", "owner VARCHAR(64) NULL"),
+    ("devices", "owner", "owner VARCHAR(64) NULL"),
+    ("device_parts", "owner", "owner VARCHAR(64) NULL"),
+    # 置换时从显卡搬来的图记住原分类，换回去时能归位
+    ("device_part_media", "category", "category VARCHAR(24) NULL"),
 ]
 
 

@@ -10,6 +10,11 @@
       </span>
       <!-- 同类只剩这一件时不给删（deletable=false）：一台机器不可能没有 CPU，
            与其删掉再让人从「添加」里加回来，不如根本不摆这个按钮 -->
+      <!-- 置换：只有显卡部件能和单卡互换实物。还没落盘（没 id）或已经卖出的不给 -->
+      <el-button v-if="swappable" class="pe-swap" size="small" text type="primary" :icon="Switch"
+        @click="emit('swap')">
+        {{ t('swap.action') }}
+      </el-button>
       <el-button v-if="deletable" class="pe-del" size="small" text type="danger" :icon="Delete"
         @click="emit('remove')">
         {{ t('device.removePart') }}
@@ -45,6 +50,11 @@
       <el-form-item :label="t('card.status')">
         <StatusSelect v-model="part.status" />
       </el-form-item>
+      <!-- 空着 = 跟随整机。只有这一件确实归了别人（比如置换进来的那块卡还算单的）才填 -->
+      <el-form-item :label="t('owner.label')">
+        <OwnerSelect v-model="part.owner"
+          :placeholder="deviceOwner ? t('owner.followDeviceOf', { name: deviceOwner }) : t('owner.followDevice')" />
+      </el-form-item>
       <el-form-item :label="t('card.saleAmount')">
         <MoneyInput v-model:amount="part.sale_amount" v-model:currency="part.sale_currency" />
       </el-form-item>
@@ -76,7 +86,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Delete } from '@element-plus/icons-vue'
+import { Delete, Switch } from '@element-plus/icons-vue'
 import { cny } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
@@ -85,6 +95,7 @@ import MediaGallery from './MediaGallery.vue'
 import PartTypeTag from './PartTypeTag.vue'
 import MoneyInput from './MoneyInput.vue'
 import StatusSelect from './StatusSelect.vue'
+import OwnerSelect from './OwnerSelect.vue'
 
 // 这里**直接改 part 上的字段**（v-model="part.brand"）。part 就是详情页 form.parts
 // 里的那个对象，改它正是目的：页面的深层 watch 会看到，600ms 后自动落盘。若改成
@@ -97,9 +108,11 @@ const props = defineProps({
   ensureId: { type: Function, default: null },
   hostingConfigured: { type: Boolean, default: true },
   // 能不能删。同类只剩一件的必有槽位传 false
-  deletable: { type: Boolean, default: true }
+  deletable: { type: Boolean, default: true },
+  // 整机的归属人：部件自己没填时就是它，用作下拉的占位提示
+  deviceOwner: { type: String, default: null }
 })
-const emit = defineEmits(['remove', 'media-changed'])
+const emit = defineEmits(['remove', 'media-changed', 'swap'])
 
 const { t } = useI18n()
 const meta = useMetaStore()
@@ -127,6 +140,11 @@ const sold = computed(() => {
   const v = props.part.sale_amount
   return v !== null && v !== undefined && v !== ''
 })
+// 置换按库里的那一行来换，所以必须已经存过（有 id）；卖掉的在买家手里，换不了
+const swappable = computed(() =>
+  props.part.part_type === 'gpu' && Boolean(props.part.id) && !sold.value &&
+  !['received', 'paid'].includes(props.part.status)
+)
 const title = computed(() =>
   [props.part.brand, props.part.model, props.part.spec].filter(Boolean).join(' ') || '—'
 )
@@ -136,9 +154,11 @@ const title = computed(() =>
 .pe-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .pe-title { font-size: 15px; color: #e6edf7; font-weight: 500; }
 .pe-net { font-size: 12px; }
+.pe-swap { margin-left: auto; }
 .pe-del { margin-left: auto; }
+.pe-swap + .pe-del { margin-left: 0; }
 /* 「删除部件」是 small 文字按钮，24px 高——触屏上撑到能按准 */
 @media (hover: none) {
-  .pe-del { min-height: 34px; padding: 8px 10px; }
+  .pe-del, .pe-swap { min-height: 34px; padding: 8px 10px; }
 }
 </style>

@@ -59,6 +59,10 @@
             <el-form-item :label="t('card.status')" class="f-status">
               <StatusSelect v-model="form.status" />
             </el-form-item>
+            <!-- 整机的归属人，部件没单独填的都跟随它 -->
+            <el-form-item :label="t('owner.label')" class="f-owner">
+              <OwnerSelect v-model="form.owner" />
+            </el-form-item>
             <el-form-item :label="t('card.platform')" class="f-platform">
               <el-select v-model="form.source_platform" clearable>
                 <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
@@ -142,7 +146,7 @@
           </el-tab-pane>
           <el-tab-pane name="log">
             <template #label>
-              {{ t('detail.modLog') }}<span v-if="device.status_logs?.length" class="pd-count pcr-mono">{{ device.status_logs.length }}</span>
+              {{ t('detail.modLog') }}<span v-if="device.status_logs?.length || device.swaps?.length" class="pd-count pcr-mono">{{ (device.status_logs?.length || 0) + (device.swaps?.length || 0) }}</span>
             </template>
           </el-tab-pane>
         </el-tabs>
@@ -187,7 +191,9 @@
                 :deletable="canRemovePart(selectedPart)"
                 :ensure-id="() => ensurePartId(selectedPart)"
                 :hosting-configured="hostingConfigured"
+                :device-owner="form.owner"
                 @remove="removePart(selectedPart)"
+                @swap="openSwap(selectedPart)"
                 @media-changed="(n) => onPartMediaChanged(selectedPart, n)"
               />
               <el-empty v-else :description="t('detail.pickPart')" :image-size="60" />
@@ -246,6 +252,7 @@
 
           <!-- ── 记录 ──────────────────────────────────────────────────── -->
           <template v-else-if="active === 'log'">
+            <SwapHistory v-if="device.swaps?.length" :swaps="device.swaps" />
             <StatusTimeline v-if="device.status_logs?.length" :logs="device.status_logs" />
             <el-empty v-else :description="t('detail.noLogs')" :image-size="60" />
           </template>
@@ -267,6 +274,8 @@
       />
     </template>
   </DetailShell>
+  <SwapDialog v-if="device && swapPart" v-model="swapVisible" mode="part" :source-id="swapPart.id"
+    :source="swapSource" @done="onSwapped" />
 </template>
 
 <script setup>
@@ -288,6 +297,9 @@ import DevicePartPanel from '@/components/DevicePartPanel.vue'
 import FundShares from '@/components/FundShares.vue'
 import MediaGallery from '@/components/MediaGallery.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
+import OwnerSelect from '@/components/OwnerSelect.vue'
+import SwapDialog from '@/components/SwapDialog.vue'
+import SwapHistory from '@/components/SwapHistory.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
@@ -372,6 +384,8 @@ function blankPart(partType = 'other') {
     brand: null, model: null, spec: null, serial_no: null,
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
+    // null = 跟随整机的归属人
+    owner: null,
     status: 'purchased', note: null
   }
 }
@@ -386,6 +400,7 @@ function blankForm() {
     fund_source: 'pool',
     // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
     fund_shares: [],
+    owner: null,
     status: 'purchased', note: null,
     parts: []
   }
@@ -484,7 +499,10 @@ async function doSave() {
   await autosave.silently(() => mergePartIds(submitted, res))
   // 出资人不用在这里建：后端存比例时已经顺手把新名字落进字典了，这里只把候选刷新一下，
   // 否则同一次会话里换一台机器，刚敲的那个名字又不在下拉里了
-  if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor))) {
+  // 归属人同理（整机和部件上现敲的新名字）
+  const owners = [form.owner, ...form.parts.map((p) => p.owner)].filter(Boolean)
+  if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor)) ||
+      owners.some((n) => !meta.contributors.includes(n))) {
     meta.reloadContributors()
   }
 }
@@ -593,6 +611,33 @@ async function removePart(part) {
   selectedUid.value = next?._uid ?? null
 }
 
+// ── 置换 ──────────────────────────────────────────────────────────────
+const swapVisible = ref(false)
+const swapPart = ref(null)
+// 对照显示用的「自己这一头」：部件的规格栏就是核心编号，归属人没填就是整机的
+const swapSource = computed(() => {
+  const p = swapPart.value
+  if (!p) return {}
+  return { brand: p.brand, model: p.model, core_no: p.spec, serial_no: p.serial_no, owner: p.owner || form.owner }
+})
+
+// 先把没落盘的改动存完再开：置换按库里的值互换，表单里还没存的序列号会被换丢
+async function openSwap(part) {
+  if (autosave.pending.value) {
+    try { await autosave.flush() } catch { return }
+  }
+  swapPart.value = part
+  swapVisible.value = true
+}
+
+// 部件的品牌、型号、序列号、图片都换成了对方的，整份重载，并停回刚才那一件
+async function onSwapped() {
+  const keepId = swapPart.value?.id
+  await load()
+  const hit = form.parts.find((p) => p.id === keepId)
+  if (hit) selectedUid.value = hit._uid
+}
+
 async function load() {
   loading.value = true
   autosave.pause()
@@ -645,6 +690,7 @@ onMounted(async () => {
 /* 基本信息两行的字段宽度：基准宽度 + 上限，摆不下就折行 */
 .f-name { flex: 1 1 240px; max-width: 380px; }
 .f-status { flex: 0 1 140px; }
+.f-owner { flex: 0 1 120px; }
 .f-platform { flex: 0 1 130px; }
 .f-seller { flex: 1 1 130px; max-width: 200px; }
 .f-order { flex: 0 1 170px; }

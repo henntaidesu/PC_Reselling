@@ -17,6 +17,7 @@ from src.api import (
     fx_api,
     media_api,
     options_api,
+    swaps_api,
     system_api,
 )
 
@@ -29,6 +30,7 @@ router.include_router(inventory_api.router)
 router.include_router(media_api.router)
 router.include_router(fx_api.router)
 router.include_router(funds_api.router)
+router.include_router(swaps_api.router)
 router.include_router(options_api.router)
 router.include_router(dashboard_api.router)
 router.include_router(system_api.router)

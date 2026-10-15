@@ -319,6 +319,30 @@ export default {
     platformCompare: 'Platform comparison',
     allCardsNote: 'All cards'
   },
+  owner: {
+    label: 'Owner',
+    none: 'Unassigned',
+    followDevice: 'Same as device',
+    followDeviceOf: 'Same as device ({name})'
+  },
+  swap: {
+    action: 'Swap',
+    title: 'Physical swap',
+    hint: 'Swap a standalone card with a GPU inside a device: brand, model, core no., serial and photos are exchanged; prices, funds, owners and statuses stay as they are.',
+    self: 'This one',
+    pickPart: 'Pick a device GPU to swap with (unsold)',
+    pickCard: 'Pick a card to swap with (unsold)',
+    noCandidates: 'Nothing available to swap with',
+    date: 'Swap date',
+    confirm: 'Swap',
+    confirmText: 'Swap these two cards? {a}  ⇄  {b}',
+    done: 'Swapped',
+    history: 'Swap history',
+    cardBefore: 'Card was',
+    partBefore: 'Device part was',
+    mediaCount: '{n} photos',
+    deleted: 'deleted'
+  },
   fundShare: {
     placeholder: 'Select contributor',
     sum: 'Total {n}%',

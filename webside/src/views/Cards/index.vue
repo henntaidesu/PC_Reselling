@@ -97,6 +97,15 @@
               <FacetLabel :label="contributorLabel(o.value)" :count="o.count" />
             </el-option>
           </el-select>
+          <!-- 归属人：货是谁的。整机里有部件单独归别人时，按那个人筛也会出这台整机
+               （见 inventory_api._device_item 的 owners）。与出资人同一套「未指定」记号。 -->
+          <el-select v-model="filters.owner" multiple collapse-tags clearable filterable
+            :placeholder="t('owner.label')" class="f-contributor" @change="reload">
+            <el-option v-for="o in facetOptions('owner', filters.owner)" :key="o.value"
+              :label="ownerLabel(o.value)" :value="o.value">
+              <FacetLabel :label="ownerLabel(o.value)" :count="o.count" />
+            </el-option>
+          </el-select>
           <!-- 区间选择器在手机上摆不下：Element 的 daterange 面板是并排两个月历，
                写死 646px 宽（单个月历是 322px），360px 的屏上会被裁掉大半，右边那个月
                连同「确定」一起看不见。窄屏拆成起 / 止两个单日期选择器——面板只剩一个月，
@@ -239,6 +248,7 @@
                   <el-tag v-if="row.kind === 'device'" size="small" effect="plain" type="info" class="pcr-mono">
                     {{ row.sold_count }} / {{ row.part_count }}
                   </el-tag>
+                  <el-tag v-if="row.owner" size="small" effect="dark" type="info" class="owner-tag">{{ row.owner }}</el-tag>
                 </span>
                 <span class="m-corner m-corner--tr"><StatusTag :status="row.status" /></span>
                 <span v-if="row.fund_contributors?.length" class="m-corner m-corner--br m-date">
@@ -274,6 +284,7 @@
                 <el-tag v-if="row.kind === 'device'" size="small" effect="plain" type="info" class="pcr-mono">
                   {{ row.sold_count }} / {{ row.part_count }}
                 </el-tag>
+                <el-tag v-if="row.owner" size="small" effect="dark" type="info" class="owner-tag">{{ row.owner }}</el-tag>
               </div>
             </div>
           </div>
@@ -387,6 +398,12 @@
                  状态是用户手选的，列表擅自换掉它就和详情页对不上了。只有老数据没存状态时才兜底 -->
             <StatusTag v-if="row.status" :status="row.status" />
             <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('owner.label')" width="96">
+          <template #default="{ row }">
+            <!-- 部件跟随整机的归属人时压暗：真正需要一眼看到的是「这一件归了别人」 -->
+            <span :class="{ 'pcr-dim': row.kind === 'part' && !row.owner_own }">{{ row.owner }}</span>
           </template>
         </el-table-column>
         <!-- 没有就空着，不画「—」：这张表里空白只有一个意思——这一格本来就没有数据。
@@ -642,6 +659,9 @@ function kindLabel(value) {
 function contributorLabel(value) {
   return value === CONTRIBUTOR_NONE ? t('inv.contributorNone') : value
 }
+function ownerLabel(value) {
+  return value === CONTRIBUTOR_NONE ? t('owner.none') : value
+}
 
 // 第二排那三个固定取值的下拉，选项同样来自 facets（件数为 0 的不出现）
 const DERIVED_SELECTS = [
@@ -666,7 +686,7 @@ async function fetchFacets() {
 }
 
 const blankFilters = () => ({
-  keyword: '', kind: null, status: [], brand: null, model: null, source_platform: null, contributor: [],
+  keyword: '', kind: null, status: [], brand: null, model: null, source_platform: null, contributor: [], owner: [],
   stock: null, profit: null, pool: null, costMin: null, costMax: null
 })
 const filters = reactive(blankFilters())
@@ -687,7 +707,7 @@ const moreFilterCount = computed(() => {
 // 收起来的那几项才需要这个数提醒「现在看到的不是全部」。
 const activeFilterCount = computed(() => {
   const f = filters
-  return [f.kind, f.status.length, f.brand, f.model, f.source_platform, f.contributor.length, dateRange.value]
+  return [f.kind, f.status.length, f.brand, f.model, f.source_platform, f.contributor.length, f.owner.length, dateRange.value]
     .filter(Boolean).length + moreFilterCount.value
 })
 
@@ -825,6 +845,7 @@ function filterParams() {
     purchase_from: dateRange.value?.[0] || undefined,
     purchase_to: dateRange.value?.[1] || undefined,
     contributor: filters.contributor.length ? filters.contributor.join(',') : undefined,
+    owner: filters.owner.length ? filters.owner.join(',') : undefined,
     sale_from: saleRange.value?.[0] || undefined,
     sale_to: saleRange.value?.[1] || undefined,
     stock: filters.stock || undefined,
@@ -1100,6 +1121,7 @@ onActivated(() => {
 .f-platform { width: 140px !important; }
 .f-date { width: 250px !important; }
 .f-contributor { width: 170px !important; }
+.owner-tag { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
 .f-small { width: 130px !important; }
 .f-cost { display: flex; align-items: center; gap: 6px; }
 .f-cost-input { width: 110px !important; }
