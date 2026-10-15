@@ -1,322 +1,294 @@
 <template>
-  <div class="detail" v-loading="loading">
-    <div class="detail-head pcr-sticky-head">
-      <el-button :icon="ArrowLeft" text @click="$router.back()">{{ t('common.close') }}</el-button>
-      <div v-if="device" class="head-right">
-        <AutoSaveBadge :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
+  <!-- 整机详情：版式照 FreeMarket_Manager 库存管理的商品表单——左边一摞分区卡片
+       （基本信息卡 + 一张标签页卡），右边一条定宽的整机照片侧栏。没有模块导航、没有
+       保存按钮：每个值都是直接可改的控件，改完自动保存。
+       整块定高（高度由弹窗给，见 App.vue 的 .pcr-detail-dialog），弹窗自己不滚动：
+       基本信息卡按内容高，标签页卡吃掉剩下的高度、在卡里滚。 -->
+  <div class="dd" v-loading="loading">
+    <!-- 顶栏：名称 + 状态 + 这台机器的总账。总账放在这里而不是某个标签页里——
+         部件的售价只有对着「一共花了多少、还差多少回本」才有意义，切到哪页都得看得见 -->
+    <header class="dd-head">
+      <template v-if="device">
+        <div class="dd-head-title">
+          <h2 class="dd-name">{{ form.title || t('device.noTitle') }}</h2>
+          <StatusTag :status="form.status" />
+        </div>
+        <div class="dd-stats">
+          <span class="dd-stat">
+            <span class="dd-stat-k">{{ t('device.cost') }}</span>
+            <b class="dd-stat-v pcr-mono">{{ cny(money.cost_total_cny) }}</b>
+          </span>
+          <span class="dd-stat">
+            <span class="dd-stat-k">{{ t('device.revenue') }}</span>
+            <b class="dd-stat-v pcr-mono">{{ cny(money.sale_cny) }}</b>
+          </span>
+          <span class="dd-stat" :class="statTone(money.profit_cny)">
+            <span class="dd-stat-k">{{ t('device.profit') }}</span>
+            <b class="dd-stat-v pcr-mono">{{ cny(money.profit_cny) }}</b>
+          </span>
+          <span class="dd-stat">
+            <span class="dd-stat-k">{{ t('device.recovery') }}</span>
+            <b class="dd-stat-v pcr-mono">{{ money.recovery === null ? '—' : money.recovery + '%' }}</b>
+          </span>
+          <span class="dd-stat">
+            <span class="dd-stat-k">{{ t('device.soldParts') }}</span>
+            <b class="dd-stat-v pcr-mono">{{ money.sold_count }} / {{ money.part_count }}</b>
+          </span>
+          <span v-if="money.settled" class="dd-flag done">{{ t('device.settledHint') }}</span>
+          <el-tooltip v-else-if="money.incomplete" :content="t('card.incomplete')">
+            <span class="dd-flag warn"><el-icon><WarningFilled /></el-icon>{{ t('card.incomplete') }}</span>
+          </el-tooltip>
+        </div>
+      </template>
+      <div class="dd-head-right">
+        <AutoSaveBadge v-if="device" :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
+        <el-button :icon="Close" text class="dd-close" :title="t('common.close')" @click="emit('close')" />
       </div>
-    </div>
+    </header>
 
-    <template v-if="device">
-      <div class="title-row">
-        <span class="pcr-mono mgmt">{{ device.mgmt_no }}</span>
-        <!-- 整机名称是自己起的，不像显卡那样能用品牌 + 型号拼出来，所以标题本身就是个
-             可改的字段。平时是文字、点铅笔才变成输入框：这一行里还并着状态和草稿标记，
-             常驻一个输入框会把它们挤没。没有取消——这一页所有改动都是即时保存的，
-             留一个「取消」只会让人以为别处的改动也能撤回 -->
-        <el-input
-          v-if="editingTitle"
-          ref="titleInput"
-          v-model="form.title"
-          class="title-input"
-          size="large"
-          :maxlength="TITLE_MAX"
-          show-word-limit
-          @keyup.enter="editingTitle = false"
-          @keyup.esc="editingTitle = false"
-          @blur="editingTitle = false"
-        />
-        <template v-else>
-          <h2 class="model">{{ form.title || t('device.noTitle') }}</h2>
-          <el-button class="title-edit" text :icon="EditPen" :title="t('device.rename')"
-            @click="startEditTitle" />
-        </template>
-        <StatusTag :status="form.status" />
-        <el-tag v-if="device.is_draft" size="small" type="warning" effect="plain">{{ t('common.draft') }}</el-tag>
-      </div>
+    <div v-if="device" class="dd-layout">
+      <div class="dd-main">
+        <!-- ── 基本信息：字段不走等宽网格，各自按内容给宽度、一行摆不下就折行——
+             「状态」「平台」拉到半行宽只会让一行字显得空 ───────────────────── -->
+        <section class="dd-card">
+          <div class="dd-card-head">
+            <span class="dd-card-title">{{ t('detail.modBasic') }}</span>
+            <span class="dd-badge pcr-mono">{{ t('card.mgmtNo') }} {{ device.mgmt_no }}</span>
+            <span v-if="device.is_draft" class="dd-badge dd-badge--warn">{{ t('common.draft') }}</span>
+          </div>
+          <el-form label-position="top" size="small" class="dd-form" @submit.prevent>
+            <div class="dd-row">
+              <!-- 整机名称是自己起的，不像显卡那样能用品牌 + 型号拼出来；顶栏的名字跟着它实时变 -->
+              <el-form-item :label="t('device.name')" class="f-name">
+                <el-input v-model="form.title" :maxlength="TITLE_MAX" show-word-limit />
+              </el-form-item>
+              <el-form-item :label="t('card.status')" class="f-status">
+                <StatusSelect v-model="form.status" />
+              </el-form-item>
+              <el-form-item :label="t('card.platform')" class="f-platform">
+                <el-select v-model="form.source_platform" clearable>
+                  <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
+                </el-select>
+              </el-form-item>
+              <el-form-item :label="t('card.seller')" class="f-seller">
+                <el-input v-model="form.seller" />
+              </el-form-item>
+            </div>
+            <div class="dd-row">
+              <el-form-item :label="t('card.orderNo')" class="f-order">
+                <el-input v-model="form.order_no" autocapitalize="off" autocorrect="off" spellcheck="false" />
+              </el-form-item>
+              <el-form-item :label="t('card.itemUrl')" class="f-url">
+                <el-input v-model="form.item_url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false">
+                  <template v-if="form.item_url" #append>
+                    <a :href="form.item_url" target="_blank" rel="noopener" class="url-open" :title="t('common.detail')">↗</a>
+                  </template>
+                </el-input>
+              </el-form-item>
+              <!-- 备注随内容长高，但封顶四行：再高就把下面的标签页卡挤没了 -->
+              <el-form-item :label="t('card.note')" class="f-note">
+                <el-input v-model="form.note" type="textarea" :autosize="{ minRows: 1, maxRows: 4 }" resize="none" />
+              </el-form-item>
+            </div>
+          </el-form>
+        </section>
 
-      <!-- 摘要条。切到任何一个部件都还看得见这台机器的总账——部件的售价只有对着
-           「一共花了多少、还差多少回本」才有意义 -->
-      <div class="summary">
-        <div class="summary-item">
-          <span class="summary-label">{{ t('device.cost') }}</span>
-          <span class="pcr-mono summary-value">{{ cny(money.cost_total_cny) }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">{{ t('device.revenue') }}</span>
-          <span class="pcr-mono summary-value">{{ cny(money.sale_cny) }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">{{ t('device.profit') }}</span>
-          <span class="pcr-mono summary-value" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">{{ t('device.recovery') }}</span>
-          <span class="pcr-mono summary-value">{{ money.recovery === null ? '—' : money.recovery + '%' }}</span>
-        </div>
-        <div class="summary-item">
-          <span class="summary-label">{{ t('device.soldParts') }}</span>
-          <span class="pcr-mono summary-value">{{ money.sold_count }} / {{ money.part_count }}</span>
-        </div>
-        <!-- 分红：盈亏全额按出资比例分。整机是一进多出，没卖完的时候这个数是「到目前
-             为止各人分到多少」，会随着部件陆续卖出往上走 -->
-        <div v-for="d in (device?.dividends || [])" :key="d.contributor" class="summary-item">
-          <span class="summary-label">{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
-          <span class="pcr-mono summary-value" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</span>
-        </div>
-        <div v-if="money.settled" class="summary-flag done">{{ t('device.settledHint') }}</div>
-        <el-tooltip v-else-if="money.incomplete" :content="t('card.incomplete')">
-          <div class="summary-flag warn"><el-icon><WarningFilled /></el-icon>{{ t('card.incomplete') }}</div>
-        </el-tooltip>
-      </div>
+        <!-- ── 标签页卡：吃掉剩下的高度，内容在卡里滚。el-tabs 只当标签条用，内容区
+             自己按 active 用 v-if 只挂当前那页：图片组件一挂载就去拉图 ─────────── -->
+        <section class="dd-card dd-card--tabs">
+          <el-tabs v-model="active" class="dd-tabs">
+            <el-tab-pane name="parts">
+              <template #label>
+                {{ t('detail.modParts') }}<span v-if="filledPartCount" class="dd-count pcr-mono">{{ filledPartCount }}</span>
+              </template>
+            </el-tab-pane>
+            <el-tab-pane name="purchase">
+              <template #label>
+                {{ t('detail.tabPurchaseFund') }}<span v-if="device.fund_draws?.length" class="dd-count pcr-mono">{{ device.fund_draws.length }}</span>
+              </template>
+            </el-tab-pane>
+            <el-tab-pane name="log">
+              <template #label>
+                {{ t('detail.modLog') }}<span v-if="device.status_logs?.length" class="dd-count pcr-mono">{{ device.status_logs.length }}</span>
+              </template>
+            </el-tab-pane>
+          </el-tabs>
 
-      <!-- 二级菜单：整机 + 每个**部件类型**一页。按类型分而不是按行分，三条内存就是
-           同一页里的三张卡片，而不是三个都叫「内存」的标签。
-           el-tabs 只当标签条用，内容自己在下面渲染——挂在 tab-pane 里的话所有部件会
-           一次性全部挂载，每个都去拉一遍图片 -->
-      <div class="tabs-row">
-        <el-tabs ref="tabsRef" v-model="activeTab" class="part-tabs pcr-touch-tabs">
-          <el-tab-pane name="device">
-            <template #label>
-              <span class="tab-label">{{ t('device.tabDevice') }}</span>
-            </template>
-          </el-tab-pane>
-          <el-tab-pane v-for="type in PART_TABS" :key="type" :name="type">
-            <template #label>
-              <span class="tab-label" :class="{ 'tab-label--blank': !tabPartCount(type) }">
-                {{ t('partType.' + type) }}
-                <span v-if="tabPartCount(type)" class="tab-badge">{{ tabPartCount(type) }}</span>
-              </span>
-            </template>
-          </el-tab-pane>
-        </el-tabs>
-      </div>
-
-      <!-- ── 整机页 ────────────────────────────────────────────────────── -->
-      <template v-if="activeTab === 'device'">
-        <!-- 左表单 / 右图片，4 : 6 两列等高，与下面每个部件的卡片同一套
-             （分栏本身在 App.vue 的 .pcr-split 里） -->
-        <div class="pcr-split split-block">
-          <div class="pcr-split-form">
-            <el-card shadow="never">
-              <template #header>{{ t('device.purchaseInfo') }}</template>
-
-              <div class="pcr-fields">
-                <InlineField :label="t('device.name')">
-                  <el-input v-model="form.title" :maxlength="TITLE_MAX" />
-                </InlineField>
-                <InlineField :label="t('card.status')">
-                  <StatusSelect v-model="form.status" />
-                </InlineField>
-                <InlineField :label="t('card.platform')">
-                  <el-select v-model="form.source_platform" clearable>
-                    <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
-                  </el-select>
-                </InlineField>
-                <InlineField :label="t('card.seller')">
-                  <el-input v-model="form.seller" />
-                </InlineField>
-                <InlineField :label="t('card.orderNo')">
-                  <el-input v-model="form.order_no" />
-                </InlineField>
-                <InlineField :label="t('card.itemUrl')">
-                  <el-input v-model="form.item_url" inputmode="url" autocapitalize="off" autocorrect="off" spellcheck="false" />
-                  <a v-if="form.item_url" :href="form.item_url" target="_blank" class="row-link"
-                    :title="t('common.detail')">↗</a>
-                </InlineField>
+          <div class="dd-tab-body" :class="{ 'dd-tab-body--split': active === 'parts' }">
+            <!-- ── 部件：左边一览全部部件，右边编辑选中的那一件 ─────────────── -->
+            <div v-if="active === 'parts'" class="parts">
+              <div class="parts-list">
+                <!-- 一行一件。没落盘的模板槽位还没有 id，key 用本地的 _uid -->
+                <button v-for="row in form.parts" :key="row._uid" type="button" class="pl-row"
+                  :class="{ 'is-active': row._uid === selectedUid }" @click="selectedUid = row._uid">
+                  <PartTypeTag :type="row.part_type" />
+                  <span class="pl-name" :class="{ 'pcr-dim': !hasPartContent(row) }">
+                    {{ hasPartContent(row) ? partTitle(row) : t('device.blankSlot') }}
+                  </span>
+                  <span v-if="row._media_count" class="pl-media pcr-mono pcr-dim">
+                    <el-icon><Picture /></el-icon>{{ row._media_count }}
+                  </span>
+                  <span class="pl-money pcr-mono" :class="{ 'pl-unsold': !isSold(row) && hasPartContent(row) }">
+                    {{ isSold(row) ? formatMoney(row.sale_amount, row.sale_currency) : (hasPartContent(row) ? t('device.unsold') : '') }}
+                  </span>
+                </button>
+                <!-- 加部件：先选类型。类型只在添加时定一次，之后不给改——类型换掉，品牌、规格、
+                     售价全都对不上，不如删掉重加一件 -->
+                <el-dropdown trigger="click" class="pl-add-wrap" @command="addPart">
+                  <el-button class="pl-add" size="small" :icon="Plus">{{ t('device.addPart') }}</el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item v-for="type in PART_TABS" :key="type" :command="type">
+                        {{ t('partType.' + type) }}
+                      </el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
               </div>
-
-              <el-divider />
-
-              <div class="pcr-fields">
-                <InlineField :label="t('card.purchaseDate')">
-                  <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
-                </InlineField>
-                <!-- 汇率是按购入日取的快照，不给手改：改了日期，保存之后这一行自己就变了。
-                     走资金池（已确认扣除）时成本按被吃掉那几批注资的加权汇率算，这里就得显示那个数，
-                     否则页面上的汇率 × 金额对不上总成本；当日牌价降为小字留作对照。 -->
-                <InlineField :label="t('card.purchaseFx')" readonly>
-                  <span v-if="money.from_pool && money.pool_fx_rate" class="pcr-mono">{{ formatRate(money.pool_fx_rate) }}<span
-                    class="pcr-dim"> · {{ poolRateLabel }}<template v-if="device.purchase_fx_rate">
-                    · {{ t('card.marketRate') }} {{ formatRate(device.purchase_fx_rate) }}</template></span></span>
-                  <span v-else class="pcr-mono">{{ device.purchase_fx_rate ? formatRate(device.purchase_fx_rate) : '—' }}<span
-                    v-if="device.purchase_fx_date" class="pcr-dim"> · {{ device.purchase_fx_date }}</span></span>
-                </InlineField>
-                <InlineField :label="t('device.purchaseAmount')">
-                  <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
-                </InlineField>
-                <InlineField :label="t('card.intlShipping')">
-                  <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
-                </InlineField>
+              <div class="parts-editor">
+                <DevicePartPanel
+                  v-if="selectedPart"
+                  :key="selectedPart._uid"
+                  :part="selectedPart"
+                  :net="partNet(selectedPart)"
+                  :deletable="canRemovePart(selectedPart)"
+                  :ensure-id="() => ensurePartId(selectedPart)"
+                  :hosting-configured="hostingConfigured"
+                  @remove="removePart(selectedPart)"
+                  @media-changed="(n) => onPartMediaChanged(selectedPart, n)"
+                />
+                <el-empty v-else :description="t('detail.pickPart')" :image-size="60" />
               </div>
-                <InlineField :label="t('card.fundShares')" stack>
-                  <FundShares v-model="form.fund_shares" :options="contributorOptions" />
-                </InlineField>
-                <InlineField :label="t('card.poolDraw')" readonly>
-                  <div class="pool-draw">
-                    <template v-if="poolDrawn">
-                      <span class="pool-done">{{ t('card.poolDrawn') }}</span>
-                      <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">
-                        {{ t('card.poolUndo') }}
-                      </el-button>
-                    </template>
-                    <el-button v-else type="primary" size="small" :loading="poolBusy"
-                      :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
-                      {{ t('card.poolConfirm') }}
-                    </el-button>
-                    <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
+            </div>
+
+            <!-- ── 购入与资金：左边填一笔总价、出资比例与确认扣款；右边对着结算、
+                 资金池分摊和分红看。卡片窄了（平板、手机）就上下叠放 ──────────── -->
+            <div v-else-if="active === 'purchase'" class="row2">
+              <section class="sub">
+                <el-form label-position="top" size="small" class="dd-form dd-grid" @submit.prevent>
+                  <el-form-item :label="t('card.purchaseDate')">
+                    <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
+                  </el-form-item>
+                  <!-- 汇率是按购入日取的快照，不给手改。走资金池（已确认扣除）时成本按被吃掉那几批
+                       注资的加权汇率算，这里就得显示那个数，否则汇率 × 金额对不上总成本 -->
+                  <el-form-item :label="t('card.purchaseFx')">
+                    <div class="pcr-ro">
+                      <template v-if="money.from_pool && money.pool_fx_rate">
+                        <span class="pcr-mono">{{ formatRate(money.pool_fx_rate) }}</span>
+                        <span class="pcr-dim">· {{ poolRateLabel }}</span>
+                        <span v-if="device.purchase_fx_rate" class="pcr-dim">· {{ t('card.marketRate') }} {{ formatRate(device.purchase_fx_rate) }}</span>
+                      </template>
+                      <template v-else>
+                        <span class="pcr-mono">{{ device.purchase_fx_rate ? formatRate(device.purchase_fx_rate) : '—' }}</span>
+                        <span v-if="device.purchase_fx_date" class="pcr-dim">· {{ device.purchase_fx_date }}</span>
+                      </template>
+                    </div>
+                  </el-form-item>
+                  <el-form-item :label="t('device.purchaseAmount')">
+                    <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
+                  </el-form-item>
+                  <el-form-item :label="t('card.intlShipping')">
+                    <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
+                  </el-form-item>
+                  <div v-if="device.warnings?.length" class="hint warn pcr-span-2">
+                    <div v-for="(w, i) in device.warnings" :key="i">{{ w }}</div>
                   </div>
-                </InlineField>
+                  <p class="pcr-dim small pcr-span-2">{{ t('device.noPartCost') }}</p>
+                </el-form>
 
-              <el-divider />
+                <div class="sub-title sec-gap">{{ t('detail.modFund') }}</div>
+                <div class="sub-label">{{ t('card.fundShares') }}</div>
+                <FundShares v-model="form.fund_shares" :options="contributorOptions" />
 
-              <InlineField :label="t('card.note')" stack>
-                <el-input v-model="form.note" type="textarea" :rows="2" />
-              </InlineField>
+                <div class="sub-label sub-gap">{{ t('card.poolDraw') }}</div>
+                <div class="pool-draw">
+                  <template v-if="poolDrawn">
+                    <span class="pool-done">{{ t('card.poolDrawn') }}</span>
+                    <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">{{ t('card.poolUndo') }}</el-button>
+                  </template>
+                  <el-button v-else type="primary" size="small" :loading="poolBusy"
+                    :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
+                    {{ t('card.poolConfirm') }}
+                  </el-button>
+                  <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
+                </div>
+                <p class="pcr-dim small">{{ t('detail.poolDrawHint') }}</p>
+              </section>
 
-              <div v-if="device.warnings?.length" class="hint warn">
-                <div v-for="(w, i) in device.warnings" :key="i">{{ w }}</div>
-              </div>
-            </el-card>
+              <!-- 结算：国内运费是各部件发货时付的，汇总在这里；成本三项摊开，
+                   确认运费确实算进去了 -->
+              <section class="sub sub--side">
+                <div class="settle">
+                  <div class="sub-title">{{ t('detail.settlement') }}</div>
+                  <div class="settle-row"><span>{{ t('device.purchaseAmount') }}</span><b class="pcr-mono">{{ cny(money.purchase_cny) }}</b></div>
+                  <div class="settle-row"><span>{{ t('card.intlShipping') }}</span><b class="pcr-mono">{{ cny(money.intl_shipping_cny) }}</b></div>
+                  <div class="settle-row"><span>{{ t('card.domesticShipping') }}</span><b class="pcr-mono">{{ cny(money.domestic_shipping_cny) }}</b></div>
+                  <div class="settle-row settle-sum"><span>{{ t('device.cost') }}</span><b class="pcr-mono">{{ cny(money.cost_total_cny) }}</b></div>
+                  <div class="settle-row"><span>{{ t('device.revenue') }}</span><b class="pcr-mono">{{ cny(money.sale_cny) }}</b></div>
+                  <div class="settle-row settle-big">
+                    <span>{{ t('device.profit') }}</span>
+                    <b class="pcr-mono" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</b>
+                  </div>
+                </div>
+                <PoolBreakdown class="sec-gap" v-if="device.fund_draws?.length" :draws="device.fund_draws" />
+                <el-empty class="sec-gap" v-else :description="t('detail.noPool')" :image-size="50" />
+                <!-- 分红：盈亏全额按出资比例分。整机是一进多出，没卖完的时候这个数是「到目前
+                     为止各人分到多少」，会随着部件陆续卖出往上走 -->
+                <template v-if="device.dividends?.length">
+                  <div class="sub-title sec-gap">{{ t('card.dividends') }}</div>
+                  <div v-for="d in device.dividends" :key="d.contributor" class="settle-row">
+                    <span>{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
+                    <b class="pcr-mono" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</b>
+                  </div>
+                </template>
+              </section>
+            </div>
+
+            <!-- ── 记录 ──────────────────────────────────────────────────── -->
+            <template v-else-if="active === 'log'">
+              <StatusTimeline v-if="device.status_logs?.length" :logs="device.status_logs" />
+              <el-empty v-else :description="t('detail.noLogs')" :image-size="60" />
+            </template>
           </div>
+        </section>
+      </div>
 
-          <div class="pcr-split-media">
-            <!-- 整机自己的照片：整机外观、铭牌、开机测试这类拍的是「这台机器」，
-                 不属于任何一个部件 -->
-            <el-card shadow="never">
-              <template #header>
-                {{ t('device.deviceMedia') }}
-                <span class="pcr-dim media-hint">{{ t('device.deviceMediaHint') }}</span>
-              </template>
-              <MediaGallery
-                owner="devices"
-                :owner-id="device.id"
-                :hosting-configured="hostingConfigured"
-                large
-                @changed="onDeviceMediaChanged"
-              />
-            </el-card>
-          </div>
+      <!-- ── 整机照片侧栏：拍的是「这台机器」本身，不属于任何一个部件。定宽、与左列
+           等高、自己滚——图再多也不把弹窗撑高 ─────────────────────────────── -->
+      <aside class="dd-aside">
+        <div class="dd-card-head">
+          <span class="dd-card-title">{{ t('detail.modDeviceMedia') }}</span>
         </div>
-
-        <!-- 部件一览：分页之后总得有一个地方能一眼看完「哪几件卖了、哪几件还空着」 -->
-        <el-card shadow="never" class="block">
-          <template #header>{{ t('device.partsOverview') }}</template>
-          <!-- 手机：这张表七列合计约 890px，360px 的屏上要横划两屏半——而它存在的理由
-               恰恰是「一眼看完哪几件卖了、哪几件还空着」，横滚等于把这个理由抵消掉。
-               换成一行一件的紧凑列表，点一行同样跳到那个部件页。 -->
-          <!-- 平板（≤1200px）同样用这份列表：iPad 竖屏内容区只有 550 多像素，七列照样要横划 -->
-          <div v-if="isCompact" class="mp-list">
-            <!-- 没落盘的模板槽位还没有 id，退回用下标做 key。这张表是只读的，不会
-                 增删重排，下标在这里是稳的 -->
-            <button v-for="(row, i) in form.parts" :key="row.id ?? 'slot-' + i"
-              type="button" class="mp-row" @click="activeTab = partTab(row.part_type)">
-              <PartTypeTag :type="row.part_type" />
-              <span class="mp-name" :class="{ 'pcr-dim': !hasPartContent(row) }">
-                {{ hasPartContent(row) ? partTitle(row) : t('device.blankSlot') }}
-              </span>
-              <span v-if="row._media_count" class="mp-media pcr-mono pcr-dim">
-                <el-icon><Picture /></el-icon>{{ row._media_count }}
-              </span>
-              <StatusTag v-if="isSold(row)" :status="row.status" />
-              <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
-              <span class="mp-money pcr-mono">{{ isSold(row) ? formatMoney(row.sale_amount, row.sale_currency) : '' }}</span>
-            </button>
-          </div>
-
-          <el-table v-else :data="form.parts" class="parts-table" @row-click="(row) => (activeTab = partTab(row.part_type))">
-            <el-table-column :label="t('inv.kind')" width="110">
-              <template #default="{ row }">
-                <PartTypeTag :type="row.part_type" />
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('inv.name')" min-width="200">
-              <template #default="{ row }">
-                <span v-if="hasPartContent(row)">{{ partTitle(row) }}</span>
-                <span v-else class="pcr-dim">{{ t('device.blankSlot') }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('card.media')" width="90" align="center">
-              <template #default="{ row }">
-                <span v-if="row._media_count" class="pcr-mono">{{ row._media_count }}</span>
-                <span v-else class="pcr-dim">—</span>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('card.saleDate')" width="120">
-              <template #default="{ row }"><span class="pcr-mono pcr-dim">{{ row.sale_date || '—' }}</span></template>
-            </el-table-column>
-            <el-table-column :label="t('card.status')" width="110">
-              <template #default="{ row }">
-                <StatusTag v-if="isSold(row)" :status="row.status" />
-                <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('card.saleAmount')" width="130" align="right">
-              <template #default="{ row }">
-                <span class="pcr-mono">{{ isSold(row) ? formatMoney(row.sale_amount, row.sale_currency) : '—' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column :label="t('device.netIncome')" width="130" align="right">
-              <template #default="{ row }">
-                <span class="pcr-mono">{{ partNet(row) === null ? '—' : cny(partNet(row)) }}</span>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-
-        <el-row :gutter="16">
-          <el-col :xs="24" :lg="12">
-            <PoolBreakdown v-if="device.fund_draws?.length" :draws="device.fund_draws" class="block" />
-          </el-col>
-          <el-col :xs="24" :lg="12">
-            <StatusTimeline v-if="device.status_logs?.length" :logs="device.status_logs" class="block" />
-          </el-col>
-        </el-row>
-      </template>
-
-      <!-- ── 某一类部件的页：这一类下面每件一张卡片 ────────────────────── -->
-      <template v-else>
-        <DevicePartPanel
-          v-for="part in tabParts"
-          :key="part._uid"
-          :part="part"
-          :net="partNet(part)"
-          :deletable="canRemovePart(part)"
-          :ensure-id="() => ensurePartId(part)"
-          :hosting-configured="hostingConfigured"
-          @remove="removePart(part)"
-          @media-changed="(n) => onPartMediaChanged(part, n)"
-        />
-        <!-- 加同类部件的入口放在这一类的末尾：插第二条内存时人正看着第一条，
-             不该再回到顶上的菜单里去找类型。类型只在添加时定一次，之后不给改——
-             类型换掉，下面的品牌、规格、售价全都对不上，不如删掉重加一件 -->
-        <el-card shadow="never" class="add-card" @click="addPart(activeTab)">
-          <el-icon><Plus /></el-icon>
-          <span>{{ t('device.addPartOfType', { name: t('partType.' + activeTab) }) }}</span>
-        </el-card>
-      </template>
-    </template>
+        <p class="pcr-dim small media-hint">{{ t('device.deviceMediaHint') }}</p>
+        <div class="dd-aside-body">
+          <MediaGallery
+            owner="devices"
+            :owner-id="device.id"
+            :hosting-configured="hostingConfigured"
+            @changed="onDeviceMediaChanged"
+          />
+        </div>
+      </aside>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { onBeforeRouteLeave, useRoute } from 'vue-router'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { ArrowLeft, EditPen, Plus, WarningFilled } from '@element-plus/icons-vue'
+import { Close, Picture, Plus, WarningFilled } from '@element-plus/icons-vue'
 import { devicesApi, systemApi } from '@/api'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
-import { useIsCompact, useIsTouch } from '@/composables/useIsMobile'
+import { useIsTouch } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import DevicePartPanel from '@/components/DevicePartPanel.vue'
 import FundShares from '@/components/FundShares.vue'
-import InlineField from '@/components/InlineField.vue'
 import MediaGallery from '@/components/MediaGallery.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
@@ -326,7 +298,14 @@ import PartTypeTag from '@/components/PartTypeTag.vue'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 
 const { t } = useI18n()
-const route = useRoute()
+// 详情不再是一个路由页，而是库存列表上的悬浮弹窗（views/Cards 持有它）。
+// id 由列表从 ?open= 里解析出来传进来；关不关、什么时候关也由列表决定，这里只发 close。
+const props = defineProps({
+  id: { type: Number, required: true },
+  // 整机专用：落地停在哪个部件标签上
+  tab: { type: String, default: null }
+})
+const emit = defineEmits(['close'])
 const meta = useMetaStore()
 const contributorOptions = computed(() => meta.contributors)
 
@@ -336,41 +315,34 @@ const contributorOptions = computed(() => meta.contributors)
 const device = ref(null)
 const loading = ref(false)
 const hostingConfigured = ref(true)
-// 'device' 或某个部件类型（PART_TABS 里的一个）
-const activeTab = ref('device')
+// 标签页卡当前停在哪一页。默认「部件」：基本信息常驻在上面那张卡里，打开一台机器
+// 最常做的事是录 / 改某个部件的售价
+const active = ref('parts')
+
+// 「部件」页里右边正在编辑的那一件。记本地 _uid 而不是服务端 id：模板槽位和刚加的
+// 部件还没有 id，而 _uid 从载入起就有、保存回填 id 时也不变
+const selectedUid = ref(null)
+const selectedPart = computed(() => form.parts.find((p) => p._uid === selectedUid.value) || null)
 
 // 名称的长度上限。与后端 DevicePayload.title 的 max_length 一致——两边不一样的话，
 // 前端放进去的字后端会原地打回 422，而这一页是自动保存的，表现成「怎么改都存不上」。
 const TITLE_MAX = 100
-const editingTitle = ref(false)
-const titleInput = ref(null)
-
-async function startEditTitle() {
-  editingTitle.value = true
-  await nextTick()
-  titleInput.value?.focus()
-}
 
 const { platforms } = usePlatforms()
-const { isCompact } = useIsCompact()
 const { isTouch } = useIsTouch()
 
-// 触屏上标签条改成原生横滑（App.vue 的 .pcr-touch-tabs），Element 自己那套
-// 「平移 nav + 左右箭头」就不再管滚动了。从部件一览点进某个部件时，被选中的标签
-// 可能在可视区外面——得自己把它滚进来，不然人看不到现在在哪一页。
-const tabsRef = ref(null)
-watch(activeTab, async () => {
-  if (!isTouch.value) return
-  await nextTick()
-  const el = tabsRef.value?.$el?.querySelector('.el-tabs__item.is-active')
-  el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
-})
 // 金额要按购入日 / 各部件出售日的汇率折算，只有后端算得准，前端不自己算一遍
 // （自己算必然和列表页对不上）
 const money = computed(() => device.value?.money || {
   cost_total_cny: null, sale_cny: null, profit_cny: null, recovery: null,
   part_count: 0, sold_count: 0, settled: false, incomplete: false, pool_fx_rate: null
 })
+
+// 顶栏利润药丸的色调：赚了绿、亏了红，算不出来（缺汇率）或刚好持平不上色
+function statTone(v) {
+  if (v === null || v === undefined || Number(v) === 0) return ''
+  return Number(v) > 0 ? 'is-up' : 'is-down'
+}
 
 const poolRateLabel = computed(() => {
   const shares = device.value?.fund_shares || []
@@ -423,15 +395,11 @@ const partsByTab = computed(() => {
   for (const part of form.parts) map[partTab(part.part_type)].push(part)
   return map
 })
-const tabParts = computed(() => partsByTab.value[activeTab.value] || [])
 
-// 标签上的角标是这一类**填过内容**的部件件数，口径与下面那个「未填写」的淡化完全一致
-//（都走 hasPartContent），所以不会出现「标着未填写却带个角标」。刻意不跟 isBlankPart：
-// 那是「要不要提交给后端」的口径，库里存着的空行、只传了图的行都算数，可它们在人眼里
-// 就是还没录，显示成一件反而对不上。一件都没填的那一类不显示角标。
-function tabPartCount(type) {
-  return partsByTab.value[type].filter(hasPartContent).length
-}
+// 「部件」标签上的计数是**填过内容**的件数，口径与列表里那个「未填写」的淡化完全一致
+//（都走 hasPartContent）。刻意不跟 isBlankPart：那是「要不要提交给后端」的口径，摆出来的
+// 模板槽位、只传了图的行都算数，可它们在人眼里就是还没录，算进去反而对不上。
+const filledPartCount = computed(() => form.parts.filter(hasPartContent).length)
 
 // 六个标准槽位每类至少留一件——一台机器不可能没有 CPU，而空槽位不落库，留着没成本。
 // 「其他」是可选的，删到零也行。
@@ -590,12 +558,16 @@ async function ensurePartId(part) {
   return part.id || null
 }
 
-// 从某一类页面底部的「添加」卡进来，加的就是这一类；「其他」页加出来的是 other。
-// 新卡片直接接在这一页的末尾，不跳页。
+// 加的部件插在同类的最后一件后面，列表里同一类始终挨在一起；没有同类的接在末尾。
+// 加完直接选中它——人点「添加」就是要马上填这一件。
 function addPart(type) {
   const part = blankPart(type)
   part._keep = true          // 手动加的就是要它，哪怕还一个字没填
-  form.parts.push(part)
+  let at = -1
+  form.parts.forEach((p, i) => { if (partTab(p.part_type) === type) at = i })
+  if (at < 0) form.parts.push(part)
+  else form.parts.splice(at + 1, 0, part)
+  selectedUid.value = part._uid
 }
 
 async function removePart(part) {
@@ -612,16 +584,30 @@ async function removePart(part) {
     }
   }
   form.parts.splice(index, 1)
-  // 留在当前这一页：删完接着看同类剩下的那几件，不用再点回来
+  // 选中挪到原位置上的那一件（也就是原来的下一件），删的是最后一件就选新的最后一件：
+  // 删完右边不至于空着，人也还停在列表的同一个位置
+  const next = form.parts[Math.min(index, form.parts.length - 1)]
+  selectedUid.value = next?._uid ?? null
 }
 
 async function load() {
   loading.value = true
   autosave.pause()
   try {
-    const res = await devicesApi.get(route.params.id)
+    const res = await devicesApi.get(props.id)
     device.value = res
     Object.assign(form, normalize(res))
+    // 部件页默认选中第一件填过的（都没填就第一个槽位）。从库存列表的部件一览点进来时
+    // 带着部件类型：直接选中那一类的第一件。走 partTab 归一：散热 / 机箱这类历史类型
+    // 落在「其他」
+    const first = form.parts.find(hasPartContent) || form.parts[0]
+    selectedUid.value = first?._uid ?? null
+    if (props.tab) {
+      const type = partTab(props.tab)
+      const hit = form.parts.find((p) => partTab(p.part_type) === type)
+      if (hit) selectedUid.value = hit._uid
+      active.value = 'parts'
+    }
   } finally {
     loading.value = false
   }
@@ -629,14 +615,16 @@ async function load() {
   await autosave.begin()
 }
 
-// 离开前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这台空设备删掉
-onBeforeRouteLeave(async () => {
+// 关闭前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这台空设备删掉。
+// 调用方与理由同显卡详情（views/Cards 的路由守卫里 await 它）
+async function beforeClose() {
   autosave.pause()
   if (autosave.pending.value) await autosave.flush()
   if (device.value?.is_draft) {
     try { await devicesApi.remove(device.value.id) } catch { /* 删不掉就留给启动时的清理 */ }
   }
-})
+}
+defineExpose({ beforeClose })
 
 onMounted(async () => {
   await meta.ensure()
@@ -648,160 +636,270 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.head-right { display: flex; align-items: center; gap: 12px; }
-.title-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
-.mgmt { font-size: 13px; color: #8fb8ff; }
-.model { font-size: 20px; color: #e6edf7; margin: 0; }
-/* 铅笔平时淡着，鼠标扫到标题那一片才亮起来——它是个随手可用的入口，不是要人注意的按钮 */
-.title-edit { color: #6f7b8e; padding: 4px; }
-.title-row:hover .title-edit { color: #8fb8ff; }
-/* 名称放宽到 100 字之后，320px 只能看到开头十来个字，改名时全靠横向滚——
-   宽一点是为了「看得见自己在改什么」，上限仍由 TITLE_MAX 管 */
-.title-input { max-width: 480px; }
-
-/* 摘要条 */
-.summary {
+/* 版式照 FreeMarket_Manager 库存管理的商品表单：分区卡片 + 定宽图片侧栏，控件统一
+   small（抬到 30px 高）、标签 12px。全局的两列网格 .pcr-form 在这里不用——基本信息
+   的字段按内容各给宽度，购入页用自己的 .dd-grid。 */
+.dd {
+  height: 100%;
   display: flex;
+  flex-direction: column;
+  min-height: 0;
+  --el-component-size-small: 30px;
+}
+
+/* ── 顶栏 ─────────────────────────────────────────────────────────── */
+.dd-head {
+  flex: none;
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 28px;
-  padding: 12px 16px;
-  margin-bottom: 4px;
-  border-radius: 8px;
-  background: var(--pcr-card);
-  border: 1px solid var(--pcr-border);
+  gap: 8px 16px;
+  padding: 10px 12px 10px 18px;
+  border-bottom: 1px solid var(--pcr-border);
 }
-.summary-item { display: flex; flex-direction: column; gap: 2px; }
-.summary-label { font-size: 12px; color: #8a94a6; }
-.summary-value { font-size: 16px; color: #e6edf7; }
-.summary-flag {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
+.dd-head-title { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; }
+.dd-name { margin: 0; font-size: 17px; color: #e6edf7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dd-head-right { margin-left: auto; flex: none; display: flex; align-items: center; gap: 8px; }
+.dd-close { font-size: 18px; }
+
+.dd-stats { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.dd-stat {
+  display: inline-flex;
+  align-items: baseline;
   gap: 5px;
-  font-size: 12px;
-  padding: 4px 10px;
+  padding: 2px 8px;
   border-radius: 6px;
+  border: 1px solid var(--pcr-border);
+  background: rgba(0, 0, 0, 0.18);
 }
-.summary-flag.done { color: #67c23a; background: rgba(103, 194, 58, 0.1); }
-.summary-flag.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.1); }
+.dd-stat-k { font-size: 11.5px; color: #8a94a6; }
+.dd-stat-v { font-size: 13.5px; font-weight: 600; color: #e6edf7; }
+.dd-stat.is-up { border-color: rgba(103, 194, 58, 0.4); background: rgba(103, 194, 58, 0.08); }
+.dd-stat.is-up .dd-stat-v { color: #85ce61; }
+.dd-stat.is-down { border-color: rgba(245, 108, 108, 0.45); background: rgba(245, 108, 108, 0.1); }
+.dd-stat.is-down .dd-stat-v { color: #f89898; }
+.dd-flag { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+.dd-flag.done { color: #67c23a; background: rgba(103, 194, 58, 0.1); }
+.dd-flag.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.1); }
 
-/* 二级菜单。与下面内容的间距挂在标签条上，不挂在内容上：整机页下面是分栏行、
-   部件页下面是部件卡，各自记一份边距，两个标签页切过去就会差一截 */
-.tabs-row { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.part-tabs { flex: 1 1 auto; min-width: 0; }
-/* el-tabs 只当标签条用，内容由下面自己渲染 */
-.part-tabs :deep(.el-tabs__content) { display: none; }
-.part-tabs :deep(.el-tabs__header) { margin-bottom: 0; }
-.part-tabs :deep(.el-tabs__nav-wrap::after) { background-color: var(--pcr-border); }
-.tab-label { display: inline-flex; align-items: center; gap: 6px; }
-/* 还没填过的槽位淡一档：一眼能看出哪几件是待填的模板 */
-.tab-label--blank { opacity: 0.55; }
-.tab-badge {
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: #5b8cff;
-  color: #fff;
-  font-size: 11px;
-  line-height: 18px;
-  text-align: center;
-}
-
-/* 末尾的「添加同类部件」卡。做成虚线框而不是一个按钮：它和上面那几张部件卡是同一列
-   东西，看起来就该是「下一张还空着的卡」 */
-.add-card {
-  margin-bottom: 16px;
-  cursor: pointer;
-  border-style: dashed;
-  transition: border-color 0.15s, color 0.15s;
-}
-.add-card :deep(.el-card__body) {
+/* ── 主体：左边卡片列 + 右边照片侧栏 ─────────────────────────────── */
+.dd-layout {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 18px;
-  color: #8a94a6;
-  font-size: 13px;
+  gap: 12px;
+  padding: 12px 14px 14px;
 }
-.add-card:hover { border-color: #5b8cff; }
-.add-card:hover :deep(.el-card__body) { color: #8fb8ff; }
+.dd-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-.block { margin-bottom: 16px; }
-/* 分栏行自己带下边距：卡片改为撑满整列之后，边距再挂在卡片上会把两列的等高顶歪 */
-.split-block { margin-bottom: 16px; }
-/* 字段一列还是两列由卡片自己的宽度决定（App.vue 的 .pcr-fields 容器查询） */
-.block :deep(.el-divider), .split-block :deep(.el-divider) { margin: 10px 0; }
-.media-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
-.row-link { color: #8fb8ff; text-decoration: none; flex: 0 0 auto; padding: 0 4px; }
-.parts-table :deep(.el-table__row) { cursor: pointer; }
-.hint {
-  margin: 4px 0 8px;
-  padding: 6px 10px;
+.dd-card {
+  flex: none;
+  padding: 8px 12px 0;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.dd-card-head { display: flex; align-items: center; gap: 8px; min-height: 20px; margin-bottom: 6px; }
+.dd-card-title { font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em; color: #a4aec1; }
+.dd-badge {
+  padding: 0 7px;
+  border-radius: 8px;
+  background: rgba(91, 140, 255, 0.12);
+  color: #cbd5e1;
+  font-size: 11.5px;
+  line-height: 18px;
+}
+.dd-badge--warn { background: rgba(230, 162, 60, 0.14); color: #e6a23c; }
+.dd-count {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: rgba(91, 140, 255, 0.16);
+  color: #cbd5e1;
+  font-size: 11px;
+  line-height: 17px;
+}
+
+/* 表单控件：小一号但不至于点不准（30px），标签与 FreeMarket 那份同一套字号 */
+.dd-form :deep(.el-form-item) { margin-bottom: 10px; }
+.dd-form :deep(.el-form-item__label) {
+  padding: 0 0 3px !important;
+  margin-bottom: 0 !important;
   font-size: 12px;
-  line-height: 1.7;
-  color: #b9c4d6;
-  background: rgba(91, 140, 255, 0.08);
-  border-radius: 6px;
+  line-height: 1.35;
+  letter-spacing: 0.02em;
+  color: #99a3b6;
 }
-.hint.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
-.hint .warn { color: #e6a23c; }
+.dd-form :deep(.el-input--small),
+.dd-form :deep(.el-select--small .el-select__wrapper) { font-size: 13px; }
+.dd-form :deep(.el-select),
+.dd-form :deep(.el-date-editor) { width: 100% !important; }
+.dd-form :deep(.el-textarea__inner) { font-size: 13px; line-height: 1.6; }
 
-/* 手机上的部件一览。做成一行一件的按钮：整行可点（跳到那个部件页），
-   用原生 button 而不是 div——键盘能 Tab 到、回车能按下，这些在 div 上都得自己补。 */
-.mp-list { display: flex; flex-direction: column; gap: 6px; }
-.mp-row {
+/* 基本信息：flex 折行，每个字段各给一个基准宽度和上限 */
+.dd-row { display: flex; flex-wrap: wrap; align-items: flex-start; column-gap: 10px; }
+.dd-row > .el-form-item { min-width: 0; }
+.f-name { flex: 1 1 260px; max-width: 420px; }
+.f-status { flex: 0 1 150px; }
+.f-platform { flex: 0 1 140px; }
+.f-seller { flex: 1 1 150px; max-width: 240px; }
+.f-order { flex: 0 1 190px; }
+.f-url { flex: 1 1 260px; max-width: 420px; }
+.f-note { flex: 1 1 220px; }
+.url-open { color: #8fb8ff; text-decoration: none; padding: 0 4px; }
+
+/* ── 标签页卡：吃掉剩下的高度。el-tabs 只剩标签条，内容区是下面的 .dd-tab-body ── */
+.dd-card--tabs {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 12px 0;
+  container-type: inline-size;
+}
+.dd-tabs { flex: none; }
+.dd-tabs :deep(.el-tabs__header) { margin: 0; }
+.dd-tabs :deep(.el-tabs__content) { display: none; }
+.dd-tabs :deep(.el-tabs__nav-wrap::after) { height: 1px; background: var(--pcr-border); }
+.dd-tabs :deep(.el-tabs__item) { height: 36px; font-size: 13px; }
+.dd-tab-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 12px 0; }
+/* 部件页左右两栏各自滚，内容区本身不滚、也不留上下内边距（两栏自己给） */
+.dd-tab-body--split { overflow: hidden; padding: 0; }
+
+/* 部件：左列表 / 右编辑区。两边各自占满高度、各自滚——部件多到十几件时列表自己滚，
+   编辑区不动 */
+.parts { height: 100%; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
+.parts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 10px 10px 0;
+  border-right: 1px solid var(--pcr-border);
+  overflow-y: auto;
+}
+.parts-editor { min-width: 0; padding: 12px 0 12px 14px; overflow-y: auto; }
+.pl-row {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  /* 44px：一行一件挨着排，比这矮就会点到隔壁那件 */
-  min-height: 44px;
-  padding: 8px 10px;
-  border: 1px solid var(--pcr-border);
+  padding: 7px 9px;
+  border: 1px solid transparent;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.015);
-  color: var(--pcr-text);
+  color: inherit;
   font-size: 13px;
   text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
 }
-.mp-row:active { background: rgba(91, 140, 255, 0.08); }
-/* 名称吃掉中间所有剩余宽度，右边的状态和金额始终贴着右缘对齐成一列 */
-.mp-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mp-media { flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 11px; }
-/* 金额给个下限宽度并右对齐：没卖的那几件这一格是空的，不占位的话上下两行的
-   状态标签会各自停在不同的横坐标上，一列扫下来是锯齿状的 */
-.mp-money { flex: 0 0 auto; min-width: 62px; text-align: right; }
-
-/* 触屏上标签条的原生横滑在 App.vue 的 .pcr-touch-tabs 里 */
-@media (hover: none) {
-  /* 改名的铅笔平时是淡的、悬浮才亮——触屏上它就一直淡着，看着像不能点 */
-  .title-edit { color: #8fb8ff; padding: 8px; }
-  .pool-draw :deep(.el-button) { min-height: 34px; padding: 8px 14px; }
-  .row-link { padding: 8px 10px; font-size: 16px; }
-}
-
-@media (max-width: 768px) {
-  .tabs-row { flex-direction: column; align-items: stretch; gap: 8px; }
-  .model { font-size: 17px; }
-  .title-input { max-width: none; flex: 1 1 100%; }
-  /* 摘要条排成三列网格：flex 换行时五六个数各按自己的宽度折，每行个数不一，
-     上下对不齐，扫一眼找不到「盈亏」在哪儿 */
-  .summary {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px 12px;
-    padding: 10px 12px;
-  }
-  .summary-value { font-size: 14px; overflow-wrap: anywhere; }
-  .summary-flag { margin-left: 0; grid-column: 1 / -1; justify-content: center; }
+.pl-row:hover { background: rgba(91, 140, 255, 0.06); }
+.pl-row:focus-visible { outline: 2px solid var(--pcr-accent); outline-offset: -2px; }
+.pl-row.is-active { border-color: rgba(91, 140, 255, 0.55); background: rgba(91, 140, 255, 0.1); }
+.pl-name { flex: 1 1 auto; min-width: 0; color: #d6deea; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-media { flex: none; display: inline-flex; align-items: center; gap: 2px; font-size: 11px; }
+.pl-money { flex: none; font-size: 12px; color: #e6edf7; }
+/* 填了还没卖的那几件用红字标「未出售」：一台机器剩哪几件没出手，是这张列表最该一眼看到的 */
+.pl-unsold { color: #f87171; }
+.pl-add-wrap { margin-top: 6px; }
+.pl-add { width: 100%; }
+/* 部件编辑区里的表单（DevicePartPanel）也按这一套小号排 */
+.parts-editor :deep(.el-form-item) { margin-bottom: 10px; }
+.parts-editor :deep(.el-form-item__label) {
+  padding: 0 0 3px !important;
+  margin-bottom: 0 !important;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #99a3b6;
 }
 
-/* 「确认扣除」那一行：按钮 + 已扣除标记，与旁边的 InlineField 对齐 */
+/* 购入与资金：左填写 / 右结算，卡片窄于 720px 时上下叠放（看的是卡片宽，不是屏宽） */
+.row2 { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+@container (max-width: 720px) {
+  .row2 { grid-template-columns: minmax(0, 1fr); }
+}
+.sub { min-width: 0; }
+.sub-title { font-size: 12.5px; font-weight: 600; letter-spacing: 0.04em; color: #a4aec1; margin-bottom: 8px; }
+.sub-label { font-size: 12px; color: #99a3b6; margin-bottom: 6px; }
+.sub-gap { margin-top: 12px; }
+.sec-gap { margin-top: 16px; }
+.dd-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 12px; }
+.small { font-size: 12px; margin: 6px 0 0; line-height: 1.6; }
+.hint { padding: 6px 10px; font-size: 12px; line-height: 1.7; border-radius: 6px; }
+.hint.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
+
+.settle {
+  padding: 10px 14px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.15);
+}
+.settle-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; font-size: 13px; }
+.settle-row span { color: #8a94a6; }
+.settle-row b { color: #e6edf7; font-size: 14px; }
+.settle-sum { border-top: 1px dashed var(--pcr-border); margin-top: 4px; padding-top: 9px; }
+.settle-big b { font-size: 19px; }
+
 .pool-draw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pool-done { color: #4ade80; font-size: 13px; }
 .pool-warn { color: #e6a23c; font-size: 12px; }
+
+/* ── 整机照片侧栏：定宽、与左列等高，图多了自己滚 ─────────────────── */
+.dd-aside {
+  flex: 0 0 272px;
+  width: 272px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px 12px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+}
+.media-hint { margin: 0 0 10px; }
+.dd-aside-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+
+@media (hover: none) {
+  .pool-draw :deep(.el-button) { min-height: 34px; padding: 8px 14px; }
+}
+
+/* 平板竖屏（紧凑宽度）：侧栏收窄一点，给左边的部件编辑区多留地方 */
+@media (min-width: 769px) and (max-width: 1200px) {
+  .dd-aside { flex-basis: 220px; width: 220px; }
+  .parts { grid-template-columns: 210px minmax(0, 1fr); }
+}
+
+/* 手机：全屏弹窗。卡片和侧栏上下叠放，整块一起滚（这是唯一退回滚动的地方）；
+   顶栏钉住，关闭按钮始终够得着 */
+@media (max-width: 768px) {
+  .dd { overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .dd-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--el-dialog-bg-color, var(--el-bg-color));
+    padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 8px 12px;
+  }
+  .dd-name { font-size: 16px; }
+  .dd-stats { order: 3; width: 100%; }
+  .dd-layout { flex: none; flex-direction: column; padding: 10px 10px calc(16px + env(safe-area-inset-bottom, 0px)); }
+  .dd-main { flex: none; }
+  .dd-row > .el-form-item { flex: 1 1 100%; max-width: none; }
+  .dd-card--tabs { flex: none; }
+  .dd-tab-body, .dd-tab-body--split { overflow: visible; }
+  .dd-grid { grid-template-columns: minmax(0, 1fr); }
+  .parts { height: auto; grid-template-columns: minmax(0, 1fr); }
+  .parts-list { padding: 10px 0 12px; border-right: none; border-bottom: 1px solid var(--pcr-border); overflow: visible; }
+  .parts-editor { padding: 12px 0; overflow: visible; }
+  .dd-aside { flex: none; width: 100%; }
+  .dd-aside-body { overflow: visible; }
+}
 </style>

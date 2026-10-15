@@ -60,6 +60,13 @@
           <el-select v-model="filters.source_platform" :placeholder="t('card.platform')" clearable class="f-platform" @change="reload">
             <el-option v-for="p in platforms" :key="p.value" :label="p.label" :value="p.value" />
           </el-select>
+          <!-- 出资人：比例里写了他、或扣款实际吃到了他的钱，都算（见 inventory_api._involved）。
+               「未指定」挑出两样都没有的货——通常是该补出资比例的那些。 -->
+          <el-select v-model="filters.contributor" multiple collapse-tags clearable filterable
+            :placeholder="t('funds.contributor')" class="f-contributor" @change="reload">
+            <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
+            <el-option :label="t('inv.contributorNone')" :value="CONTRIBUTOR_NONE" />
+          </el-select>
           <!-- 区间选择器在手机上摆不下：Element 的 daterange 面板是并排两个月历，
                写死 646px 宽（单个月历是 322px），360px 的屏上会被裁掉大半，右边那个月
                连同「确定」一起看不见。窄屏拆成起 / 止两个单日期选择器——面板只剩一个月，
@@ -83,7 +90,7 @@
               value-format="YYYY-MM-DD"
               :placeholder="t('inv.dateFrom')"
               class="f-date"
-              @update:model-value="(v) => setRangeEnd(0, v)"
+              @update:model-value="(v) => setRangeEnd(dateRange, 0, v)"
             />
             <el-date-picker
               :model-value="dateRange?.[1] || null"
@@ -92,14 +99,88 @@
               value-format="YYYY-MM-DD"
               :placeholder="t('inv.dateTo')"
               class="f-date"
-              @update:model-value="(v) => setRangeEnd(1, v)"
+              @update:model-value="(v) => setRangeEnd(dateRange, 1, v)"
             />
           </template>
+          <!-- 「更多筛选」只在宽屏有：手机上整组筛选器已经收在「筛选」开关后面了，
+               再套一层开关就得点两下才看得到。角标同「筛选」按钮——收起来的条件在生效
+               时必须看得出来。 -->
+          <el-button v-if="!isMobile" :icon="moreOpen ? ArrowUp : ArrowDown" @click="moreOpen = !moreOpen">
+            {{ t('inv.moreFilters') }}<span v-if="moreFilterCount" class="f-count">{{ moreFilterCount }}</span>
+          </el-button>
           <el-button :icon="Refresh" @click="resetFilters">{{ t('common.reset') }}</el-button>
         </template>
         <!-- 新增挨着重置放：这一行是「对这张表做点什么」的地方，按钮都聚在同一处，
              不用在标题栏和筛选行之间来回找 -->
         <el-button type="primary" :icon="Plus" class="f-add" @click="addVisible = true">{{ t('common.add') }}</el-button>
+        <!-- 表格 / 卡片切换只在宽屏给：紧凑宽度以下本来就只有卡片这一种排法，
+             摆个开关在那儿，切到「表格」也不会有任何变化。 -->
+        <el-radio-group v-if="!isCompact" v-model="viewMode" class="f-view">
+          <el-radio-button value="table">
+            <el-tooltip :content="t('inv.viewTable')"><el-icon><List /></el-icon></el-tooltip>
+          </el-radio-button>
+          <el-radio-button value="cards">
+            <el-tooltip :content="t('inv.viewCards')"><el-icon><Grid /></el-icon></el-tooltip>
+          </el-radio-button>
+        </el-radio-group>
+      </div>
+      <!-- 第二排：按算出来的值筛（出售日期、结清、盈亏、池内扣除、成本）。这些都不是
+           数据库列，后端在规范化之后筛（inventory_api._match_derived），与列表上显示的
+           数同一个口径。 -->
+      <div v-if="isMobile ? filtersOpen : moreOpen" class="filters filters-more">
+        <el-date-picker
+          v-if="!isMobile"
+          v-model="saleRange"
+          type="daterange"
+          :editable="!isTouch"
+          value-format="YYYY-MM-DD"
+          :start-placeholder="t('card.saleDate')"
+          :end-placeholder="t('card.saleDate')"
+          class="f-date"
+          @change="reload"
+        />
+        <template v-else>
+          <el-date-picker
+            :model-value="saleRange?.[0] || null"
+            type="date"
+            :editable="!isTouch"
+            value-format="YYYY-MM-DD"
+            :placeholder="t('inv.saleFrom')"
+            class="f-date"
+            @update:model-value="(v) => setRangeEnd(saleRange, 0, v)"
+          />
+          <el-date-picker
+            :model-value="saleRange?.[1] || null"
+            type="date"
+            :editable="!isTouch"
+            value-format="YYYY-MM-DD"
+            :placeholder="t('inv.saleTo')"
+            class="f-date"
+            @update:model-value="(v) => setRangeEnd(saleRange, 1, v)"
+          />
+        </template>
+        <el-select v-model="filters.stock" :placeholder="t('inv.stock')" clearable class="f-small" @change="reload">
+          <el-option :label="t('inv.stockIn')" value="in_stock" />
+          <el-option :label="t('inv.settled')" value="settled" />
+        </el-select>
+        <el-select v-model="filters.profit" :placeholder="t('inv.profitState')" clearable class="f-small" @change="reload">
+          <el-option :label="t('inv.gain')" value="gain" />
+          <el-option :label="t('inv.loss')" value="loss" />
+          <el-option :label="t('inv.incomplete')" value="incomplete" />
+        </el-select>
+        <el-select v-model="filters.pool" :placeholder="t('card.poolDraw')" clearable class="f-small" @change="reload">
+          <el-option :label="t('inv.poolDrawn')" value="drawn" />
+          <el-option :label="t('inv.poolUndrawn')" value="undrawn" />
+        </el-select>
+        <!-- 成本区间按人民币总成本（含两笔运费），与「总成本」列同一个数。
+             改完不立刻取数：敲「1500」会先后按 1、15、150 各筛一遍，等失焦或回车再说。 -->
+        <div class="f-cost">
+          <el-input-number v-model="filters.costMin" :min="0" :controls="false" :placeholder="t('inv.costMin')"
+            inputmode="decimal" class="f-cost-input" @change="reload" />
+          <span class="pcr-dim">~</span>
+          <el-input-number v-model="filters.costMax" :min="0" :controls="false" :placeholder="t('inv.costMax')"
+            inputmode="decimal" class="f-cost-input" @change="reload" />
+        </div>
       </div>
     </el-card>
 
@@ -112,22 +193,48 @@
            这不是第二套列表——取数、筛选、分页仍然只有上面那一份，这里不持有任何状态。 -->
       <!-- 平板（≤1200px）也走这份卡片列表：iPad 竖屏减掉侧栏只剩 550 多像素，
            十一列照样要横滑。平板上排成两列网格，见样式里的 @media。 -->
-      <div v-if="isCompact" v-loading="loading" class="m-list">
+      <!-- 桌面端的「卡片模式」也是这份列表，不另写一套：只是加上 m-grid 排成多列网格、
+           封面放大成整张卡的头图（看图认货时比表格里 54px 的小缩略图好使得多）。 -->
+      <div v-if="useCardList" v-loading="loading" class="m-list" :class="{ 'm-grid': gridMode }">
         <div v-for="row in rows" :key="row.row_key" class="m-card" @click="onRowClick(row)">
           <div class="m-top">
             <div class="cover m-cover">
-              <img v-if="cover(row)" :src="cover(row)" alt="" loading="lazy" />
+              <img v-if="cover(row, gridMode ? 480 : 200)" :src="cover(row, gridMode ? 480 : 200)" alt="" loading="lazy" />
               <el-icon v-else class="cover-empty">
                 <component :is="row.kind === 'device' ? 'Monitor' : 'Picture'" />
               </el-icon>
+              <!-- 卡片模式下标签压在头图四角：左上类型（整机再跟上已售件数）、右上状态、
+                   左下购入日、右下出资人。挪出正文区之后，显卡和整机的卡片正文就是同一种
+                   结构，高度才统一得起来。 -->
+              <template v-if="gridMode">
+                <span class="m-corner m-corner--tl">
+                  <el-tag size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
+                    {{ t('inv.' + row.kind) }}
+                  </el-tag>
+                  <el-tag v-if="row.kind === 'device'" size="small" effect="plain" type="info" class="pcr-mono">
+                    {{ row.sold_count }} / {{ row.part_count }}
+                  </el-tag>
+                </span>
+                <span class="m-corner m-corner--tr"><StatusTag :status="row.status" /></span>
+                <span v-if="row.fund_contributors?.length" class="m-corner m-corner--br m-date">
+                  {{ contributorsOf(row) }}
+                </span>
+                <!-- 只给购入日：卡片是看图挑货用的，成交日在详情里看 -->
+                <span v-if="row.purchase_date" class="m-corner m-corner--bl m-date pcr-mono">
+                  {{ row.purchase_date }}
+                </span>
+              </template>
             </div>
             <div class="m-head">
               <div class="m-name">{{ nameOf(row) }}</div>
-              <div v-if="row.mgmt_no || row.subtitle" class="sub pcr-dim">
+              <!-- 卡片模式下这一行就算是空的也占位，否则有副标题和没副标题的卡差一行高 -->
+              <!-- 卡片模式不显示管理编号：看图挑货时用不上，占掉的位置留给副标题 -->
+              <div v-if="gridMode" class="sub pcr-dim m-subline">{{ row.subtitle }}</div>
+              <div v-else-if="row.mgmt_no || row.subtitle" class="sub pcr-dim">
                 <span class="pcr-mono">{{ row.mgmt_no }}</span>
                 <template v-if="row.subtitle"> · {{ row.subtitle }}</template>
               </div>
-              <div class="m-tags">
+              <div v-if="!gridMode" class="m-tags">
                 <el-tag size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
                   {{ t('inv.' + row.kind) }}
                 </el-tag>
@@ -140,7 +247,7 @@
             </div>
           </div>
 
-          <!-- 成本 / 收入 / 利润三个数并排。桌面端成本上挂着「购入 + 国际运费 + 国内运费」
+          <!-- 成本 / 利润两个数并排（收回了多少不在卡片上给，利润已经把它算进去了）。桌面端成本上挂着「购入 + 国际运费 + 国内运费」
                的悬浮明细，这里不复刻：触屏没有悬浮，改成点一下弹层就和「点整行进详情」
                抢同一次点击，而详情页里那三项本来就是分行列着的。 -->
           <div class="m-metrics">
@@ -152,10 +259,6 @@
               <span class="m-sub pcr-mono pcr-dim">{{ money(row.cost_total_jpy, jpy) }}</span>
             </div>
             <div class="m-metric">
-              <span class="m-label">{{ t('device.revenue') }}</span>
-              <b class="pcr-mono">{{ money(row.sale_cny) }}</b>
-            </div>
-            <div class="m-metric">
               <span class="m-label">{{ t('card.profit') }}</span>
               <b class="pcr-mono" :class="profitClass(row.profit_cny)">
                 {{ money(row.profit_cny) }}
@@ -165,28 +268,28 @@
           </div>
 
           <div class="m-foot">
-            <span class="pcr-mono pcr-dim">{{ row.purchase_date }}</span>
-            <!-- 整机不显示成交日：部件是分批卖的，任何一个日期摆在顶层行上都会被当成
-                 「这台机器卖完的那天」（与桌面端同一条理由） -->
-            <span v-if="row.kind !== 'device' && row.sale_date" class="pcr-mono pcr-dim">→ {{ row.sale_date }}</span>
+            <!-- 卡片模式下日期与出资人挪到了头图的两个下角，这里只剩「部件一览」按钮。
+                 列表模式下左边购入日、右边出资人。 -->
+            <template v-if="!gridMode">
+              <span class="pcr-mono pcr-dim">{{ row.purchase_date }}</span>
+              <span v-if="row.fund_contributors?.length" class="m-contrib pcr-dim">{{ contributorsOf(row) }}</span>
+            </template>
+            <!-- 部件明细弹出来看，不在卡片里就地展开：网格里一张卡展开会把同一行的格子
+                 撑得高低不齐，懒加载的列表里展开又会把下面的卡整片往下推。 -->
             <button v-if="row.children && row.children.length" class="m-expand" type="button"
-              @click.stop="togglePartsOf(row)">
+              @click.stop="openParts(row)">
               {{ t('device.partsOverview') }}
-              <el-icon><component :is="expandedKeys.has(row.row_key) ? 'ArrowUp' : 'ArrowDown'" /></el-icon>
+              <el-icon><ArrowRight /></el-icon>
             </button>
-          </div>
-
-          <div v-if="row.children && row.children.length && expandedKeys.has(row.row_key)" class="m-parts">
-            <div v-for="part in row.children" :key="part.row_key" class="m-part">
-              <PartTypeTag :type="part.part_type" />
-              <span class="m-part-name">{{ nameOf(part) }}</span>
-              <StatusTag v-if="part.status" :status="part.status" />
-              <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
-              <span class="pcr-mono m-part-money">{{ money(part.sale_cny) }}</span>
-            </div>
           </div>
         </div>
         <el-empty v-if="!rows.length && !loading" :description="t('common.noData')" :image-size="70" />
+        <!-- 懒加载的触发点：滚到离它不远时取下一页。同时兼当底部状态行——
+             「已经到底了」必须明说，否则人会以为是没加载出来、继续往下拉。 -->
+        <div v-if="rows.length" ref="sentinel" class="m-more pcr-dim">
+          <template v-if="loadingMore">{{ t('common.loading') }}</template>
+          <template v-else-if="!hasMore">{{ t('inv.allLoaded', { n: total }) }}</template>
+        </div>
       </div>
 
       <el-table
@@ -326,7 +429,8 @@
         <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
       </el-table>
 
-      <div class="pager">
+      <!-- 卡片列表（含手机 / 平板）不分页，向下滚动自动续页，见 loadMore() -->
+      <div v-if="!useCardList" class="pager">
         <!-- 窄屏砍掉「共 N 条」和每页条数：整条分页器排不下一行，挤成两行之后翻页箭头
              会跑到第二行的两端，拇指够不着。页码数也从 7 收到 5。 -->
         <el-pagination
@@ -342,6 +446,59 @@
         />
       </div>
     </el-card>
+
+    <!-- 部件一览弹窗：只看不改。改部件仍然去整机详情页——那里是唯一的编辑界面
+         （自动保存、按 id 增量写部件都在那一套里），这里再摆一份可编辑的表单就是第二套。
+         点一行直接跳进详情页里那个部件所在的标签。 -->
+    <el-dialog v-model="partsVisible" :title="partsRow ? nameOf(partsRow) : ''" width="640px" align-center>
+      <template v-if="partsRow">
+        <div class="pd-summary">
+          <span>{{ t('device.partsCount') }} <b class="pcr-mono">{{ partsRow.sold_count }} / {{ partsRow.part_count }}</b></span>
+          <span>{{ t('device.revenue') }} <b class="pcr-mono">{{ money(partsRow.sale_cny) }}</b></span>
+        </div>
+        <div class="pd-list">
+          <button v-for="part in partsRow.children" :key="part.row_key" type="button" class="pd-row"
+            @click="openPart(part)">
+            <PartTypeTag :type="part.part_type" />
+            <span class="pd-name">
+              {{ nameOf(part) }}<span v-if="part.quantity > 1" class="pcr-dim pcr-mono"> ×{{ part.quantity }}</span>
+            </span>
+            <StatusTag v-if="part.status" :status="part.status" />
+            <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+            <span class="pd-date pcr-mono pcr-dim">{{ part.sale_date }}</span>
+            <span class="pd-money pcr-mono">{{ money(part.sale_cny) }}</span>
+          </button>
+        </div>
+      </template>
+      <template #footer>
+        <el-button @click="partsVisible = false">{{ t('common.close') }}</el-button>
+        <el-button type="primary" @click="openPartsDevice">{{ t('inv.openDevice') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 详情弹窗：显卡 / 整机的详情（也就是编辑界面）浮在列表上，不再跳页面。
+         开关完全跟着路由走（见 openTarget）：这里不调 done()，而是改地址，地址一变
+         model-value 自己就落成 false，中间由路由守卫先把改动存完。
+         Esc 不关：详情里的下拉、日期面板都用 Esc 收起，会连带把整个弹窗关掉。
+         key 用 openKey：换成另一件时整个详情重建，不会带着上一件的表单状态。
+         定高 + 垂直居中（高度在 App.vue 的 .pcr-detail-dialog）：弹窗自己不滚动，
+         内容由 DetailShell 拆成模块页。 -->
+    <el-dialog
+      :model-value="!!openTarget"
+      :before-close="closeDetail"
+      :fullscreen="isMobile"
+      :close-on-press-escape="false"
+      width="min(1280px, 94vw)"
+      align-center
+      class="pcr-detail-dialog"
+      append-to-body
+    >
+      <template v-if="openTarget">
+        <DeviceDetail v-if="openTarget.kind === 'device'" :key="openKey" ref="detailRef"
+          :id="openTarget.id" :tab="openTab" @close="closeDetail" />
+        <CardDetail v-else :key="openKey" ref="detailRef" :id="openTarget.id" @close="closeDetail" />
+      </template>
+    </el-dialog>
 
     <!-- 新增什么：显卡还是整机。两者的录入方式根本不同（一进一出 vs 一笔买进、拆成
          部件分别卖），选错了只能删掉重来，所以这里摆两张把区别说清楚的卡片，
@@ -367,11 +524,11 @@
 </template>
 
 <script setup>
-import { computed, onActivated, reactive, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { computed, nextTick, onActivated, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  Cpu, Filter, Monitor, Plus, Refresh, Search, WarningFilled
+  ArrowDown, ArrowRight, ArrowUp, Cpu, Filter, Grid, List, Monitor, Plus, Refresh, Search, WarningFilled
 } from '@element-plus/icons-vue'
 import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
 import { cny, firstImage, jpy, profitClass } from '@/utils/format'
@@ -383,6 +540,10 @@ import StatCard from '@/components/StatCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
 import PartTypeTag from '@/components/PartTypeTag.vue'
+// 静态引入而不是 defineAsyncComponent：要拿 ref 调它们暴露的 beforeClose，
+// 异步组件包了一层壳，ref 拿到的是壳，调不到里面
+import CardDetail from '@/views/CardDetail/index.vue'
+import DeviceDetail from '@/views/DeviceDetail/index.vue'
 
 defineOptions({ name: 'Cards' })
 
@@ -401,37 +562,76 @@ const pageSize = ref(20)
 const loading = ref(false)
 const usedBrands = ref([])
 
-const filters = reactive({ keyword: '', kind: null, status: [], brand: null, source_platform: null })
-// 购入日期区间：绑定 daterange 选择器，拆成 purchase_from/purchase_to 传后端
+// 出资人筛选里「未指定」的取值，与后端 inventory_api.CONTRIBUTOR_NONE 同一个记号
+const CONTRIBUTOR_NONE = '__none__'
+const contributorNames = ref([])
+
+const blankFilters = () => ({
+  keyword: '', kind: null, status: [], brand: null, source_platform: null, contributor: [],
+  stock: null, profit: null, pool: null, costMin: null, costMax: null
+})
+const filters = reactive(blankFilters())
+// 购入 / 出售日期区间：绑定 daterange 选择器，拆成 *_from / *_to 传后端
 const dateRange = ref(null)
+const saleRange = ref(null)
 
 // 窄屏上除搜索框外的筛选器收在开关后面，只影响显示，不参与取数
 const filtersOpen = ref(false)
+// 宽屏上第二排（按算出来的值筛的那几项）收在「更多筛选」后面
+const moreOpen = ref(false)
+const moreFilterCount = computed(() => {
+  const f = filters
+  return [saleRange.value, f.stock, f.profit, f.pool, f.costMin != null || f.costMax != null]
+    .filter(Boolean).length
+})
 // 开关按钮上的角标。不含关键词——搜索框一直摆在外面，它有没有值本来就看得见；
 // 收起来的那几项才需要这个数提醒「现在看到的不是全部」。
 const activeFilterCount = computed(() => {
   const f = filters
-  return [f.kind, f.status.length ? f.status : null, f.brand, f.source_platform, dateRange.value]
-    .filter(Boolean).length
+  return [f.kind, f.status.length, f.brand, f.source_platform, f.contributor.length, dateRange.value]
+    .filter(Boolean).length + moreFilterCount.value
 })
 
-// 手机上那两个单日期选择器写回同一个 dateRange。两头都清空时整个置回 null，
+// 手机上那两个单日期选择器写回同一个区间 ref。两头都清空时整个置回 null，
 // 而不是留一个 [null, null]——filterParams 取的是 ?.[0] / ?.[1]，留着不影响取数，
-// 但「筛选」角标数的是 dateRange 本身真不真，留着会一直显示有一项筛选在生效。
-function setRangeEnd(i, value) {
-  const next = [dateRange.value?.[0] || null, dateRange.value?.[1] || null]
+// 但「筛选」角标数的是区间本身真不真，留着会一直显示有一项筛选在生效。
+function setRangeEnd(range, i, value) {
+  const next = [range.value?.[0] || null, range.value?.[1] || null]
   next[i] = value || null
-  dateRange.value = next[0] || next[1] ? next : null
+  range.value = next[0] || next[1] ? next : null
   reload()
 }
 
-// 手机卡片列表里展开了部件明细的整机行。用 row_key 而不是 id：显卡和整机的 id 各自
-// 从 1 开始，混在一张列表里会互相顶掉（row_key 是后端规范化时就给好的唯一键）。
-const expandedKeys = ref(new Set())
-function togglePartsOf(row) {
-  const next = new Set(expandedKeys.value)
-  next.has(row.row_key) ? next.delete(row.row_key) : next.add(row.row_key)
-  expandedKeys.value = next
+// 宽屏下的排法：表格或卡片。记在本机浏览器里——这是个人的看法偏好，不是数据，
+// 不值得进 app_settings 让所有人共用一份。存取都包 try：隐私模式下 localStorage
+// 可能直接抛错，那时退回表格即可，不能让整页挂掉。
+const VIEW_MODE_KEY = 'pcr_cards_view_mode'
+function readViewMode() {
+  try { return localStorage.getItem(VIEW_MODE_KEY) === 'cards' ? 'cards' : 'table' } catch { return 'table' }
+}
+const viewMode = ref(readViewMode())
+watch(viewMode, (v) => {
+  try { localStorage.setItem(VIEW_MODE_KEY, v) } catch { /* 记不住就算了 */ }
+})
+// 紧凑宽度以下永远是卡片列表（与开关无关）；宽屏选了卡片模式时排成网格大图
+const gridMode = computed(() => !isCompact.value && viewMode.value === 'cards')
+const useCardList = computed(() => isCompact.value || gridMode.value)
+
+// 部件一览弹窗当前展示的那台整机（列表里那一行本身，children 就是部件）
+const partsVisible = ref(false)
+const partsRow = ref(null)
+function openParts(row) {
+  partsRow.value = row
+  partsVisible.value = true
+}
+function openPartsDevice() {
+  partsVisible.value = false
+  openDetail('device', partsRow.value.id)
+}
+// 带上部件类型，详情落地就停在这个部件那一页，省得进去再找一遍
+function openPart(part) {
+  partsVisible.value = false
+  openDetail('device', part.device_id, part.part_type)
 }
 
 const emptyStats = () => ({
@@ -488,13 +688,20 @@ function poolHolders(row) {
   return names.length ? [...new Set(names)].join('、') : t('card.poolTag')
 }
 
+// 卡片上标的出资人：这件货牵涉到的全部人（比例里写了的 + 扣款实际吃到的），
+// 与「出资人」筛选同一份口径，筛谁就能在卡片上看到谁
+function contributorsOf(row) {
+  return (row.fund_contributors || []).join('、')
+}
+
 // 二级行（部件）整行淡一档，一眼能看出层级
 const rowClass = ({ row }) => (row.kind === 'part' ? 'part-row' : '')
 
-function cover(row) {
+// 图床按 w 参数出缩略图。卡片模式的头图有 300px 上下宽，再拿 200 的图拉伸会糊
+function cover(row, width = 200) {
   const img = firstImage(row.media)
   if (!img || img.kind !== 'image') return null
-  return img.public_url + (img.public_url.includes('?') ? '&' : '?') + 'w=200'
+  return img.public_url + (img.public_url.includes('?') ? '&' : '?') + 'w=' + width
 }
 function nameOf(row) {
   if (row.title) return row.title
@@ -512,14 +719,38 @@ function filterParams() {
     brand: filters.brand || undefined,
     source_platform: filters.source_platform || undefined,
     purchase_from: dateRange.value?.[0] || undefined,
-    purchase_to: dateRange.value?.[1] || undefined
+    purchase_to: dateRange.value?.[1] || undefined,
+    contributor: filters.contributor.length ? filters.contributor.join(',') : undefined,
+    sale_from: saleRange.value?.[0] || undefined,
+    sale_to: saleRange.value?.[1] || undefined,
+    stock: filters.stock || undefined,
+    profit: filters.profit || undefined,
+    pool: filters.pool || undefined,
+    // 0 是合法的下限，不能用 || 判空
+    cost_min: filters.costMin ?? undefined,
+    cost_max: filters.costMax ?? undefined
   }
 }
 
+// 每次整表重取自增一次。续页请求发出时记下当时的值，回来时对不上就丢弃——
+// 否则「滚到底触发续页 → 立刻改了筛选」会把旧筛选的下一页拼到新结果后面。
+let fetchSeq = 0
+
+// 后端 page_size 的上限（inventory_api.list 的 le=200）
+const MAX_PAGE_SIZE = 200
+
 async function fetch() {
+  const seq = ++fetchSeq
   loading.value = true
+  // 卡片列表是「前 page 页拼起来」的，刷新时一次取回这么多条，而不是只取第 page 页：
+  // 从详情页返回时要刷新数据，但不能把已经滚出来的几页清掉、让人从头再滚一遍。
+  // 超过后端上限就只保留能取回的那些，page 按实际条数折回去，续页从那里接着走。
+  const params = useCardList.value
+    ? { page: 1, page_size: Math.min(page.value * pageSize.value, MAX_PAGE_SIZE) }
+    : { page: page.value, page_size: pageSize.value }
   try {
-    const res = await inventoryApi.list({ ...filterParams(), page: page.value, page_size: pageSize.value })
+    const res = await inventoryApi.list({ ...filterParams(), ...params })
+    if (seq !== fetchSeq) return
     // 请求成功但形状不对，几乎只有一种原因：拿到的根本不是这个接口的响应（后端没重启、
     // 接口不存在时曾经会回一整页 HTML）。必须显式报出来——退化成一张「暂无数据」的空表
     // 是最难查的那种失败：页面看着好好的，数据却凭空消失了。
@@ -531,11 +762,73 @@ async function fetch() {
     }
     rows.value = res.items
     total.value = res.total
+    if (useCardList.value) page.value = Math.max(1, Math.ceil(res.items.length / pageSize.value))
   } finally {
-    loading.value = false
+    if (seq === fetchSeq) loading.value = false
   }
   fetchStats()
+  recheckSentinel()
 }
+
+// ── 卡片列表的懒加载 ────────────────────────────────────────────────────
+const loadingMore = ref(false)
+const hasMore = computed(() => rows.value.length < total.value)
+
+async function loadMore() {
+  if (!useCardList.value || loading.value || loadingMore.value || !hasMore.value) return
+  const seq = fetchSeq
+  loadingMore.value = true
+  try {
+    const res = await inventoryApi.list({ ...filterParams(), page: page.value + 1, page_size: pageSize.value })
+    if (seq !== fetchSeq || !Array.isArray(res?.items)) return
+    // 两次请求之间有人新增 / 卖出了东西，分页边界会挪一格，同一行可能在两页里各出现
+    // 一次。按 row_key 去重——v-for 的 key 重复时 Vue 会把两张卡渲染成同一张。
+    const seen = new Set(rows.value.map((r) => r.row_key))
+    rows.value = rows.value.concat(res.items.filter((r) => !seen.has(r.row_key)))
+    total.value = res.total
+    page.value += 1
+  } catch { /* 拦截器已提示；再往下滚会重试 */ } finally {
+    loadingMore.value = false
+  }
+  recheckSentinel()
+}
+
+// 滚动容器是 Layout 里的 .main（overflow-y: auto），不是整个视口。观察器的 root
+// 必须是它：以视口为 root 时，rootMargin 的提前量会被 .main 的裁剪吃掉，
+// 只有真滚到最底才触发，每次都要停下来等一拍。
+const sentinel = ref(null)
+let observer = null
+function scrollParentOf(el) {
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(p).overflowY)) return p
+  }
+  return null
+}
+watch(sentinel, (el) => {
+  observer?.disconnect()
+  observer = null
+  if (!el) return
+  observer = new IntersectionObserver(
+    (entries) => { if (entries.some((e) => e.isIntersecting)) loadMore() },
+    { root: scrollParentOf(el), rootMargin: '0px 0px 600px 0px' }
+  )
+  observer.observe(el)
+})
+// 观察器只在「进入 / 离开」时回调。一页加载完触发点仍在可视范围里（大屏一页铺不满，
+// 或者筛选后结果很少）就不会再有回调，列表停在半截。每次取完数重新挂一次，
+// 挂上时观察器会按当前位置补发一次回调，由它决定要不要接着取。
+async function recheckSentinel() {
+  await nextTick()
+  if (observer && sentinel.value) {
+    observer.unobserve(sentinel.value)
+    observer.observe(sentinel.value)
+  }
+}
+onBeforeUnmount(() => observer?.disconnect())
+
+// 表格 ↔ 卡片切换时从第一页重来：两边对 page 的理解不同（表格是「第几页」，
+// 卡片是「已经拼了几页」），带着旧值过去，表格会停在第 5 页、卡片会只剩第 5 页那 20 条。
+watch(useCardList, () => reload())
 
 async function fetchStats() {
   statsLoading.value = true
@@ -556,19 +849,17 @@ function reload() {
   fetch()
 }
 function resetFilters() {
-  filters.keyword = ''
-  filters.kind = null
-  filters.status = []
-  filters.brand = null
-  filters.source_platform = null
+  Object.assign(filters, blankFilters())
   dateRange.value = null
+  saleRange.value = null
   reload()
 }
 
 async function loadAux() {
   await meta.ensure()
-  const ub = await optionsApi.usedBrands()
+  const [ub, fc] = await Promise.all([optionsApi.usedBrands(), optionsApi.fundContributors()])
   usedBrands.value = ub.items || []
+  contributorNames.value = (fc.items || []).map((x) => x.name)
 }
 
 // 新增 = 先建一行空草稿，再进详情页填。详情页本身就是编辑界面，没有第二套「新增
@@ -591,18 +882,62 @@ async function onAdd(kind) {
   try {
     const draft = kind === 'device' ? await devicesApi.createDraft() : await cardsApi.createDraft()
     addVisible.value = false
-    router.push(`/${kind === 'device' ? 'devices' : 'cards'}/${draft.id}`)
+    openDetail(kind, draft.id)
   } catch { /* 拦截器已提示 */ } finally {
     adding.value = false
   }
 }
 
-// 点一行就进它的详情页——看和改都在那里。部件行进的是它所属的那台整机：部件是整机
-// 的一部分，没有自己的详情页。
+// 点一行就弹出它的详情——看和改都在那里。部件行弹的是它所属的那台整机：部件是整机
+// 的一部分，没有自己的详情。
 function onRowClick(row) {
-  if (row.kind === 'part') return router.push(`/devices/${row.device_id}`)
-  router.push(`/${row.kind === 'device' ? 'devices' : 'cards'}/${row.id}`)
+  if (row.kind === 'part') return openDetail('device', row.device_id, row.part_type)
+  openDetail(row.kind, row.id)
 }
+
+// ── 详情弹窗 ──────────────────────────────────────────────────────────
+// 开着哪一件记在地址栏的 ?open=card-12 / device-5 里，而不是一个本地 ref：
+// 这样手机的返回键 / 浏览器后退关掉的是弹窗而不是整个列表页，刷新后还开着同一件，
+// 链接也能直接发给别人。弹窗开关因此只有一个事实来源——路由。
+const detailRef = ref(null)
+const openKey = computed(() => (route.name === 'Cards' ? String(route.query.open || '') : ''))
+const openTarget = computed(() => {
+  const m = /^(card|device)-(\d+)$/.exec(openKey.value)
+  return m ? { kind: m[1], id: Number(m[2]) } : null
+})
+const openTab = computed(() => (route.query.tab ? String(route.query.tab) : null))
+
+// push 而不是 replace：要留下一条历史记录，后退键才有东西可退
+function openDetail(kind, id, tab = null) {
+  router.push({ query: { open: `${kind}-${id}`, ...(tab ? { tab } : {}) } })
+}
+// 关闭优先走「后退」：弹窗是从列表上 push 出来的，后退正好回到那一条，历史里不会
+// 越积越多的「列表 → 详情 → 列表 → 详情」。直接打开的链接（前一条不是列表）没得退，
+// 才 replace 掉 open 参数。
+function closeDetail() {
+  const back = window.history.state?.back
+  const prev = back ? router.resolve(back) : null
+  if (prev && prev.name === 'Cards' && !prev.query.open) router.back()
+  else router.replace({ query: {} })
+}
+
+// 弹窗关掉之前必须把详情里没落盘的改动存完、空草稿删掉（详情的 beforeClose）。
+// 关掉它的路径有好几条——关闭按钮、点遮罩、后退键、点侧栏去别的页——全都是路由
+// 变化，所以统一在路由守卫里 await，哪条路走过来都漏不掉。
+async function settleDetail(to, from) {
+  const leaving = to.name !== 'Cards' || to.query.open !== from.query.open
+  if (from.query.open && leaving) await detailRef.value?.beforeClose?.()
+}
+onBeforeRouteUpdate(settleDetail)
+onBeforeRouteLeave(settleDetail)
+
+// 弹窗关上（或者换成另一件）后刷新列表：刚才改的价钱、状态、封面得反映到卡片上。
+// fetch 在卡片列表下会一次取回已滚出来的那几页，滚动位置不会丢。
+// 点侧栏去了别的页也会让 openKey 变空，那时列表页已经被 keep-alive 收起来，不用白取一遍
+//（回来时 onActivated 会取）。
+watch(openKey, (now, before) => {
+  if (before && now !== before && route.name === 'Cards') fetch()
+})
 
 // 概览页点进来时带 ?status=xxx，直接把筛选摆好；带空的 status= 表示「看全部」。
 // 判断的是「有没有这个参数」而不是它真不真：从详情页返回时 query 是空的，
@@ -661,6 +996,27 @@ onActivated(() => {
 .f-brand { width: 150px !important; }
 .f-platform { width: 140px !important; }
 .f-date { width: 250px !important; }
+.f-contributor { width: 170px !important; }
+.f-small { width: 130px !important; }
+.f-cost { display: flex; align-items: center; gap: 6px; }
+.f-cost-input { width: 110px !important; }
+.f-cost-input :deep(input) { text-align: left; }
+/* 第二排与第一排之间的空隙与同排控件的间距一致，看上去是同一组筛选换了行 */
+.filters-more { margin-top: 10px; }
+/* 角标做成贴在文字后面的小圆点，不用 el-badge：badge 是绝对定位的，
+   在按钮里会跑到边框外面被相邻控件盖住 */
+.f-count {
+  margin-left: 5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--pcr-accent);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+}
 
 .cards-table :deep(.el-table__row) { cursor: pointer; }
 /* 二级行（部件）压暗一档并留出缩进，和顶层行分得开 */
@@ -749,7 +1105,7 @@ onActivated(() => {
 
 .m-metrics {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
   padding-top: 10px;
@@ -768,6 +1124,9 @@ onActivated(() => {
   margin-top: 10px;
   font-size: 12px;
 }
+/* 出资人靠右；后面若还有「部件一览」按钮，按钮仍贴在最右 */
+.m-contrib { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-contrib + .m-expand { margin-left: 0; }
 /* 展开按钮挤到右端，和左边的日期分开——它是个能按的东西，不该混在日期里 */
 .m-expand {
   margin-left: auto;
@@ -781,18 +1140,28 @@ onActivated(() => {
   color: #8fb8ff;
   font-size: 12px;
 }
-.m-parts { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.m-part {
+/* ── 部件一览弹窗 ──────────────────────────────────────────────────── */
+.pd-summary { display: flex; gap: 20px; margin-bottom: 12px; font-size: 13px; color: #8a94a6; }
+.pd-summary b { color: #e6edf7; margin-left: 4px; }
+.pd-list { display: flex; flex-direction: column; gap: 6px; max-height: 60vh; overflow-y: auto; }
+/* 一行是一个按钮：点了跳进详情页里这个部件那一页，键盘也能 Tab 过去按 */
+.pd-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 8px;
-  border-radius: 6px;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid transparent;
+  border-radius: 8px;
   background: rgba(91, 140, 255, 0.04);
-  font-size: 12px;
+  color: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
 }
-.m-part-name { flex: 1 1 auto; min-width: 0; color: #b9c4d6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.m-part-money { flex: none; color: #e6edf7; }
+.pd-row:hover, .pd-row:focus-visible { border-color: rgba(91, 140, 255, 0.5); outline: none; }
+.pd-name { flex: 1 1 auto; min-width: 0; color: #b9c4d6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-date { flex: none; font-size: 12px; }
+.pd-money { flex: none; min-width: 80px; text-align: right; color: #e6edf7; }
 
 /* 平板：卡片两列排。一列的话每张卡被拉成 550～900px 宽，三个金额隔得老远，
    一屏只放得下三四张；两列正好是手机卡片的宽度，信息密度回到桌面表格的水平。
@@ -804,8 +1173,70 @@ onActivated(() => {
     align-items: start;
     gap: 12px;
   }
-  .m-list > .el-empty { grid-column: 1 / -1; }
+  .m-list > .el-empty, .m-list > .m-more { grid-column: 1 / -1; }
 }
+
+/* ── 宽屏卡片模式 ──────────────────────────────────────────────────────
+   同一份卡片，按宽度自动排列数；封面从左侧小图改成占满卡宽的 4:3 头图，
+   名称和标签落到图下面。悬浮给个边框高亮——宽屏有鼠标，整张卡可点得让人看出来。 */
+.f-view { margin-left: auto; }
+/* 卡片大小统一：每张卡的正文都是同一套固定行高（名称两行、副标题一行、底栏一行），
+   标签挪到了头图四角，所以显卡和整机摊开来是同一个高度。同一行里再由网格默认的
+   stretch 拉齐，底栏靠 margin-top: auto 贴底，金额行、日期行落在同一水平线上。
+   不用 grid-auto-rows: 1fr：那会把底部的「已全部加载」和空状态也撑成一张卡那么高。 */
+.m-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+.m-grid > .el-empty, .m-grid > .m-more { grid-column: 1 / -1; }
+.m-grid .m-card {
+  display: flex;
+  flex-direction: column;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.m-grid .m-card:hover { border-color: rgba(91, 140, 255, 0.5); background: rgba(91, 140, 255, 0.04); }
+.m-grid .m-top { flex-direction: column; gap: 10px; }
+.m-grid .m-cover { position: relative; width: 100%; height: auto; aspect-ratio: 4 / 3; }
+.m-grid .m-cover .cover-empty { font-size: 40px; }
+.m-grid .m-head { width: 100%; }
+.m-grid .m-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: calc(2 * 1.35em);
+}
+.m-grid .m-subline { min-height: 1.5em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 底栏一律占一行：显卡没有「部件一览」按钮，整机没有成交日，内容不同但高度一样 */
+.m-grid .m-foot { margin-top: auto; padding-top: 10px; min-height: 30px; }
+.m-grid .m-metrics { margin-top: 10px; }
+
+/* 头图四角的标签。图片底色深浅不定，给每个角垫一层深色底，
+   描边样式的标签（底色透明）压在浅色图上也看得清 */
+.m-corner {
+  position: absolute;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 12px;
+  background: rgba(11, 18, 32, 0.72);
+  backdrop-filter: blur(4px);
+  line-height: 1;
+}
+.m-corner :deep(.el-tag--plain) { --el-tag-bg-color: transparent; }
+.m-corner--tl { top: 8px; left: 8px; }
+.m-corner--tr { top: 8px; right: 8px; }
+.m-corner--br { bottom: 8px; right: 8px; }
+.m-corner--bl { bottom: 8px; left: 8px; }
+/* 左上角整机多一个件数标签，两个标签之间留点空 */
+.m-corner--tl { gap: 4px; }
+/* 右下角出资人名字可能有好几个，别让它压过左下角的日期 */
+.m-corner--br { max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+/* 日期不是 el-tag，自己补上和标签差不多的内边距与字号，四个角看着是一套 */
+.m-date { padding: 4px 8px; font-size: 11px; color: #c9d3e3; }
+
+.m-more { padding: 14px 0 4px; text-align: center; font-size: 12px; min-height: 20px; }
 
 /* 触屏：展开部件的按钮本来只有 28px 高，又紧挨着「点整张卡进详情」的区域，
    按偏一点就进了详情页 */
@@ -814,31 +1245,22 @@ onActivated(() => {
 }
 
 @media (max-width: 768px) {
-  /* 展开后的五个筛选器各占满一行——并排只会各自剩下小半个框，看不清选的是什么。
+  /* 展开后的筛选器各占满一行——并排只会各自剩下小半个框，看不清选的是什么。
      搜索框是例外：它和「筛选」开关共一行，收起状态下这一行就是全部筛选界面。 */
-  .f-kind, .f-status, .f-brand, .f-platform, .f-date { width: 100% !important; }
+  .f-kind, .f-status, .f-brand, .f-platform, .f-contributor, .f-date, .f-small { width: 100% !important; }
+  .f-cost { width: 100%; }
+  .f-cost-input { flex: 1 1 0; width: auto !important; }
   .filters { align-items: stretch; }
   .f-keyword { flex: 1 1 60%; width: auto !important; }
   .f-toggle { flex: 0 0 auto; margin-left: 0; }
   .f-add { flex: 1 1 100%; margin-left: 0; }
-  /* 角标做成贴在文字后面的小圆点，不用 el-badge：badge 是绝对定位的，
-     在按钮里会跑到边框外面被相邻控件盖住 */
-  .f-count {
-    margin-left: 5px;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: 8px;
-    background: var(--pcr-accent);
-    color: #fff;
-    font-size: 11px;
-    line-height: 16px;
-    text-align: center;
-  }
   /* 两张卡片并排在手机上只剩半屏宽，说明文字会碎成每行两三个字 */
   .add-picker { flex-direction: column; }
   /* 卡片列表自己带圆角和边框，外面那张卡的内边距只会白白吃掉两边各 12px */
   .table-card :deep(.el-card__body) { padding: 10px; }
   .pager { justify-content: center; }
+  /* 弹窗在手机上只剩 330 来像素，五样东西排一行时名称会被挤没；成交日让出位置 */
+  .pd-date { display: none; }
+  .pd-money { min-width: 0; }
 }
 </style>

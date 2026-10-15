@@ -75,55 +75,61 @@ html, body, #app {
 }
 .el-card__body { background: transparent !important; color: #e6edf7; }
 
-/* 详情页的「左表单 / 右图片」分栏：宽度 4 : 6，两列等高。
-   整机页和每个部件的卡片用的是同一套——分头各写一份的话，某天调了其中一处，
-   同一个页面上下两块的比例就对不上了。
-   用 flex-grow 的比例而不是百分比宽度：中间 16px 的间隙不会被算进去。
-   两列被 stretch 拉成等高，卡片再填满自己那一列，右边图片少时也不会矮一截。 */
-.pcr-split { display: flex; align-items: stretch; gap: 16px; }
-.pcr-split > * { display: flex; min-width: 0; }
-.pcr-split > * > .el-card { width: 100%; }
-.pcr-split-form { flex: 4 1 0; }
-.pcr-split-media { flex: 6 1 0; }
-/* 右栏那张图片卡：两栏等高是 align-items: stretch 撑出来的，但 el-card 不会把多出来的
-   高度分给 body——卡片下半截的空白于是不属于任何元素，拖文件到那儿松手毫无反应，而那里
-   看着恰恰最像「能往里丢东西」的地方。把高度一路传下去，让 MediaGallery 能撑满整张卡，
-   投放区也就覆盖整张卡而不只是缩略图那一行。 */
-.pcr-split-media > .el-card { display: flex; flex-direction: column; }
-.pcr-split-media > .el-card > .el-card__body { flex: 1 1 auto; display: flex; flex-direction: column; }
-@media (max-width: 1100px) {
-  /* 窄屏并排都挤没了，改成上下排 */
-  .pcr-split { flex-direction: column; }
+/* ── 详情弹窗（views/Cards 持有，内容是 CardDetail / DeviceDetail）──────────
+   el-dialog 被 teleport 到 body 下，页面里的 scoped 样式够不着，只能写在这里。
+   弹窗是**定高**的，自己不滚动：里面的 DetailShell 把内容拆成模块，一次只摆一个，
+   每个模块按一屏放得下来排。Element 自带的标题栏不用（DetailShell 有自己的顶栏），
+   内边距清零交给骨架自己管。 */
+.pcr-detail-dialog {
+  padding: 0;
+  height: min(860px, 92vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
-/* 表单卡按**自己的宽度**决定字段排一列还是两列（.pcr-fields，见下）。
-   原来按视口宽度判断，结果两头都不对：1280 的桌面上表单只占 4/10、两列各剩 170px，
-   「币种 + 金额」根本排不下；iPad 横屏上下堆叠时表单占满 900px，却又退成一列，
-   标签和值隔着大半屏。卡片多宽只有容器查询知道。 */
-.pcr-split-form > .el-card > .el-card__body { container-type: inline-size; }
-.pcr-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 32px; }
-@container (min-width: 600px) {
-  .pcr-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.pcr-detail-dialog .el-dialog__header { display: none; }
+.pcr-detail-dialog .el-dialog__body { flex: 1 1 auto; min-height: 0; padding: 0; }
+@media (max-width: 768px) {
+  /* 手机上是全屏弹窗：下面那条「el-dialog 一律 94vw」会把全屏也压窄，这里抬回来 */
+  .pcr-detail-dialog.is-fullscreen { width: 100vw !important; max-width: 100vw; height: 100%; }
 }
 
-/* 详情页顶栏（返回 + 自动保存状态）：手机和平板上钉在顶部。表单有二十来行，改到下面
-   时顶栏早就滚出去了——「存上了没有」是详情页唯一的保存反馈，看不见等于没有；返回
-   按钮也不该要先划回顶部才能按到。负边距抵掉 .main 的内边距（Layout.vue 里，手机
-   14px 12px / 平板 20px 24px），让底色贴满整宽，滚上去的内容不会从两侧露出来。 */
-@media (max-width: 1200px) {
-  .pcr-sticky-head {
-    position: sticky;
-    top: -20px;
-    z-index: 20;
-    margin: -20px -24px 12px !important;
-    padding: 8px 24px;
-    background: rgba(11, 18, 32, 0.92);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-    border-bottom: 1px solid #1c2740;
-  }
+/* ── 详情模块里的表单：标签在上、两列网格 ──────────────────────────────
+   模块页是定高的，一个模块里的字段要在一屏内排完，所以按两列排；标签放上面而不是
+   左边，两列各自的输入框才有足够宽度（「币种 + 金额」那种组合控件左标签时排不下）。
+   .pcr-span-2 占满整行（备注、链接这类长值）。
+   .pcr-ro 是只读值（汇率快照这类算出来的数）：和输入框同高、不画边框，
+   一眼分得出哪些能改。 */
+.pcr-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 20px; }
+.pcr-form .el-form-item { margin-bottom: 14px; }
+.pcr-form .el-form-item__label { color: #8a94a6; line-height: 20px; margin-bottom: 4px !important; padding: 0 !important; }
+.pcr-form .el-select,
+.pcr-form .el-date-editor.el-input,
+.pcr-form .el-date-editor { width: 100% !important; }
+.pcr-span-2 { grid-column: 1 / -1; }
+.pcr-ro {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0 4px;
+  min-height: 32px;
+  width: 100%;
+  padding: 0 11px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.025);
+  color: #e6edf7;
+  font-size: 14px;
+}
+/* 模块里的小节标题（一个模块里分两三块时用），比卡片标题轻 */
+.pcr-sec-title {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #c9d3e3;
+  letter-spacing: 0.3px;
 }
 @media (max-width: 768px) {
-  .pcr-sticky-head { top: -14px; margin: -14px -12px 12px !important; padding: 6px 12px; }
+  .pcr-form { grid-template-columns: minmax(0, 1fr); }
 }
 
 .el-loading-mask { background-color: var(--el-mask-color) !important; }

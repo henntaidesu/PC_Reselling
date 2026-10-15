@@ -1,6 +1,6 @@
 <template>
   <!-- 金额 + 币种。两者必须在一起：一个「390000」不说清是日元还是人民币，
-       后面每一步换算都是错的。标签由外面的 InlineField 给，这里只出控件。 -->
+       后面每一步换算都是错的。标签由外面的 el-form-item 给，这里只出控件。 -->
   <div class="money-input">
     <!-- 币种在前：先说是哪国的钱，再报数额，和「￥390,000」的读法一致 -->
     <el-select
@@ -46,7 +46,7 @@ const currencies = computed(() => meta.enums.currencies?.length ? meta.enums.cur
 .amount { flex: 1 1 auto; min-width: 0; }
 /* el-input-number 的输入框默认居中，这里跟着表单里其它字段一起改成左对齐 */
 .amount :deep(.el-input__inner) { text-align: left; }
-/* 币种这一格定宽。用 flex-basis 而不是 width：外面的 InlineField 会把所有控件
+/* 币种这一格定宽。用 flex-basis 而不是 width：外面的表单网格会把所有控件
    刷成 width:100% !important，只有 flex-basis 压得住它。
    96px 而不是原来的 74px：下拉右边那个收起箭头平时是 opacity:0，但它**照样占位**，
    悄悄吃掉约 20px——74px 减去内边距和箭头只剩 40 出头，「人民币」三个字排不下，

@@ -351,7 +351,7 @@ defineExpose({ reload: load })
 .collapse-row { margin-top: 6px; text-align: center; }
 .uploader :deep(.el-upload) { width: 100%; display: block; }
 
-/* 撑满外面那张卡（配合 App.vue 里 .pcr-split-media 的两条规则）。父级不是 flex 时
+/* 父级是 flex 列时撑满它。父级不是 flex 时
    flex 属性会被忽略，退回按内容高度排，所以放在别处用也不会错位 */
 .media-gallery { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
 

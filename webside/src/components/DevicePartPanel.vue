@@ -1,103 +1,75 @@
 <template>
-  <!-- 两张卡并排：左表单、右图片。合成一张时同一件部件的资料是连着的，但图片少的时候
-       右半边会空一大块；分成两张、再把两列拉成等高，空的是卡片自己的下半截，不至于让
-       整行看起来缺了一块 -->
-  <div class="pcr-split panel-row">
-    <div class="pcr-split-form">
-      <el-card shadow="never" class="panel-card">
-        <template #header>
-          <!-- 不标类型：上面的标签页已经说了这是哪一类，卡片里再写一遍纯属占地方 -->
-          <div class="panel-head">
-            <span class="panel-title">{{ title }}</span>
-            <span v-if="net !== null" class="pcr-dim panel-net">
-              {{ t('device.netIncome') }} <b class="pcr-mono">{{ cny(net) }}</b>
-            </span>
-            <div class="panel-head-right">
-              <!-- 状态只标那两种「还没完」的：没填过、或填了还没卖。卖掉了什么都不标——
-                   售价在下面的「出售价格」里，旁边还有净收入，头上再顶一个是同一个数说三遍。
-                   不用 el-tag：一个方框套两个字比字本身还占地方，直接上色的文字就够了 -->
-              <span v-if="blank" class="panel-state pcr-dim">{{ t('device.blankSlot') }}</span>
-              <span v-else-if="!sold" class="panel-state panel-state--unsold">{{ t('device.unsold') }}</span>
-              <!-- 同类只剩这一件时不给删（deletable=false）：一台机器不可能没有 CPU，
-                   与其删掉再让人从「添加」里加回来，不如根本不摆这个按钮 -->
-              <el-button v-if="deletable" size="small" text type="danger" :icon="Delete"
-                @click="emit('remove')">
-                {{ t('device.removePart') }}
-              </el-button>
-            </div>
-          </div>
-        </template>
-
-        <div class="pcr-fields">
-          <InlineField :label="t('card.brand')">
-            <!-- 品牌候选按部件类型给：CPU 只有 Intel / AMD（不允许现场新建），显卡直接用
-                 系统里的品牌字典，其余给一份常见清单但可以现场输入 -->
-            <el-select v-model="part.brand" filterable :allow-create="!schema.brandStrict"
-              default-first-option clearable>
-              <el-option v-for="b in brandOptions" :key="b" :label="b" :value="b" />
-            </el-select>
-          </InlineField>
-          <InlineField :label="t('card.model')">
-            <el-select v-if="modelOptions.length" v-model="part.model" filterable allow-create
-              default-first-option clearable>
-              <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
-            </el-select>
-            <el-input v-else v-model="part.model" />
-          </InlineField>
-          <!-- 「规格」这一栏各类型填的不是一回事（核心编号 / 容量 / 功率 / 芯片组），标题跟着类型走 -->
-          <InlineField :label="t(specLabelKey(part.part_type))">
-            <el-input v-model="part.spec" />
-          </InlineField>
-          <InlineField :label="t('card.serialNo')">
-            <el-input v-model="part.serial_no" />
-          </InlineField>
-        </div>
-
-        <el-divider />
-
-        <div class="pcr-fields">
-          <InlineField :label="t('card.saleDate')">
-            <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
-          </InlineField>
-          <InlineField :label="t('card.status')">
-            <StatusSelect v-model="part.status" />
-          </InlineField>
-          <InlineField :label="t('card.domesticShipping')">
-            <MoneyInput v-model:amount="part.domestic_shipping_amount"
-              v-model:currency="part.domestic_shipping_currency" />
-          </InlineField>
-          <InlineField :label="t('card.saleAmount')">
-            <MoneyInput v-model:amount="part.sale_amount" v-model:currency="part.sale_currency" />
-          </InlineField>
-        </div>
-
-        <el-divider />
-
-        <InlineField :label="t('card.note')" stack>
-          <el-input v-model="part.note" type="textarea" :rows="2" />
-        </InlineField>
-      </el-card>
+  <!-- 整机详情「部件」模块右侧的编辑区：一次只编辑左边列表里选中的那一件。
+       上半是字段（两列网格），下半是这件的图片。整块按一屏放得下来排，不需要往下拉。 -->
+  <div class="part-editor">
+    <div class="pe-head">
+      <PartTypeTag :type="part.part_type" />
+      <span class="pe-title" :class="{ 'pcr-dim': blank }">{{ blank ? t('device.blankSlot') : title }}</span>
+      <span v-if="net !== null" class="pcr-dim pe-net">
+        {{ t('device.netIncome') }} <b class="pcr-mono">{{ cny(net) }}</b>
+      </span>
+      <!-- 同类只剩这一件时不给删（deletable=false）：一台机器不可能没有 CPU，
+           与其删掉再让人从「添加」里加回来，不如根本不摆这个按钮 -->
+      <el-button v-if="deletable" class="pe-del" size="small" text type="danger" :icon="Delete"
+        @click="emit('remove')">
+        {{ t('device.removePart') }}
+      </el-button>
     </div>
 
-    <div class="pcr-split-media">
-      <!-- 这张卡里只有图片，不给标题：一眼就看得出是图片，再写一行「部件图片」是废话 -->
-      <el-card shadow="never" class="panel-card">
-        <!-- 图片区一直在，空槽位也能直接传：要传的那一刻页面会先把这一行存出来拿到 id
-             （ensureId），而不是要求用户先填点什么。
-             large + limit：缩略图尺寸跟整机那份照片一致（整机页和部件页来回切时，
-             同样大小的格子才不会跳）；一行能摆下五六张，再多会把卡片撑得比左边长出
-             一大截，多出来的收进「更多图片」里 -->
-        <MediaGallery
-          owner="parts"
-          :owner-id="part.id"
-          :ensure-id="ensureId"
-          :hosting-configured="hostingConfigured"
-          large
-          :limit="8"
-          @changed="(n) => emit('media-changed', n)"
-        />
-      </el-card>
-    </div>
+    <el-form label-position="top" size="small" class="pcr-form" @submit.prevent>
+      <el-form-item :label="t('card.brand')">
+        <!-- 品牌候选按部件类型给：CPU 只有 Intel / AMD（不允许现场新建），显卡直接用
+             系统里的品牌字典，其余给一份常见清单但可以现场输入 -->
+        <el-select v-model="part.brand" filterable :allow-create="!schema.brandStrict"
+          default-first-option clearable>
+          <el-option v-for="b in brandOptions" :key="b" :label="b" :value="b" />
+        </el-select>
+      </el-form-item>
+      <el-form-item :label="t('card.model')">
+        <el-select v-if="modelOptions.length" v-model="part.model" filterable allow-create
+          default-first-option clearable>
+          <el-option v-for="m in modelOptions" :key="m" :label="m" :value="m" />
+        </el-select>
+        <el-input v-else v-model="part.model" />
+      </el-form-item>
+      <!-- 「规格」这一栏各类型填的不是一回事（核心编号 / 容量 / 功率 / 芯片组），标题跟着类型走 -->
+      <el-form-item :label="t(specLabelKey(part.part_type))">
+        <el-input v-model="part.spec" />
+      </el-form-item>
+      <el-form-item :label="t('card.serialNo')">
+        <el-input v-model="part.serial_no" autocapitalize="off" autocorrect="off" spellcheck="false" />
+      </el-form-item>
+      <el-form-item :label="t('card.saleDate')">
+        <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
+      </el-form-item>
+      <el-form-item :label="t('card.status')">
+        <StatusSelect v-model="part.status" />
+      </el-form-item>
+      <el-form-item :label="t('card.saleAmount')">
+        <MoneyInput v-model:amount="part.sale_amount" v-model:currency="part.sale_currency" />
+      </el-form-item>
+      <el-form-item :label="t('card.domesticShipping')">
+        <MoneyInput v-model:amount="part.domestic_shipping_amount"
+          v-model:currency="part.domestic_shipping_currency" />
+      </el-form-item>
+      <el-form-item :label="t('card.note')" class="pcr-span-2">
+        <el-input v-model="part.note" type="textarea" :rows="2" resize="none" />
+      </el-form-item>
+    </el-form>
+
+    <h4 class="pcr-sec-title">{{ t('detail.partMedia') }}</h4>
+    <!-- 图片区一直在，空槽位也能直接传：要传的那一刻页面会先把这一行存出来拿到 id
+         （ensureId），而不是要求用户先填点什么。limit：一行摆得下的张数，再多收进
+         「更多图片」，免得把编辑区撑出一屏 -->
+    <MediaGallery
+      :key="part._uid"
+      owner="parts"
+      :owner-id="part.id"
+      :ensure-id="ensureId"
+      :hosting-configured="hostingConfigured"
+      :limit="6"
+      @changed="(n) => emit('media-changed', n)"
+    />
   </div>
 </template>
 
@@ -109,8 +81,8 @@ import { cny } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
 import { useIsTouch } from '@/composables/useIsMobile'
-import InlineField from './InlineField.vue'
 import MediaGallery from './MediaGallery.vue'
+import PartTypeTag from './PartTypeTag.vue'
 import MoneyInput from './MoneyInput.vue'
 import StatusSelect from './StatusSelect.vue'
 
@@ -161,26 +133,12 @@ const title = computed(() =>
 </script>
 
 <style scoped>
-/* 分栏本身（4 : 6、等高、窄屏堆叠）在 App.vue 的 .pcr-split 里，与整机页共用 */
-.panel-row { margin-bottom: 16px; }
-
-.panel-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.panel-title { font-size: 14px; color: #e6edf7; }
-.panel-net { font-size: 12px; }
-/* 状态和删除按钮一起靠右。包一层而不是给两个各自 margin-left:auto——两个 auto 会把
-   剩余空间对半分，状态和按钮之间凭空裂开一道缝 */
-.panel-head-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
-.panel-state { font-size: 12px; }
-.panel-state--unsold { color: #f87171; }
-
-/* 字段一列还是两列由卡片自己的宽度决定（App.vue 的 .pcr-fields 容器查询） */
-.panel-card :deep(.el-divider) { margin: 10px 0; }
-
-@media (max-width: 1100px) {
-  .panel-head-right { margin-left: 0; }
-}
-/* 「删除部件」是 small 文字按钮，24px 高，就挨着卡片标题——触屏上撑到能按准 */
+.pe-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.pe-title { font-size: 15px; color: #e6edf7; font-weight: 500; }
+.pe-net { font-size: 12px; }
+.pe-del { margin-left: auto; }
+/* 「删除部件」是 small 文字按钮，24px 高——触屏上撑到能按准 */
 @media (hover: none) {
-  .panel-head-right :deep(.el-button) { min-height: 34px; padding: 8px 10px; }
+  .pe-del { min-height: 34px; padding: 8px 10px; }
 }
 </style>

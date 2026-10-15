@@ -14,8 +14,10 @@ const routes = [
       { path: '', redirect: '/dashboard' },
       { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard/index.vue'), meta: { titleKey: 'route.dashboard', icon: 'Odometer' } },
       { path: 'cards', name: 'Cards', component: () => import('@/views/Cards/index.vue'), meta: { titleKey: 'route.cards', icon: 'Cpu' } },
-      { path: 'cards/:id', name: 'CardDetail', component: () => import('@/views/CardDetail/index.vue'), meta: { titleKey: 'route.cardDetail', icon: 'Cpu', hidden: true } },
-      { path: 'devices/:id', name: 'DeviceDetail', component: () => import('@/views/DeviceDetail/index.vue'), meta: { titleKey: 'route.deviceDetail', icon: 'Monitor', hidden: true } },
+      // 详情不再是独立页面，而是库存列表上的悬浮弹窗（?open=card-12 / device-5）。
+      // 老地址保留成重定向：收藏夹、聊天记录里贴过的链接照样能打开那一件
+      { path: 'cards/:id', redirect: (to) => ({ path: '/cards', query: { open: `card-${to.params.id}` } }) },
+      { path: 'devices/:id', redirect: (to) => ({ path: '/cards', query: { ...to.query, open: `device-${to.params.id}` } }) },
       { path: 'funds', name: 'Funds', component: () => import('@/views/Funds/index.vue'), meta: { titleKey: 'route.funds', icon: 'Wallet' } },
       { path: 'fx', name: 'Fx', component: () => import('@/views/Fx/index.vue'), meta: { titleKey: 'route.fx', icon: 'TrendCharts' } },
       { path: 'settings', name: 'Settings', component: () => import('@/views/Settings/index.vue'), meta: { titleKey: 'route.settings', icon: 'Setting' } }
