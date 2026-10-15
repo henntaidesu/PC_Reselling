@@ -21,10 +21,11 @@
    吃不满的部分记为 ``shortfall``（当时池内余额不够），按当日市场牌价折算并给出
    警告，而不是硬凑到后面的批次上——那会让成本凭空变好看。
 
-**出资人（``fund_injections.contributor``）**：池子里的钱可能是几个人凑的。它只是注资上的
-一个**归属标签**，不改变 FIFO——池子仍然是一个先进先出的队列，一笔扣款吃到谁的钱取决于
-日期而不是人。这是刻意的：一张卡的人民币成本只取决于「吃掉的那几笔钱当初按什么价换的」，
-按人分池会让同一天买的两张卡因为「记在谁头上」而成本不同，那是分账问题，不是成本问题。
+**出资人（``fund_injections.contributor``）**：池子里的钱可能是几个人凑的。注资上的
+``contributor`` 是归属标签，标记这笔钱是谁出的。**当一件货指定了出资比例
+（``fund_shares``）**，FIFO 会按比例把扣款拆成几段，每段**只在该出资人的注资批次里**
+先进先出——等价于按人分池。没指定比例的扣款照旧在全池上跑一遍 FIFO（老数据的行为）。
+因此 ``pool_fx_rate`` 已经是出资人维度的加权汇率，而不是全池的平均。
 谁出了多少、被用掉多少、还剩多少，全部由分摊结果反算（``contributor_totals()``）。
 
 **分摊是全量派生数据**：任何注资或扣款变动后都整体重算（``rebuild()``），而不是增量
@@ -129,7 +130,7 @@ def resolve_injection_fx(
     amount: Any = None,
     cny_cost: Any = None,
 ) -> Dict[str, Any]:
-    """定这批钱的汇率：手填的实付人民币优先，否则按注资日取牌价。
+    """定这批钱的汇率：填了实付人民币就由它算（外汇注资），否则按注资日取牌价（现金注资）。
 
     手工模式录的是实付人民币，汇率由 ``manual_rate`` 算出来。**存进去的仍然是汇率**：
     FIFO 要把一个批次拆成几段分给不同的扣款，只有按汇率折才拆得开。
@@ -245,7 +246,8 @@ def allocate(
                     continue
                 take = available if available < need else need
                 rate = _dec(inj.get("fx_rate"))
-                cny = _to_cny(take, rate)
+                # 现金注资没有人民币成本，CNY 按 0 计而不是当作「缺汇率」
+                cny = _ZERO if inj.get("inject_type") == "cash" else _to_cny(take, rate)
                 remaining[int(inj["id"])] = available - take
                 need -= take
                 lines.append({
@@ -462,8 +464,8 @@ def _market_rate_lookup():
 def rebuild() -> Dict[str, Any]:
     """整体重算全部分摊，并把结果回写到扣款行与它的归属行。可重复执行，结果幂等。"""
     injections = db.query(
-        "SELECT id, inject_date, amount, fx_rate, contributor FROM fund_injections "
-        "ORDER BY inject_date, id"
+        "SELECT id, inject_date, amount, fx_rate, contributor, inject_type "
+        "FROM fund_injections ORDER BY inject_date, id"
     )
     draws = db.query(
         "SELECT id, card_id, device_id, category, draw_date, amount, contributor "
@@ -701,22 +703,25 @@ def list_injections() -> List[Dict[str, Any]]:
         amount = _dec(row["amount"]) or _ZERO
         used = _dec(row["used_amount"]) or _ZERO
         rate = _dec(row["fx_rate"])
+        is_cash = (row.get("inject_type") or "forex") == "cash"
+        cny_cost = _ZERO if is_cash else _to_cny(amount, rate)
+        remaining_cny = _ZERO if is_cash else _to_cny(amount - used, rate)
         out.append({
             "id": row["id"],
             "inject_date": _iso(row["inject_date"]),
             "amount": _float(amount),
             "currency": row["currency"],
+            "inject_type": row.get("inject_type") or "forex",
             "fx_rate": _float(rate),
             "fx_date": _iso(row["fx_date"]),
             "fx_manual": bool(row["fx_manual"]),
             "contributor": row.get("contributor") or None,
-            "channel": row["channel"],
             "note": row["note"],
-            "cny_cost": _float(_to_cny(amount, rate)),
+            "cny_cost": _float(cny_cost),
             "used_amount": _float(used),
             "used_cny": _float(row["used_cny"]),
             "remaining_amount": _float(amount - used),
-            "remaining_cny": _float(_to_cny(amount - used, rate)),
+            "remaining_cny": _float(remaining_cny),
             "created_at": _iso(row["created_at"]),
         })
     return out
@@ -862,7 +867,7 @@ def contributor_totals() -> List[Dict[str, Any]]:
         b["used_cny"] += row["used_cny"] or 0
         b["remaining"] += row["remaining_amount"] or 0
         b["remaining_cny"] += row["remaining_cny"] or 0
-        if row["fx_rate"] is None:
+        if row["fx_rate"] is None and row.get("inject_type") != "cash":
             b["incomplete"] = True
 
     # 货那边：卖掉的按比例分盈亏，没卖的按比例记在库本金
@@ -1003,7 +1008,13 @@ def summary() -> Dict[str, Any]:
     injections = list_injections()
     total_in = sum(i["amount"] or 0 for i in injections)
     total_in_cny = sum(i["cny_cost"] or 0 for i in injections)
-    incomplete_injections = sum(1 for i in injections if i["fx_rate"] is None)
+    forex = [i for i in injections if i.get("inject_type") != "cash"]
+    forex_in = sum(i["amount"] or 0 for i in forex)
+    forex_in_cny = sum(i["cny_cost"] or 0 for i in forex)
+    incomplete_injections = sum(
+        1 for i in injections
+        if i["fx_rate"] is None and i.get("inject_type") != "cash"
+    )
     remaining = sum(i["remaining_amount"] or 0 for i in injections)
     remaining_cny = sum(i["remaining_cny"] or 0 for i in injections)
 
@@ -1026,9 +1037,8 @@ def summary() -> Dict[str, Any]:
         "shortfall": _float(used_row.get("shortfall")),
         "draw_count": int(used_row.get("n") or 0),
         "injection_count": len(injections),
-        # 池子的平均换汇成本，与单批次同口径（100 日元 = ? 人民币）。缺汇率的批次没算进
-        # 人民币，所以只有全部批次都有汇率时这个数才准，前端用 incomplete 标记提示。
-        "avg_rate": round(total_in_cny / total_in * RATE_UNIT, 4) if total_in else None,
+        # 池子的平均换汇成本（只算外汇注资），与单批次同口径（100 日元 = ? 人民币）
+        "avg_rate": round(forex_in_cny / forex_in * RATE_UNIT, 4) if forex_in else None,
         "used_rate": _float(used_cny / used_jpy * _RATE_UNIT) if (used_jpy > 0 and used_cny > 0) else None,
         "incomplete": bool(incomplete_injections or int(used_row.get("broken") or 0)),
         "incomplete_injections": incomplete_injections,

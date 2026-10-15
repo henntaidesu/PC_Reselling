@@ -69,7 +69,24 @@
               </el-radio-group>
             </div>
           </template>
-          <EChart v-if="trendView === 'chart'" :option="trendOption" height="300px" />
+          <EChart v-if="trendView === 'chart'" :option="trendOption" :height="isMobile ? '240px' : '300px'" />
+          <!-- 手机上的表格视图：六列数字在 336px 里只能横滚，而横滚时日期列跟着滑走，
+               读到第三列已经不知道是哪一天了。改成每天一行、日期领头、数字在下面折行。 -->
+          <ul v-else-if="isMobile" class="m-list trend-list">
+            <li v-for="row in trend" :key="row.date" class="m-item">
+              <div class="m-head">
+                <span class="pcr-mono">{{ row.date }}</span>
+                <span class="pcr-mono" :class="profitClass(row.profit)">{{ cny(row.profit) }}</span>
+              </div>
+              <div class="m-meta">
+                <span>{{ t('dashboard.bought') }} {{ formatInt(row.bought) }}</span>
+                <span>{{ t('dashboard.sold') }} {{ formatInt(row.sold) }}</span>
+                <span>{{ t('dashboard.cost') }} {{ cny(row.cost) }}</span>
+                <span>{{ t('dashboard.revenue') }} {{ cny(row.revenue) }}</span>
+              </div>
+            </li>
+            <li v-if="!trend.length" class="m-empty pcr-dim">{{ t('common.noData') }}</li>
+          </ul>
           <!-- 表格视图：图表的等价读法，保证任何数值都不只能靠悬浮提示才读得到 -->
           <el-table v-else :data="trend" size="small" height="300" stripe class="num-table">
             <el-table-column prop="date" :label="t('dashboard.date')" width="110" />
@@ -241,7 +258,21 @@
               </span>
             </div>
           </template>
-          <el-table :data="topModels" size="small" stripe class="num-table">
+          <!-- 手机：与下面的表格同一份数据，只是换一种排法（宽表换卡片，见 CLAUDE.md） -->
+          <ul v-if="isMobile" class="m-list">
+            <li v-for="(row, i) in topModels" :key="row.model + i" class="m-item">
+              <div class="m-head">
+                <span class="m-title"><span class="m-rank">{{ i + 1 }}</span>{{ row.model }}</span>
+                <span class="pcr-mono" :class="profitClass(row.profit_cny)">{{ cny(row.profit_cny) }}</span>
+              </div>
+              <div class="m-meta">
+                <span>{{ t('dashboard.count') }} {{ formatInt(row.count) }}</span>
+                <span>{{ t('dashboard.sold') }} {{ formatInt(row.sold) }}</span>
+              </div>
+            </li>
+            <li v-if="!topModels.length" class="m-empty pcr-dim">{{ t('common.noData') }}</li>
+          </ul>
+          <el-table v-else :data="topModels" size="small" stripe class="num-table">
             <el-table-column type="index" width="44" />
             <el-table-column :label="t('card.model')" min-width="150" prop="model" />
             <el-table-column :label="t('dashboard.count')" width="80" align="right">
@@ -270,7 +301,26 @@
             </span>
           </div>
         </template>
-        <el-table :data="recent" size="small" stripe class="num-table clickable" @row-click="goDetail">
+        <ul v-if="isMobile" class="m-list">
+          <li v-for="row in recent" :key="row.id" class="m-item is-link" @click="goDetail(row)">
+            <div class="m-head">
+              <span class="m-title">{{ [row.brand, row.model].filter(Boolean).join(' ') || t('card.noModel') }}</span>
+              <StatusTag :status="row.status" />
+            </div>
+            <div class="m-meta">
+              <span class="pcr-mono mgmt">{{ row.mgmt_no }}</span>
+              <span class="pcr-mono">{{ row.purchase_date || '—' }}</span>
+            </div>
+            <div class="m-meta">
+              <span>{{ t('card.cost') }} <b class="pcr-mono">{{ cny(row.money.cost_total_cny) }}</b></span>
+              <span>{{ t('card.profit') }}
+                <b class="pcr-mono" :class="profitClass(row.money.profit_cny)">{{ cny(row.money.profit_cny) }}</b>
+              </span>
+            </div>
+          </li>
+          <li v-if="!recent.length" class="m-empty pcr-dim">{{ t('common.noData') }}</li>
+        </ul>
+        <el-table v-else :data="recent" size="small" stripe class="num-table clickable" @row-click="goDetail">
           <el-table-column :label="t('card.mgmtNo')" width="130">
             <template #default="{ row }"><span class="pcr-mono mgmt">{{ row.mgmt_no }}</span></template>
           </el-table-column>
@@ -307,6 +357,7 @@ import {
 } from '@element-plus/icons-vue'
 import { dashboardApi } from '@/api'
 import { usePlatforms } from '@/composables/usePlatforms'
+import { useIsMobile } from '@/composables/useIsMobile'
 import { cny, profitClass, STATUS_COLOR, STATUS_ORDER } from '@/utils/format'
 import EChart from '@/components/EChart.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -319,6 +370,7 @@ const { t } = useI18n()
 // 平台名要走字典 + i18n 兜底：内置三个有译文，用户自己加的原样显示
 const { platformLabel } = usePlatforms()
 const router = useRouter()
+const { isMobile } = useIsMobile()
 
 /** 区间预设：0 = 「全部」，起点由后端取全库最早的交易日 */
 const RANGE_PRESETS = [7, 14, 30, 90, 0]
@@ -867,6 +919,71 @@ onActivated(load)
   font-size: 12px;
   color: #8b98b0;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── 手机卡片列表（最近录入 / 型号排行 / 趋势表格视图共用） ──────── */
+.m-list { list-style: none; margin: 0; padding: 0; }
+.m-item {
+  padding: 10px 2px;
+  border-bottom: 1px solid #1f2a3f;
+}
+.m-item:last-child { border-bottom: none; }
+.m-item.is-link { cursor: pointer; }
+.m-item.is-link:active { background: #18233a; }
+.m-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  color: #e6edf7;
+}
+.m-title {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+}
+.m-rank {
+  display: inline-block;
+  min-width: 20px;
+  margin-right: 6px;
+  color: #7f8da6;
+  font-variant-numeric: tabular-nums;
+}
+.m-meta {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  font-size: 12px;
+  color: #8b98b0;
+  font-variant-numeric: tabular-nums;
+}
+.m-meta b { font-weight: 600; color: #d6deea; }
+.m-empty { padding: 18px 0; text-align: center; font-size: 13px; }
+/* 趋势列表与图表同高：切换视图时卡片不跳高度 */
+.trend-list { max-height: 240px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+
+/* ── 平板（iPad 竖屏 / 横屏，769–1200px）──────────────────────────
+   1200 以下栅格整体退成单列，这对手机正好，在平板上却是一列 700px 的长卡片：
+   「待处理」七行挤在左边、右半截空着，「每日进出」那张图被拉成又扁又宽的一条。 */
+@media (min-width: 769px) and (max-width: 1200px) {
+  /* 六块 KPI 排成 3×2；auto-fit 在 760px 左右会排成 4+2，第二行两块孤零零的 */
+  .kpi-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  /* 每日进出 / 状态构成两张卡本来就不宽，平板上并排正好 */
+  .grid-6-6 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  /* 待处理单独成行时摆成两列，不然一整行只在最左边有字 */
+  .work-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+  .work-row:last-child { border-bottom: 1px solid #1f2a3f; }
+  .stock-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+}
+
+/* ── 触屏：small 尺寸的单选组和刷新按钮只有 24px 高，手指点不准 ── */
+@media (hover: none) {
+  .dash-actions :deep(.el-radio-button__inner),
+  .card-header :deep(.el-radio-button__inner) { padding: 9px 12px; }
+  .dash-actions > .el-button { height: 34px; width: 38px; }
 }
 
 /* ── 手机端：断点 768px，与全站一致 ───────────────────────────── */

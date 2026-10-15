@@ -78,4 +78,12 @@ const display = computed(() => (props.value === null || props.value === undefine
   overflow-wrap: anywhere;
 }
 .stat-label { font-size: 12px; color: #9ba8bf; margin-top: 2px; }
+
+/* 平板一行排三张，每张只剩 170px 左右：46px 的图标加两边内边距先吃掉一大半，
+   ￥123,456 这种六位数就要折成两行。图标和字号各收一档，数字能留在一行里。 */
+@media (max-width: 1200px) {
+  .stat-card { padding: 12px; gap: 10px; }
+  .stat-icon { width: 36px; height: 36px; border-radius: 8px; }
+  .stat-value { font-size: 18px; }
+}
 </style>

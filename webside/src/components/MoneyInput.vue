@@ -17,6 +17,7 @@
       :min="0"
       :controls="false"
       :placeholder="placeholder"
+      :inputmode="currency === 'JPY' ? 'numeric' : 'decimal'"
       class="amount"
       @update:model-value="(v) => emit('update:amount', v)"
     />

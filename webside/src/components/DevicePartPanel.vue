@@ -28,7 +28,7 @@
           </div>
         </template>
 
-        <div class="fields">
+        <div class="pcr-fields">
           <InlineField :label="t('card.brand')">
             <!-- 品牌候选按部件类型给：CPU 只有 Intel / AMD（不允许现场新建），显卡直接用
                  系统里的品牌字典，其余给一份常见清单但可以现场输入 -->
@@ -55,9 +55,9 @@
 
         <el-divider />
 
-        <div class="fields">
+        <div class="pcr-fields">
           <InlineField :label="t('card.saleDate')">
-            <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" />
+            <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
           </InlineField>
           <InlineField :label="t('card.status')">
             <StatusSelect v-model="part.status" />
@@ -108,6 +108,7 @@ import { Delete } from '@element-plus/icons-vue'
 import { cny } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
+import { useIsTouch } from '@/composables/useIsMobile'
 import InlineField from './InlineField.vue'
 import MediaGallery from './MediaGallery.vue'
 import MoneyInput from './MoneyInput.vue'
@@ -130,6 +131,7 @@ const emit = defineEmits(['remove', 'media-changed'])
 
 const { t } = useI18n()
 const meta = useMetaStore()
+const { isTouch } = useIsTouch()
 
 const schema = computed(() => partSchema(props.part.part_type))
 
@@ -171,12 +173,14 @@ const title = computed(() =>
 .panel-state { font-size: 12px; }
 .panel-state--unsold { color: #f87171; }
 
-/* 字段两列排，窄屏退回一列。列间距比「标签到输入框」的 12px 明显宽，两列才不会糊成一片 */
-.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+/* 字段一列还是两列由卡片自己的宽度决定（App.vue 的 .pcr-fields 容器查询） */
 .panel-card :deep(.el-divider) { margin: 10px 0; }
 
 @media (max-width: 1100px) {
-  .fields { grid-template-columns: minmax(0, 1fr); }
   .panel-head-right { margin-left: 0; }
+}
+/* 「删除部件」是 small 文字按钮，24px 高，就挨着卡片标题——触屏上撑到能按准 */
+@media (hover: none) {
+  .panel-head-right :deep(.el-button) { min-height: 34px; padding: 8px 10px; }
 }
 </style>

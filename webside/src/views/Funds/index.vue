@@ -61,8 +61,10 @@
                   </el-table-column>
                   <el-table-column :label="t('funds.rate')" align="right" width="96">
                     <template #default="{ row: inj }">
+                      <!-- 现金注资也有汇率（注资日牌价），标签只说明它是怎么来的 -->
                       <span class="pcr-mono">{{ inj.fx_rate ? formatRate(inj.fx_rate) : '—' }}</span>
-                      <el-tag v-if="inj.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
+                      <el-tag v-if="inj.inject_type === 'cash'" size="small" type="success" effect="plain" class="tag">{{ t('funds.typeCash') }}</el-tag>
+                      <el-tag v-else-if="inj.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
                     </template>
                   </el-table-column>
                   <el-table-column :label="t('funds.cnyCost')" align="right" min-width="100">
@@ -197,8 +199,10 @@
             </el-table-column>
             <el-table-column :label="t('funds.rate')" align="right" width="96">
               <template #default="{ row }">
+                <!-- 现金注资也有汇率（注资日牌价），标签只说明它是怎么来的 -->
                 <span class="pcr-mono">{{ row.fx_rate ? formatRate(row.fx_rate) : '—' }}</span>
-                <el-tag v-if="row.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
+                <el-tag v-if="row.inject_type === 'cash'" size="small" type="success" effect="plain" class="tag">{{ t('funds.typeCash') }}</el-tag>
+                <el-tag v-else-if="row.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column :label="t('funds.cnyCost')" align="right" min-width="104">
@@ -303,43 +307,52 @@
     <!-- 注资弹窗 -->
     <el-dialog v-model="injectionVisible" :title="injectionForm.id ? t('funds.editInjection') : t('funds.addInjection')" width="480px">
       <el-form :model="injectionForm" label-position="top">
-        <el-form-item :label="t('funds.injectDate')">
-          <el-date-picker v-model="injectionForm.inject_date" type="date" value-format="YYYY-MM-DD" class="full" @change="previewRate" />
+        <el-form-item :label="t('funds.injectType')">
+          <el-radio-group v-model="injectionForm.inject_type">
+            <el-radio-button value="forex">{{ t('funds.typeForex') }}</el-radio-button>
+            <el-radio-button value="cash">{{ t('funds.typeCash') }}</el-radio-button>
+          </el-radio-group>
         </el-form-item>
+        <!-- 日期与出资人并排：两者都短，各占一整行太空；窄屏（xs）退回上下排 -->
+        <el-row :gutter="12">
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="t('funds.injectDate')">
+              <el-date-picker v-model="injectionForm.inject_date" type="date" value-format="YYYY-MM-DD" class="full" @change="previewRate" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="12">
+            <el-form-item :label="t('funds.contributor')">
+              <el-select v-model="injectionForm.contributor" filterable allow-create default-first-option
+                clearable class="full" :placeholder="t('funds.contributorPlaceholder')">
+                <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item :label="t('funds.amount') + '（' + t('currency.JPY_short') + '）'">
           <el-input-number v-model="injectionForm.amount" :min="1" :step="10000" :precision="0" :controls="false" class="full" />
         </el-form-item>
-        <!-- 出资人可以现敲一个新名字：录注资的时候才想起「这笔是老李的」，不该被打断去
-             别处先把人建好。后端按名字 upsert 进字典，下次就在候选里了。 -->
-        <el-form-item :label="t('funds.contributor')">
-          <el-select v-model="injectionForm.contributor" filterable allow-create default-first-option
-            clearable class="full" :placeholder="t('funds.contributorPlaceholder')">
-            <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-checkbox v-model="injectionForm.manual">{{ t('funds.rateManual') }}</el-checkbox>
-        </el-form-item>
-        <el-form-item v-if="injectionForm.manual"
-          :label="t('funds.cnyPaid') + '（' + t('currency.CNY_short') + '）'">
-          <el-input-number v-model="injectionForm.cny_cost" :min="0.01" :step="100" :precision="2"
-            :controls="false" class="full" />
-        </el-form-item>
-        <!-- 汇率不给人填，由「实付人民币 ÷ 换到的日元」现算并显示出来：金额填错了单位，
-             这行的数字会立刻离谱到一眼能看出来 -->
-        <div v-if="manualRate" class="fx-hint">
-          {{ t('funds.derivedRate') }}: {{ RATE_UNIT }} {{ t('currency.JPY_short') }} =
-          {{ formatRate(manualRate) }} {{ t('currency.CNY_short') }}
-          <span class="pcr-dim">（{{ t('funds.rateInverse', { rate: inverseRate(manualRate) }) }}）</span>
-        </div>
-        <!-- 手工模式下不显示市场牌价：它与这笔钱的真实成本无关，摆在那儿只会让人以为用的是它 -->
-        <div v-else-if="!injectionForm.manual && ratePreview" class="fx-hint">
-          {{ t('card.fxPreview') }}: {{ RATE_UNIT }} {{ t('currency.JPY_short') }} = {{ formatRate(ratePreview.rate) }} {{ t('currency.CNY_short') }}
-          <span class="pcr-dim">（{{ ratePreview.rate_date }}{{ ratePreview.stale ? ' *' : '' }}）</span>
-        </div>
-        <div v-if="injectionCostPreview" class="fx-hint">
-          {{ t('funds.cnyCost') }}: {{ cny(injectionCostPreview) }}
-        </div>
+        <!-- 外汇注资：填日元与实付人民币，汇率由系统算；现金注资：没有换汇价可填，按注资日牌价记 -->
+        <template v-if="injectionForm.inject_type === 'forex'">
+          <el-form-item :label="t('funds.cnyPaid') + '（' + t('currency.CNY_short') + '）'">
+            <el-input-number v-model="injectionForm.cny_cost" :min="0.01" :step="100" :precision="2"
+              :controls="false" class="full" />
+          </el-form-item>
+          <div v-if="manualRate" class="fx-hint">
+            {{ t('funds.derivedRate') }}: {{ RATE_UNIT }} {{ t('currency.JPY_short') }} =
+            {{ formatRate(manualRate) }} {{ t('currency.CNY_short') }}
+            <span class="pcr-dim">（{{ t('funds.rateInverse', { rate: inverseRate(manualRate) }) }}）</span>
+          </div>
+        </template>
+        <template v-else>
+          <div v-if="ratePreview" class="fx-hint">
+            {{ t('card.fxPreview') }}: {{ RATE_UNIT }} {{ t('currency.JPY_short') }} = {{ formatRate(ratePreview.rate) }} {{ t('currency.CNY_short') }}
+            <span class="pcr-dim">（{{ ratePreview.rate_date }}{{ ratePreview.stale ? ' *' : '' }}）</span>
+          </div>
+          <div v-if="injectionCostPreview" class="fx-hint">
+            {{ t('funds.cnyCost') }}: {{ cny(injectionCostPreview) }}
+          </div>
+        </template>
         <el-form-item :label="t('card.note')">
           <el-input v-model="injectionForm.note" type="textarea" :rows="2" />
         </el-form-item>
@@ -530,12 +543,12 @@ async function rebuild() {
 // ── 注资 ────────────────────────────────────────────────────────────────
 const injectionVisible = ref(false)
 const ratePreview = ref(null)
-const injectionForm = reactive({ id: null, inject_date: null, amount: null, manual: false, cny_cost: null, contributor: null, note: null })
+const injectionForm = reactive({ id: null, inject_type: 'forex', inject_date: null, amount: null, cny_cost: null, contributor: null, note: null })
 
-// 自动取牌价时先让人看到「这笔钱花了多少人民币」——注资的意义就在这个数上。
-// 手工模式下这个数就是上面填的那个，不用再显示一遍。
+// 现金注资按牌价记，先让人看到「这笔钱折多少人民币」——注资的意义就在这个数上。
+// 外汇注资的这个数就是上面填的实付，不用再显示一遍。
 const injectionCostPreview = computed(() => {
-  if (injectionForm.manual) return null
+  if (injectionForm.inject_type !== 'cash') return null
   const rate = ratePreview.value?.rate
   if (!rate || !injectionForm.amount) return null
   return injectionForm.amount * rate / RATE_UNIT
@@ -544,17 +557,19 @@ const injectionCostPreview = computed(() => {
 // 汇率不用人填：实付人民币 ÷ 换到的日元 × 100 就是这批钱的真实汇率，存进去的也是它。
 // 后端 funds.manual_rate 会照同一个算式再算一遍，这里只管让人在保存前看见。
 const manualRate = computed(() => {
-  if (!injectionForm.manual || !injectionForm.cny_cost || !injectionForm.amount) return null
+  if (injectionForm.inject_type === 'cash' || !injectionForm.cny_cost || !injectionForm.amount) return null
   return injectionForm.cny_cost / injectionForm.amount * RATE_UNIT
 })
 
 function openInjection(row = null) {
   Object.assign(injectionForm, {
     id: row?.id ?? null,
+    inject_type: row?.inject_type ?? 'forex',
     inject_date: row?.inject_date ?? new Date().toISOString().slice(0, 10),
     amount: row?.amount ?? null,
-    manual: Boolean(row?.fx_manual),
-    cny_cost: row?.fx_manual ? row.cny_cost : null,
+    // 外汇注资必须填实付人民币。编辑旧数据时带上它现在折出来的人民币：手填过的就是原值，
+    // 早年按牌价自动取的那种也有个起点可改，不至于一打开就是空的、保存不了。
+    cny_cost: row && row.inject_type !== 'cash' ? row.cny_cost : null,
     contributor: row?.contributor ?? null,
     note: row?.note ?? null
   })
@@ -577,15 +592,16 @@ async function saveInjection() {
     ElMessage.warning(t('funds.requireDateAmount'))
     return
   }
-  // 勾了手工却没填金额，存下去会静悄悄地退回按牌价折算，不如挡在这里
-  if (injectionForm.manual && !injectionForm.cny_cost) {
+  const isCash = injectionForm.inject_type === 'cash'
+  if (!isCash && !injectionForm.cny_cost) {
     ElMessage.warning(t('funds.requireCnyPaid'))
     return
   }
   const payload = {
     inject_date: injectionForm.inject_date,
     amount: injectionForm.amount,
-    cny_cost: injectionForm.manual ? injectionForm.cny_cost : null,
+    inject_type: injectionForm.inject_type,
+    cny_cost: isCash ? null : injectionForm.cny_cost,
     contributor: injectionForm.contributor || null,
     note: injectionForm.note
   }

@@ -28,22 +28,44 @@ router = APIRouter(prefix="/funds", tags=["funds"], dependencies=[Depends(requir
 _RATE_MIN, _RATE_MAX = 0.5, 20.0
 
 
+_INJECT_TYPES = ("forex", "cash")
+
+
 class InjectionPayload(BaseModel):
-    """一笔注资。金额恒为日元；实付人民币留空则按注资日自动取牌价。"""
+    """一笔注资。金额恒为日元，两种方式定汇率的办法不同：
+
+    - forex（外汇注资）：拿人民币换来的日元。**必须填实付人民币**，汇率由它和日元金额
+      算出来——换汇的人手上就有这两个数，按注资日牌价取的只是个近似，拿它当成本会让
+      吃到这批钱的每件货都偏一点。
+    - cash（现金注资）：手上本来就是日元现金，没有一笔真实的换汇价可填，按注资日的
+      牌价记人民币成本。不记成 0：那等于说这笔钱是白来的，吃到它的货会凭空多出利润。
+    """
 
     inject_date: dt.date
     amount: float = Field(gt=0)
     currency: str = POOL_CURRENCY
-    # 这次换汇**实际付出去的人民币**。汇率不收——由它和 amount 自动算出来
-    # （funds.manual_rate）：换汇的人手上有的就是这两个数，汇率是它们的商，
-    # 让人自己先除一遍再填只会多一个填错的机会。留空则按注资日取牌价。
+    inject_type: str = "forex"
+    # 外汇注资**实际付出去的人民币**。汇率不收——由它和 amount 自动算出来
+    # （funds.manual_rate），让人自己先除一遍再填只会多一个填错的机会。现金注资忽略它。
     cny_cost: Optional[float] = Field(default=None, gt=0)
-    # 这批钱是谁出的。收名字而不是字典 id：下拉允许现敲一个新名字，见 funds.ensure_contributor。
     contributor: Optional[str] = Field(default=None, max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
 
+    @field_validator("inject_type")
+    @classmethod
+    def _check_inject_type(cls, v: str) -> str:
+        v = (v or "forex").strip().lower()
+        if v not in _INJECT_TYPES:
+            raise ValueError(f"注资类型只能是 {' / '.join(_INJECT_TYPES)}")
+        return v
+
     @model_validator(mode="after")
     def _check_manual_rate(self) -> "InjectionPayload":
+        if self.inject_type == "cash":
+            self.cny_cost = None
+            return self
+        if self.cny_cost is None:
+            raise ValueError("外汇注资要填这次换汇实际付出的人民币")
         rate = funds.manual_rate(self.amount, self.cny_cost)
         if rate is not None and not _RATE_MIN < rate < _RATE_MAX:
             raise ValueError(
@@ -178,12 +200,14 @@ def list_injections():
 
 @router.post("/injections")
 def create_injection(payload: InjectionPayload):
+    # 现金注资的 cny_cost 已在校验里置空，这里自然落到「按注资日取牌价」那条路
     fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.insert(
-        "INSERT INTO fund_injections (inject_date, amount, currency, fx_rate, fx_date, "
-        "fx_manual, contributor, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (payload.inject_date, payload.amount, payload.currency, fx["fx_rate"], fx["fx_date"],
-         fx["fx_manual"], funds.ensure_contributor(payload.contributor), _clean(payload.note)),
+        "INSERT INTO fund_injections (inject_date, amount, currency, inject_type, fx_rate, "
+        "fx_date, fx_manual, contributor, note) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (payload.inject_date, payload.amount, payload.currency, payload.inject_type,
+         fx["fx_rate"], fx["fx_date"], fx["fx_manual"],
+         funds.ensure_contributor(payload.contributor), _clean(payload.note)),
     )
     return _state(fx["warnings"])
 
@@ -193,13 +217,15 @@ def update_injection(injection_id: int, payload: InjectionPayload):
     existing = db.query_one("SELECT id FROM fund_injections WHERE id = %s", (injection_id,))
     if not existing:
         raise HTTPException(status_code=404, detail="注资记录不存在")
+    # 现金注资的 cny_cost 已在校验里置空，这里自然落到「按注资日取牌价」那条路
     fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.execute(
-        "UPDATE fund_injections SET inject_date = %s, amount = %s, currency = %s, fx_rate = %s, "
-        "fx_date = %s, fx_manual = %s, contributor = %s, note = %s WHERE id = %s",
-        (payload.inject_date, payload.amount, payload.currency, fx["fx_rate"], fx["fx_date"],
-         fx["fx_manual"], funds.ensure_contributor(payload.contributor), _clean(payload.note),
-         injection_id),
+        "UPDATE fund_injections SET inject_date = %s, amount = %s, currency = %s, "
+        "inject_type = %s, fx_rate = %s, fx_date = %s, fx_manual = %s, contributor = %s, "
+        "note = %s WHERE id = %s",
+        (payload.inject_date, payload.amount, payload.currency, payload.inject_type,
+         fx["fx_rate"], fx["fx_date"], fx["fx_manual"],
+         funds.ensure_contributor(payload.contributor), _clean(payload.note), injection_id),
     )
     return _state(fx["warnings"])
 

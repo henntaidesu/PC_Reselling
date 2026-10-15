@@ -1,6 +1,6 @@
 <template>
   <div class="detail" v-loading="loading">
-    <div class="detail-head">
+    <div class="detail-head pcr-sticky-head">
       <el-button :icon="ArrowLeft" text @click="$router.back()">{{ t('common.close') }}</el-button>
       <div v-if="card" class="head-right">
         <AutoSaveBadge :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
@@ -18,7 +18,10 @@
       </div>
 
       <el-row :gutter="16">
-        <el-col :xs="24" :lg="10">
+        <!-- md（≥992，iPad 横屏）起就左右分栏：上下排时表单被拉到 900px 宽，标签和值
+             隔着大半屏，图片又沉到最底下要划很久。分栏后表单约 350～420px，正好是
+             手机上那一列的宽度，InlineField 本来就是为这个宽度排的。 -->
+        <el-col :xs="24" :md="11" :lg="10">
           <!-- 关键信息。每一行的值都是直接可改的控件，没有「编辑」这个模式 -->
           <el-card shadow="never" class="info-card">
             <template #header>{{ t('card.purchaseInfo') }} / {{ t('card.saleInfo') }}</template>
@@ -65,7 +68,7 @@
             <el-divider />
 
             <InlineField :label="t('card.purchaseDate')">
-              <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" />
+              <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
             </InlineField>
             <InlineField :label="t('card.purchaseAmount')">
               <MoneyInput v-model:amount="form.purchase_amount" v-model:currency="form.purchase_currency" />
@@ -74,24 +77,18 @@
               <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
             </InlineField>
             <!-- 汇率是按日期取的快照，不给手改：改了日期，保存之后这一行自己就变了 -->
+            <!-- 走资金池时显示池子的加权汇率，理由同整机详情页 -->
             <InlineField :label="t('card.purchaseFx')" readonly>
-              <span class="pcr-mono">{{ card.purchase_fx_rate ? formatRate(card.purchase_fx_rate) : '—' }}<span
+              <span v-if="card.money.from_pool && card.money.pool_fx_rate" class="pcr-mono">{{ formatRate(card.money.pool_fx_rate) }}<span
+                class="pcr-dim"> · {{ poolRateLabel }}<template v-if="card.purchase_fx_rate">
+                · {{ t('card.marketRate') }} {{ formatRate(card.purchase_fx_rate) }}</template></span></span>
+              <span v-else class="pcr-mono">{{ card.purchase_fx_rate ? formatRate(card.purchase_fx_rate) : '—' }}<span
                 v-if="card.purchase_fx_date" class="pcr-dim"> · {{ card.purchase_fx_date }}</span></span>
             </InlineField>
-            <InlineField :label="t('card.fundSource')">
-              <el-select v-model="form.fund_source">
-                <el-option :label="t('card.fundOwn')" value="own" />
-                <el-option :label="t('card.fundPool')" value="pool" />
-              </el-select>
-            </InlineField>
-            <!-- 这张卡的钱由谁出。填了之后 FIFO 只在这几个人的注资批次里扣，
-                 卖出后的利润也按同一个比例分（见利润卡下面那几行） -->
-            <InlineField v-if="usePool" :label="t('card.fundShares')" stack>
+            <InlineField :label="t('card.fundShares')" stack>
               <FundShares v-model="form.fund_shares" :options="contributorOptions" />
             </InlineField>
-            <!-- 池子要点了这里才真的少钱。详情页是边填边自动保存的，没有这道闸门，
-                 购入价刚敲了两位数就已经从池里扣走一笔了 -->
-            <InlineField v-if="usePool" :label="t('card.poolDraw')" readonly>
+            <InlineField :label="t('card.poolDraw')" readonly>
               <div class="pool-draw">
                 <template v-if="poolDrawn">
                   <span class="pool-done">{{ t('card.poolDrawn') }}</span>
@@ -110,7 +107,7 @@
             <el-divider />
 
             <InlineField :label="t('card.saleDate')">
-              <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD" />
+              <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
             </InlineField>
             <InlineField :label="t('card.saleAmount')">
               <MoneyInput v-model:amount="form.sale_amount" v-model:currency="form.sale_currency" />
@@ -162,7 +159,7 @@
           <StatusTimeline v-if="card.status_logs?.length" :logs="card.status_logs" class="block" />
         </el-col>
 
-        <el-col :xs="24" :lg="14">
+        <el-col :xs="24" :md="13" :lg="14">
           <el-card shadow="never">
             <template #header>{{ t('card.media') }}</template>
             <MediaManager :card-id="card.id" :hosting-configured="hostingConfigured" @changed="onMediaChanged" />
@@ -183,6 +180,7 @@ import { cny, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { usePlatforms } from '@/composables/usePlatforms'
+import { useIsTouch } from '@/composables/useIsMobile'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import InlineField from '@/components/InlineField.vue'
@@ -197,6 +195,7 @@ import StatusTimeline from '@/components/StatusTimeline.vue'
 const { t } = useI18n()
 const route = useRoute()
 const meta = useMetaStore()
+const { isTouch } = useIsTouch()
 
 // card = 服务端快照（金额、汇率、分摊、时间线、草稿标记），form = 可编辑的那些列。
 // 两者必须分开：保存的返回值要用来刷新展示部分，但绝不能回灌 form——用户在请求
@@ -219,7 +218,7 @@ function blankForm() {
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
-    fund_source: 'own',
+    fund_source: 'pool',
     // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
     fund_shares: [],
     status: 'purchased', note: null
@@ -228,14 +227,17 @@ function blankForm() {
 }
 const form = reactive(blankForm())
 
-const usePool = computed(() => form.fund_source === 'pool')
-// 池子里是日元，人民币支付的部分与它无关：选了池子但币种是人民币时要说清楚
 const poolCurrencyMismatch = computed(() =>
-  usePool.value && form.purchase_currency !== 'JPY' && form.purchase_amount
+  form.purchase_currency !== 'JPY' && form.purchase_amount
 )
+const poolDrawn = computed(() => Boolean(card.value?.pool_confirmed_at))
 
-// 走资金池 + 已确认扣除，才是池子真的少了钱的状态
-const poolDrawn = computed(() => usePool.value && Boolean(card.value?.pool_confirmed_at))
+const poolRateLabel = computed(() => {
+  const shares = card.value?.fund_shares || []
+  if (shares.length === 1) return shares[0].contributor + ' ' + t('card.poolRate')
+  if (shares.length > 1) return shares.map((s) => s.contributor).join('/') + ' ' + t('card.poolRate')
+  return t('card.poolRate')
+})
 const poolBusy = ref(false)
 
 // 确认 / 撤销都回 这张卡完整的一份（与 GET 同形），直接换掉展示数据即可。
@@ -273,7 +275,7 @@ function normalize(row) {
   out.intl_shipping_currency = row.intl_shipping_currency || 'JPY'
   out.sale_currency = row.sale_currency || 'CNY'
   out.domestic_shipping_currency = row.domestic_shipping_currency || 'CNY'
-  out.fund_source = row.fund_source || 'own'
+  out.fund_source = 'pool'
   // 拷一份而不是直接引用：直接引用的话，组件改了这个数组等于改了 card 快照里的同一个
   // 对象，「服务端返回的是什么」和「表单里现在是什么」就分不开了
   out.fund_shares = (row.fund_shares || []).map((x) => ({ ...x }))
@@ -372,6 +374,12 @@ onMounted(async () => {
 .pool-draw { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pool-done { color: #4ade80; font-size: 13px; }
 .pool-warn { color: #e6a23c; font-size: 12px; }
+
+/* 触屏：small 按钮和那个 ↗ 都只有指甲盖大 */
+@media (hover: none) {
+  .pool-draw :deep(.el-button) { min-height: 34px; padding: 8px 14px; }
+  .row-link { padding: 8px 10px; font-size: 16px; }
+}
 
 @media (max-width: 768px) {
   /* 序列号这一格必须跟着全站的 16px 走。App.vue 里那条「手机上输入框一律 16px」

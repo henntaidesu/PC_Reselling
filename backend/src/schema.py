@@ -615,6 +615,8 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("fund_injections", "contributor", "contributor VARCHAR(64) NULL"),
     # 手工支出可指定出资人，从该出资人的注资批次中扣除（FIFO 只在那个人名下跑）
     ("fund_draws", "contributor", "contributor VARCHAR(64) NULL"),
+    # 注资类型：forex（外汇注资，按实付人民币算汇率）/ cash（现金注资，按注资日牌价记人民币成本）
+    ("fund_injections", "inject_type", "inject_type VARCHAR(16) NOT NULL DEFAULT 'forex'"),
 ]
 
 

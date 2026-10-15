@@ -9,7 +9,7 @@
     <el-card v-if="!isMobile" class="stats-card" shadow="never">
       <div v-loading="statsLoading">
         <el-row :gutter="16" class="stat-row">
-          <el-col v-for="card in statCards" :key="card.key" :xs="12" :sm="12" :md="8" :lg="6" :xl="3">
+          <el-col v-for="card in statCards" :key="card.key" :xs="12" :sm="8" :md="8" :lg="6" :xl="3">
             <StatCard
               :label="card.label"
               :value="card.value"
@@ -68,6 +68,7 @@
             v-if="!isMobile"
             v-model="dateRange"
             type="daterange"
+            :editable="!isTouch"
             value-format="YYYY-MM-DD"
             :start-placeholder="t('card.purchaseDate')"
             :end-placeholder="t('card.purchaseDate')"
@@ -78,6 +79,7 @@
             <el-date-picker
               :model-value="dateRange?.[0] || null"
               type="date"
+              :editable="!isTouch"
               value-format="YYYY-MM-DD"
               :placeholder="t('inv.dateFrom')"
               class="f-date"
@@ -86,6 +88,7 @@
             <el-date-picker
               :model-value="dateRange?.[1] || null"
               type="date"
+              :editable="!isTouch"
               value-format="YYYY-MM-DD"
               :placeholder="t('inv.dateTo')"
               class="f-date"
@@ -107,7 +110,9 @@
            的表格永远没法让它们同时在眼前。所以窄屏换一种排法：同一批 rows、同一个
            onRowClick，只是把一行摊成一张卡。
            这不是第二套列表——取数、筛选、分页仍然只有上面那一份，这里不持有任何状态。 -->
-      <div v-if="isMobile" v-loading="loading" class="m-list">
+      <!-- 平板（≤1200px）也走这份卡片列表：iPad 竖屏减掉侧栏只剩 550 多像素，
+           十一列照样要横滑。平板上排成两列网格，见样式里的 @media。 -->
+      <div v-if="isCompact" v-loading="loading" class="m-list">
         <div v-for="row in rows" :key="row.row_key" class="m-card" @click="onRowClick(row)">
           <div class="m-top">
             <div class="cover m-cover">
@@ -280,9 +285,6 @@
               <el-tooltip v-if="row.from_pool" :content="t('card.poolDrawn')">
                 <el-tag size="small" type="primary" effect="plain" class="pool-tag">{{ poolHolders(row) }}</el-tag>
               </el-tooltip>
-              <el-tooltip v-else-if="row.fund_source === 'own'" :content="t('card.fundOwn')">
-                <el-tag size="small" type="info" effect="plain" class="pool-tag">{{ t('card.ownTag') }}</el-tag>
-              </el-tooltip>
             </template>
           </template>
         </el-table-column>
@@ -373,7 +375,7 @@ import {
 import { cardsApi, devicesApi, inventoryApi, optionsApi } from '@/api'
 import { cny, firstImage, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
-import { useIsMobile } from '@/composables/useIsMobile'
+import { useIsCompact, useIsMobile, useIsTouch } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import StatCard from '@/components/StatCard.vue'
@@ -388,6 +390,8 @@ const route = useRoute()
 const router = useRouter()
 const meta = useMetaStore()
 const { isMobile } = useIsMobile()
+const { isCompact } = useIsCompact()
+const { isTouch } = useIsTouch()
 
 const rows = ref([])
 const total = ref(0)
@@ -788,6 +792,25 @@ onActivated(() => {
 }
 .m-part-name { flex: 1 1 auto; min-width: 0; color: #b9c4d6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .m-part-money { flex: none; color: #e6edf7; }
+
+/* 平板：卡片两列排。一列的话每张卡被拉成 550～900px 宽，三个金额隔得老远，
+   一屏只放得下三四张；两列正好是手机卡片的宽度，信息密度回到桌面表格的水平。
+   align-items: start——展开了部件的那张变高时，同一行另一张不跟着被拉长。 */
+@media (min-width: 769px) and (max-width: 1200px) {
+  .m-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+    gap: 12px;
+  }
+  .m-list > .el-empty { grid-column: 1 / -1; }
+}
+
+/* 触屏：展开部件的按钮本来只有 28px 高，又紧挨着「点整张卡进详情」的区域，
+   按偏一点就进了详情页 */
+@media (hover: none) {
+  .m-expand { padding: 9px 12px; font-size: 13px; }
+}
 
 @media (max-width: 768px) {
   /* 展开后的五个筛选器各占满一行——并排只会各自剩下小半个框，看不清选的是什么。

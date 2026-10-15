@@ -95,6 +95,36 @@ html, body, #app {
   /* 窄屏并排都挤没了，改成上下排 */
   .pcr-split { flex-direction: column; }
 }
+/* 表单卡按**自己的宽度**决定字段排一列还是两列（.pcr-fields，见下）。
+   原来按视口宽度判断，结果两头都不对：1280 的桌面上表单只占 4/10、两列各剩 170px，
+   「币种 + 金额」根本排不下；iPad 横屏上下堆叠时表单占满 900px，却又退成一列，
+   标签和值隔着大半屏。卡片多宽只有容器查询知道。 */
+.pcr-split-form > .el-card > .el-card__body { container-type: inline-size; }
+.pcr-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0 32px; }
+@container (min-width: 600px) {
+  .pcr-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 详情页顶栏（返回 + 自动保存状态）：手机和平板上钉在顶部。表单有二十来行，改到下面
+   时顶栏早就滚出去了——「存上了没有」是详情页唯一的保存反馈，看不见等于没有；返回
+   按钮也不该要先划回顶部才能按到。负边距抵掉 .main 的内边距（Layout.vue 里，手机
+   14px 12px / 平板 20px 24px），让底色贴满整宽，滚上去的内容不会从两侧露出来。 */
+@media (max-width: 1200px) {
+  .pcr-sticky-head {
+    position: sticky;
+    top: -20px;
+    z-index: 20;
+    margin: -20px -24px 12px !important;
+    padding: 8px 24px;
+    background: rgba(11, 18, 32, 0.92);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid #1c2740;
+  }
+}
+@media (max-width: 768px) {
+  .pcr-sticky-head { top: -14px; margin: -14px -12px 12px !important; padding: 6px 12px; }
+}
 
 .el-loading-mask { background-color: var(--el-mask-color) !important; }
 .el-loading-mask .el-loading-spinner .path { stroke: #8fb8ff; }

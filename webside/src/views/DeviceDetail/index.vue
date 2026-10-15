@@ -1,6 +1,6 @@
 <template>
   <div class="detail" v-loading="loading">
-    <div class="detail-head">
+    <div class="detail-head pcr-sticky-head">
       <el-button :icon="ArrowLeft" text @click="$router.back()">{{ t('common.close') }}</el-button>
       <div v-if="device" class="head-right">
         <AutoSaveBadge :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
@@ -75,7 +75,7 @@
            el-tabs 只当标签条用，内容自己在下面渲染——挂在 tab-pane 里的话所有部件会
            一次性全部挂载，每个都去拉一遍图片 -->
       <div class="tabs-row">
-        <el-tabs v-model="activeTab" class="part-tabs">
+        <el-tabs ref="tabsRef" v-model="activeTab" class="part-tabs">
           <el-tab-pane name="device">
             <template #label>
               <span class="tab-label">{{ t('device.tabDevice') }}</span>
@@ -101,7 +101,7 @@
             <el-card shadow="never">
               <template #header>{{ t('device.purchaseInfo') }}</template>
 
-              <div class="fields">
+              <div class="pcr-fields">
                 <InlineField :label="t('device.name')">
                   <el-input v-model="form.title" :maxlength="TITLE_MAX" />
                 </InlineField>
@@ -128,13 +128,18 @@
 
               <el-divider />
 
-              <div class="fields">
+              <div class="pcr-fields">
                 <InlineField :label="t('card.purchaseDate')">
-                  <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" />
+                  <el-date-picker v-model="form.purchase_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
                 </InlineField>
-                <!-- 汇率是按购入日取的快照，不给手改：改了日期，保存之后这一行自己就变了 -->
+                <!-- 汇率是按购入日取的快照，不给手改：改了日期，保存之后这一行自己就变了。
+                     走资金池（已确认扣除）时成本按被吃掉那几批注资的加权汇率算，这里就得显示那个数，
+                     否则页面上的汇率 × 金额对不上总成本；当日牌价降为小字留作对照。 -->
                 <InlineField :label="t('card.purchaseFx')" readonly>
-                  <span class="pcr-mono">{{ device.purchase_fx_rate ? formatRate(device.purchase_fx_rate) : '—' }}<span
+                  <span v-if="money.from_pool && money.pool_fx_rate" class="pcr-mono">{{ formatRate(money.pool_fx_rate) }}<span
+                    class="pcr-dim"> · {{ poolRateLabel }}<template v-if="device.purchase_fx_rate">
+                    · {{ t('card.marketRate') }} {{ formatRate(device.purchase_fx_rate) }}</template></span></span>
+                  <span v-else class="pcr-mono">{{ device.purchase_fx_rate ? formatRate(device.purchase_fx_rate) : '—' }}<span
                     v-if="device.purchase_fx_date" class="pcr-dim"> · {{ device.purchase_fx_date }}</span></span>
                 </InlineField>
                 <InlineField :label="t('device.purchaseAmount')">
@@ -143,21 +148,11 @@
                 <InlineField :label="t('card.intlShipping')">
                   <MoneyInput v-model:amount="form.intl_shipping_amount" v-model:currency="form.intl_shipping_currency" />
                 </InlineField>
-                <InlineField :label="t('card.fundSource')">
-                  <el-select v-model="form.fund_source">
-                    <el-option :label="t('card.fundOwn')" value="own" />
-                    <el-option :label="t('card.fundPool')" value="pool" />
-                  </el-select>
-                </InlineField>
               </div>
-                <!-- 这台机器的钱由谁出。填了之后 FIFO 只在这几个人的注资批次里扣，
-                     卖出后的利润也按同一个比例分（见摘要条下面的分红行） -->
-                <InlineField v-if="usePool" :label="t('card.fundShares')" stack>
+                <InlineField :label="t('card.fundShares')" stack>
                   <FundShares v-model="form.fund_shares" :options="contributorOptions" />
                 </InlineField>
-                <!-- 池子要点了这里才真的少钱。详情页是边填边自动保存的，没有这道闸门，
-                     购入总价刚敲了两位数就已经从池里扣走一笔了 -->
-                <InlineField v-if="usePool" :label="t('card.poolDraw')" readonly>
+                <InlineField :label="t('card.poolDraw')" readonly>
                   <div class="pool-draw">
                     <template v-if="poolDrawn">
                       <span class="pool-done">{{ t('card.poolDrawn') }}</span>
@@ -210,7 +205,8 @@
           <!-- 手机：这张表七列合计约 890px，360px 的屏上要横划两屏半——而它存在的理由
                恰恰是「一眼看完哪几件卖了、哪几件还空着」，横滚等于把这个理由抵消掉。
                换成一行一件的紧凑列表，点一行同样跳到那个部件页。 -->
-          <div v-if="isMobile" class="mp-list">
+          <!-- 平板（≤1200px）同样用这份列表：iPad 竖屏内容区只有 550 多像素，七列照样要横划 -->
+          <div v-if="isCompact" class="mp-list">
             <!-- 没落盘的模板槽位还没有 id，退回用下标做 key。这张表是只读的，不会
                  增删重排，下标在这里是稳的 -->
             <button v-for="(row, i) in form.parts" :key="row.id ?? 'slot-' + i"
@@ -314,7 +310,7 @@ import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
-import { useIsMobile } from '@/composables/useIsMobile'
+import { useIsCompact, useIsTouch } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
@@ -356,12 +352,31 @@ async function startEditTitle() {
 }
 
 const { platforms } = usePlatforms()
-const { isMobile } = useIsMobile()
+const { isCompact } = useIsCompact()
+const { isTouch } = useIsTouch()
+
+// 触屏上标签条改成原生横滑（样式里的 @media (hover: none)），Element 自己那套
+// 「平移 nav + 左右箭头」就不再管滚动了。从部件一览点进某个部件时，被选中的标签
+// 可能在可视区外面——得自己把它滚进来，不然人看不到现在在哪一页。
+const tabsRef = ref(null)
+watch(activeTab, async () => {
+  if (!isTouch.value) return
+  await nextTick()
+  const el = tabsRef.value?.$el?.querySelector('.el-tabs__item.is-active')
+  el?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' })
+})
 // 金额要按购入日 / 各部件出售日的汇率折算，只有后端算得准，前端不自己算一遍
 // （自己算必然和列表页对不上）
 const money = computed(() => device.value?.money || {
   cost_total_cny: null, sale_cny: null, profit_cny: null, recovery: null,
   part_count: 0, sold_count: 0, settled: false, incomplete: false, pool_fx_rate: null
+})
+
+const poolRateLabel = computed(() => {
+  const shares = device.value?.fund_shares || []
+  if (shares.length === 1) return shares[0].contributor + ' ' + t('card.poolRate')
+  if (shares.length > 1) return shares.map((s) => s.contributor).join('/') + ' ' + t('card.poolRate')
+  return t('card.poolRate')
 })
 
 // 部件行的本地唯一键。v-for 不能拿数组下标当 key——删掉中间一条时，后面每条的 key
@@ -393,7 +408,7 @@ function blankForm() {
     source_platform: null, seller: null, item_url: null, order_no: null,
     purchase_date: null, purchase_amount: null, purchase_currency: 'JPY',
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
-    fund_source: 'own',
+    fund_source: 'pool',
     // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
     fund_shares: [],
     status: 'purchased', note: null,
@@ -425,13 +440,10 @@ function canRemovePart(part) {
   return type === 'other' || partsByTab.value[type].length > 1
 }
 
-const usePool = computed(() => form.fund_source === 'pool')
 const poolCurrencyMismatch = computed(() =>
-  usePool.value && form.purchase_currency !== 'JPY' && form.purchase_amount
+  form.purchase_currency !== 'JPY' && form.purchase_amount
 )
-
-// 走资金池 + 已确认扣除，才是池子真的少了钱的状态
-const poolDrawn = computed(() => usePool.value && Boolean(device.value?.pool_confirmed_at))
+const poolDrawn = computed(() => Boolean(device.value?.pool_confirmed_at))
 const poolBusy = ref(false)
 
 // 确认 / 撤销都回 这台设备完整的一份（与 GET 同形），直接换掉展示数据即可。
@@ -520,7 +532,7 @@ function normalize(row) {
   // 于是整条保存链失败，表现成「这台机器怎么改都存不进去」
   out.purchase_currency = row.purchase_currency || 'JPY'
   out.intl_shipping_currency = row.intl_shipping_currency || 'JPY'
-  out.fund_source = row.fund_source || 'own'
+  out.fund_source = 'pool'
   out.status = row.status || 'purchased'
 
   // 只挑表单认识的字段：服务端行上还有 money / 汇率快照等，整份铺回表单会被原样发回
@@ -721,8 +733,7 @@ onMounted(async () => {
 .block { margin-bottom: 16px; }
 /* 分栏行自己带下边距：卡片改为撑满整列之后，边距再挂在卡片上会把两列的等高顶歪 */
 .split-block { margin-bottom: 16px; }
-/* 两列字段。列间距比标签到输入框的 12px 明显宽，两列之间才不会糊成一片 */
-.fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 32px; }
+/* 字段一列还是两列由卡片自己的宽度决定（App.vue 的 .pcr-fields 容器查询） */
 .block :deep(.el-divider), .split-block :deep(.el-divider) { margin: 10px 0; }
 .media-hint { font-size: 12px; font-weight: 400; margin-left: 8px; }
 .row-link { color: #8fb8ff; text-decoration: none; flex: 0 0 auto; padding: 0 4px; }
@@ -765,12 +776,43 @@ onMounted(async () => {
    状态标签会各自停在不同的横坐标上，一列扫下来是锯齿状的 */
 .mp-money { flex: 0 0 auto; min-width: 62px; text-align: right; }
 
-@media (max-width: 1100px) {
-  .fields { grid-template-columns: minmax(0, 1fr); }
+/* ── 触屏 ────────────────────────────────────────────────────────────
+   标签条：Element 溢出时靠「平移 nav + 两端 20px 的小箭头」翻页，手指既划不动、
+   箭头又点不准，十个部件类型在手机上等于只能看见前四个。改成原生横向滚动，
+   箭头藏掉。选中标签自动滚进可视区由脚本里那个 watch 负责。 */
+@media (hover: none) {
+  .part-tabs :deep(.el-tabs__nav-wrap.is-scrollable) { padding: 0; }
+  .part-tabs :deep(.el-tabs__nav-prev),
+  .part-tabs :deep(.el-tabs__nav-next) { display: none; }
+  .part-tabs :deep(.el-tabs__nav-scroll) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .part-tabs :deep(.el-tabs__nav-scroll)::-webkit-scrollbar { display: none; }
+  .part-tabs :deep(.el-tabs__nav) { transform: none !important; }
+  .part-tabs :deep(.el-tabs__item) { height: 44px; }
+  /* 改名的铅笔平时是淡的、悬浮才亮——触屏上它就一直淡着，看着像不能点 */
+  .title-edit { color: #8fb8ff; padding: 8px; }
+  .pool-draw :deep(.el-button) { min-height: 34px; padding: 8px 14px; }
+  .row-link { padding: 8px 10px; font-size: 16px; }
 }
+
 @media (max-width: 768px) {
   .tabs-row { flex-direction: column; align-items: stretch; gap: 8px; }
-  .summary-flag { margin-left: 0; }
+  .part-tabs :deep(.el-tabs__item) { padding: 0 12px; }
+  .model { font-size: 17px; }
+  .title-input { max-width: none; flex: 1 1 100%; }
+  /* 摘要条排成三列网格：flex 换行时五六个数各按自己的宽度折，每行个数不一，
+     上下对不齐，扫一眼找不到「盈亏」在哪儿 */
+  .summary {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px 12px;
+    padding: 10px 12px;
+  }
+  .summary-value { font-size: 14px; overflow-wrap: anywhere; }
+  .summary-flag { margin-left: 0; grid-column: 1 / -1; justify-content: center; }
 }
 
 /* 「确认扣除」那一行：按钮 + 已扣除标记，与旁边的 InlineField 对齐 */
