@@ -140,34 +140,33 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 都由 `funds.rebuild()` 整体重算得出，从不增量维护。**任何会影响池子的写路径都必须触发重算**——
 新增/编辑/删除卡片或设备走 `funds.sync_card_and_rebuild()` / `sync_device_and_rebuild()`，
 注资与扣款的增删改走 `funds.rebuild()`。忘了调用的症状是列表里的成本停在旧值。
-**出资比例（`fund_shares`）也是这样一条写路径**，而且它金额一分没动、只改「该扣谁的钱」，
-所以 `sync_owner_draws()` 察觉不到——`write_shares()` 返回 True 时必须拿 `force=True`
-调 `sync_*_and_rebuild()`，两个 `*_api` 的新增与编辑里各有一处。
+换归属人也是这样一条写路径，但不用另外处理：扣款的 `contributor` 就是归属人，
+`sync_owner_draws()` 比对得出它变了。
 
 `fund_draws` 上的 `card_id` / `device_id` 两列互斥，两张归属表的 `pool_*` 三列同名同义，
 所以 `funds.py` 里的同步与回写是按 `_OWNERS` 参数化的一套代码，别为整机再复制一份。
-`fund_shares`（出资比例）与它同构，同样走 `_OWNERS`。
+注资上的专款两列（`fund_injections.card_id / device_id`）也走同一个键（`funds._earmark_of`）。
 
-### 出资人：只是一个维度，不是第二个池子
+### 归属人：货是谁的，也是钱从谁的池里扣
 
-池子里的钱可以是几个人凑的（`fund_injections.contributor`），一件货可以写明由谁按什么比例出
-（`fund_shares`）。**这不改变 FIFO 的本质**：写了比例的扣款先按比例拆成几段，每段仍是先进先出，
-只是候选批次缩到那个人名下；没写比例的照旧在全池上跑（老数据的行为）。两者混用的后果要知道：
-一笔没写出资人的旧扣款会按日期吃掉最早的批次，其中可能就有老李的钱，轮到指定老李的货时他
-名下反而不够了——那不是算错，是在提示那笔旧扣款也该补上出资人。
-
-分红口径**只有 `funds.split_dividends()` 一处**：利润全额按出资比例分，操作人不抽成；利润用的
-就是详情页上那个数（`cards.compute_money` / `devices.compute_money`），不另算一份。还没卖的货
-不分红，按比例记进「在库本金」——合成一个数的话，一台刚买回来的整机会以「亏了一整台」的形式
-记进分红。分红只在显卡 / 整机详情页上按件显示，资金池页的「按出资人」**不汇总分红**
-（`contributor_totals()` 只算注资、已用、剩余）。
-
-### 归属人与实物置换
-
-`owner`（`cards` / `devices` / `device_parts` 三列）标「货是谁的」，候选与出资人共用
-`fund_contributors` 字典（写入时走 `funds.ensure_contributor`），**与出资比例互不影响**。
-部件的 `owner` 为 NULL 表示跟随整机；库存列表按归属人筛选时，整机命中自己的或任一部件的。
+`owner`（`cards` / `devices` / `device_parts` 三列）有两层含义：货是谁的，以及**买它的钱从谁的
+池里扣**——`cards.uses_pool()` 就是「有没有归属人」，设了就扣，没有确认这一步。没设归属人的货
+不进池，按购入日牌价折成本。候选就是注资的出资人名单（`fund_contributors`，写入走
+`funds.ensure_contributor`）。部件的 `owner` 只是标签（NULL 表示跟随整机），扣款只认整机。
 前端三处都用 `components/OwnerSelect.vue`。
+
+每人一个池子：货的扣款只在归属人的注资批次里先进先出。**池子允许为负**：钱不够照扣，欠的
+记在 `fund_draws.shortfall`，按扣款日牌价暂估；这个人之后的注资会先顶上欠款（所以 FIFO
+不限制「只能吃扣款日之前进池的钱」）。按人汇总与总账的余额都减掉欠款，因此可以是负数。
+
+专款注资（`card_id` / `device_id` 有值）只给那一件货扣、排在它的候选最前面，别的扣款碰不到。
+它是给「当初没走池子、后来才补归属人」的老货补录资金用的（`schema._migrate_shares_to_owner`）：
+按普通 FIFO 补，老货会先吃掉更早的批次，把后面的货挤成欠款。
+
+已停用、只留不删：出资比例 `fund_shares`（迁移时读过一次）、`fund_source` / `pool_confirmed_at`
+两列（原来的「确认扣除」闸门）。分红也随出资比例一起去掉了——一件货只有一个归属人，利润就是他的。
+
+### 实物置换
 
 置换（`swaps.py`，规则看它的 docstring）只在单卡 ↔ 整机显卡部件之间，**换实物不换账**：
 品牌 / 型号 / 核心编号（部件上是 `spec`）/ 序列号和图片互换，价格、资金池、归属人、状态不动，
@@ -204,7 +203,7 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 列表、统计、联动下拉（`/inventory/facets`）都只走它。下拉是联动的——每个选项的件数是把它
 代进当前其余条件真跑一遍 `_select` 数出来的，所以前端**不维护任何候选清单**，全从 facets 取。
 新增筛选条件：参数只加在 `_inventory_filters` 这一个依赖上；原始列的判断进 `_card_ok` /
-`_device_ok` / `_part_ok`，成本 / 利润 / 出资人这类算出来的值进 `_match_derived`；要做成下拉的
+`_device_ok` / `_part_ok`，成本 / 利润 / 归属人这类算出来的值进 `_match_derived`；要做成下拉的
 在 `_facet_candidates` 里登记取值。
 按状态筛选时整机里状态命中的部件、以及类型筛选选了「部件 / 某种部件」（`kind=part` +
 `part_type`，此时不出整机行）时满足条件的部件，都会**单独成为顶层行**（`_solo_part`，`kind=part` + `solo` +

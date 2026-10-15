@@ -106,14 +106,8 @@ export default {
     saleAmount: 'Sale price',
     status: 'Status',
     note: 'Note',
-    fundShares: 'Contributors & split',
-    dividends: 'Dividend (by share)',
     poolDraw: 'Pool draw',
-    poolConfirm: 'Confirm draw',
     poolDrawn: 'Drawn from pool',
-    poolUndo: 'Undo draw',
-    poolDrawnOk: 'Drawn from the pool; balance updated',
-    poolUndoOk: 'Draw cancelled; amount returned to the pool',
     poolTag: 'Pool',
     poolCurrencyWarn: 'The pool holds JPY; a CNY purchase price is not drawn from it.',
     media: 'Images/Videos',
@@ -145,7 +139,11 @@ export default {
     saving: 'Saving…',
     autoSaved: 'Auto-saved',
     newBrand: 'Add brand "{name}"',
-    newModel: 'Add model "{name}"'
+    newModel: 'Add model "{name}"',
+    poolSource: "Funding",
+    poolFrom: "Drawn from {name}'s pool",
+    poolNoOwner: "No owner set, so this is not paid from the pool; cost uses the purchase-date rate. Setting an owner draws from their pool automatically.",
+    poolOwed: "The pool is short; {amount} is still owed and estimated at the purchase-date rate. It is recalculated once funds are added."
   },
   inv: {
     kind: 'Type',
@@ -174,7 +172,6 @@ export default {
     settled: 'Settled',
     partOf: 'Part of',
     partsIncluded: 'incl. {n} listed parts (not in totals)',
-    contributorNone: 'No contributor',
     moreFilters: 'More filters',
     saleFrom: 'Sold from',
     saleTo: 'Sold to',
@@ -253,7 +250,6 @@ export default {
     pickPart: 'Pick a part on the left',
     partInfo: 'Part details',
     partMedia: 'Part photos',
-    poolDrawHint: 'Once confirmed, cost is converted at the rates of the injections it draws from'
   },
   media: {
     upload: 'Upload',
@@ -343,12 +339,6 @@ export default {
     mediaCount: '{n} photos',
     deleted: 'deleted'
   },
-  fundShare: {
-    placeholder: 'Select contributor',
-    sum: 'Total {n}%',
-    even: 'Split evenly',
-    sumWarn: 'The shares must add up to exactly 100% or this field will not be saved',
-  },
   funds: {
     title: 'Fund Pool',
     injections: 'Injections',
@@ -379,9 +369,9 @@ export default {
     balanceCny: 'Balance cost',
     avgRate: 'Average rate',
     purpose: 'Purpose',
-    shortfall: 'Shortfall',
-    shortfallHint: 'converted at the market rate of that day',
-    shortfallWarn: '{amount} was drawn while the pool was short. That part is converted at the market rate of the day, so add the matching injection.',
+    shortfall: "Owed",
+    shortfallHint: "Estimated at the day's rate until funds are added",
+    shortfallWarn: "The pool owes {amount} in total (negative balance). Owed amounts are estimated at the day's rate and filled automatically by later injections.",
     incompleteWarn: 'Some injections have no rate yet, so the cost of the cards using them cannot be computed.',
     contributor: 'Contributor',
     contributors: 'By contributor',
@@ -403,7 +393,8 @@ export default {
     requireDateAmount: 'Date and amount are required',
     noInjections: 'No injections yet',
     noDraws: 'No usage yet',
-    cat: { purchase: 'Purchase', intl_shipping: 'Intl. shipping', other: 'Other' }
+    cat: { purchase: 'Purchase', intl_shipping: 'Intl. shipping', other: 'Other' },
+    earmark: "Earmarked"
   },
   fx: {
     title: 'Exchange Rate',

@@ -88,19 +88,11 @@
               <FacetLabel :label="platformLabel(o.value)" :count="o.count" />
             </el-option>
           </el-select>
-          <!-- 出资人：比例里写了他、或扣款实际吃到了他的钱，都算（见 inventory_api._involved）。
-               「未指定」挑出两样都没有的货——通常是该补出资比例的那些。 -->
-          <el-select v-model="filters.contributor" multiple collapse-tags clearable filterable
-            :placeholder="t('funds.contributor')" class="f-contributor" @change="reload">
-            <el-option v-for="o in facetOptions('contributor', filters.contributor)" :key="o.value"
-              :label="contributorLabel(o.value)" :value="o.value">
-              <FacetLabel :label="contributorLabel(o.value)" :count="o.count" />
-            </el-option>
-          </el-select>
-          <!-- 归属人：货是谁的。整机里有部件单独归别人时，按那个人筛也会出这台整机
-               （见 inventory_api._device_item 的 owners）。与出资人同一套「未指定」记号。 -->
+          <!-- 归属人：货是谁的，也是钱从谁的池里扣。整机里有部件单独归别人时，按那个人筛
+               也会出这台整机（见 inventory_api._device_item 的 owners）。「未指定」挑出
+               没设归属人、也就没走资金池的那些。 -->
           <el-select v-model="filters.owner" multiple collapse-tags clearable filterable
-            :placeholder="t('owner.label')" class="f-contributor" @change="reload">
+            :placeholder="t('owner.label')" class="f-owner" @change="reload">
             <el-option v-for="o in facetOptions('owner', filters.owner)" :key="o.value"
               :label="ownerLabel(o.value)" :value="o.value">
               <FacetLabel :label="ownerLabel(o.value)" :count="o.count" />
@@ -236,8 +228,8 @@
               <el-icon v-else class="cover-empty">
                 <component :is="row.kind === 'device' ? 'Monitor' : 'Picture'" />
               </el-icon>
-              <!-- 卡片模式下标签压在头图四角：左上类型（整机再跟上已售件数）、右上状态、
-                   左下购入日、右下出资人。挪出正文区之后，显卡和整机的卡片正文就是同一种
+              <!-- 卡片模式下标签压在头图四角：左上类型（整机再跟上已售件数、归属人）、右上状态、
+                   左下购入日。挪出正文区之后，显卡和整机的卡片正文就是同一种
                    结构，高度才统一得起来。 -->
               <template v-if="gridMode">
                 <span class="m-corner m-corner--tl">
@@ -251,9 +243,6 @@
                   <el-tag v-if="row.owner" size="small" effect="dark" type="info" class="owner-tag">{{ row.owner }}</el-tag>
                 </span>
                 <span class="m-corner m-corner--tr"><StatusTag :status="row.status" /></span>
-                <span v-if="row.fund_contributors?.length" class="m-corner m-corner--br m-date">
-                  {{ contributorsOf(row) }}
-                </span>
                 <!-- 只给购入日：卡片是看图挑货用的，成交日在详情里看 -->
                 <span v-if="row.purchase_date" class="m-corner m-corner--bl m-date pcr-mono">
                   {{ row.purchase_date }}
@@ -321,11 +310,10 @@
           </div>
 
           <div class="m-foot">
-            <!-- 卡片模式下日期与出资人挪到了头图的两个下角，这里只剩「部件一览」按钮。
-                 列表模式下左边购入日、右边出资人。 -->
+            <!-- 卡片模式下日期挪到了头图左下角，这里只剩「部件一览」按钮。
+                 列表模式下左边购入日。 -->
             <template v-if="!gridMode">
               <span class="pcr-mono pcr-dim">{{ row.purchase_date }}</span>
-              <span v-if="row.fund_contributors?.length" class="m-contrib pcr-dim">{{ contributorsOf(row) }}</span>
             </template>
             <!-- 部件明细弹出来看，不在卡片里就地展开：网格里一张卡展开会把同一行的格子
                  撑得高低不齐，懒加载的列表里展开又会把下面的卡整片往下推。 -->
@@ -625,8 +613,8 @@ const page = ref(1)
 const pageSize = ref(20)
 const loading = ref(false)
 
-// 出资人筛选里「未指定」的取值，与后端 inventory_api.CONTRIBUTOR_NONE 同一个记号
-const CONTRIBUTOR_NONE = '__none__'
+// 归属人筛选里「未指定」的取值，与后端 inventory_api.OWNER_NONE 同一个记号
+const OWNER_NONE = '__none__'
 
 // ── 联动的下拉选项 ──────────────────────────────────────────────────────
 // 每个下拉的取值与件数都由后端按当前其余筛选算好（/inventory/facets），前端不自己
@@ -656,11 +644,8 @@ function kindLabel(value) {
   if (value.startsWith('part:')) return t('partType.' + value.slice(5))
   return t('inv.' + value)
 }
-function contributorLabel(value) {
-  return value === CONTRIBUTOR_NONE ? t('inv.contributorNone') : value
-}
 function ownerLabel(value) {
-  return value === CONTRIBUTOR_NONE ? t('owner.none') : value
+  return value === OWNER_NONE ? t('owner.none') : value
 }
 
 // 第二排那三个固定取值的下拉，选项同样来自 facets（件数为 0 的不出现）
@@ -686,7 +671,7 @@ async function fetchFacets() {
 }
 
 const blankFilters = () => ({
-  keyword: '', kind: null, status: [], brand: null, model: null, source_platform: null, contributor: [], owner: [],
+  keyword: '', kind: null, status: [], brand: null, model: null, source_platform: null, owner: [],
   stock: null, profit: null, pool: null, costMin: null, costMax: null
 })
 const filters = reactive(blankFilters())
@@ -707,7 +692,7 @@ const moreFilterCount = computed(() => {
 // 收起来的那几项才需要这个数提醒「现在看到的不是全部」。
 const activeFilterCount = computed(() => {
   const f = filters
-  return [f.kind, f.status.length, f.brand, f.model, f.source_platform, f.contributor.length, f.owner.length, dateRange.value]
+  return [f.kind, f.status.length, f.brand, f.model, f.source_platform, f.owner.length, dateRange.value]
     .filter(Boolean).length + moreFilterCount.value
 })
 
@@ -808,11 +793,6 @@ function poolHolders(row) {
   return names.length ? [...new Set(names)].join('、') : t('card.poolTag')
 }
 
-// 卡片上标的出资人：这件货牵涉到的全部人（比例里写了的 + 扣款实际吃到的），
-// 与「出资人」筛选同一份口径，筛谁就能在卡片上看到谁
-function contributorsOf(row) {
-  return (row.fund_contributors || []).join('、')
-}
 
 // 二级行（部件）整行淡一档，一眼能看出层级
 // 单列出来的部件是顶层行，不压暗
@@ -844,7 +824,6 @@ function filterParams() {
     source_platform: filters.source_platform || undefined,
     purchase_from: dateRange.value?.[0] || undefined,
     purchase_to: dateRange.value?.[1] || undefined,
-    contributor: filters.contributor.length ? filters.contributor.join(',') : undefined,
     owner: filters.owner.length ? filters.owner.join(',') : undefined,
     sale_from: saleRange.value?.[0] || undefined,
     sale_to: saleRange.value?.[1] || undefined,
@@ -1120,7 +1099,7 @@ onActivated(() => {
 .f-model { width: 160px !important; }
 .f-platform { width: 140px !important; }
 .f-date { width: 250px !important; }
-.f-contributor { width: 170px !important; }
+.f-owner { width: 170px !important; }
 .owner-tag { max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
 .f-small { width: 130px !important; }
 .f-cost { display: flex; align-items: center; gap: 6px; }
@@ -1250,8 +1229,6 @@ onActivated(() => {
   font-size: 12px;
 }
 /* 出资人靠右；后面若还有「部件一览」按钮，按钮仍贴在最右 */
-.m-contrib { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.m-contrib + .m-expand { margin-left: 0; }
 /* 展开按钮挤到右端，和左边的日期分开——它是个能按的东西，不该混在日期里 */
 .m-expand {
   margin-left: auto;
@@ -1372,7 +1349,7 @@ onActivated(() => {
 @media (max-width: 768px) {
   /* 展开后的筛选器各占满一行——并排只会各自剩下小半个框，看不清选的是什么。
      搜索框是例外：它和「筛选」开关共一行，收起状态下这一行就是全部筛选界面。 */
-  .f-kind, .f-status, .f-brand, .f-model, .f-platform, .f-contributor, .f-date, .f-small { width: 100% !important; }
+  .f-kind, .f-status, .f-brand, .f-model, .f-platform, .f-owner, .f-date, .f-small { width: 100% !important; }
   .f-cost { width: 100%; }
   .f-cost-input { flex: 1 1 0; width: auto !important; }
   .filters { align-items: stretch; }

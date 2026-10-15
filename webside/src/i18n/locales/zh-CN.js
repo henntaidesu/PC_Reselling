@@ -106,14 +106,8 @@ export default {
     saleAmount: '出售价格',
     status: '状态',
     note: '备注',
-    fundShares: '出资人与比例',
-    dividends: '分红（按出资比例）',
     poolDraw: '池内扣除',
-    poolConfirm: '确认扣除',
     poolDrawn: '已从资金池扣除',
-    poolUndo: '撤销扣除',
-    poolDrawnOk: '已从资金池扣除，池内余额已更新',
-    poolUndoOk: '已撤销扣除，金额已退回资金池',
     poolTag: '池',
     poolCurrencyWarn: '资金池里是日元，购入价选了人民币时不会从池中扣除。',
     media: '图片/视频',
@@ -145,7 +139,11 @@ export default {
     saving: '保存中…',
     autoSaved: '已自动保存',
     newBrand: '新增品牌「{name}」',
-    newModel: '新增型号「{name}」'
+    newModel: '新增型号「{name}」',
+    poolSource: "资金来源",
+    poolFrom: "从「{name}」的资金池扣除",
+    poolNoOwner: "未设归属人，不走资金池，成本按购入日牌价折算。设了归属人就自动从他的资金池扣。",
+    poolOwed: "资金池不够，这件还欠 {amount}，暂按购入日牌价估算；补充注资后自动重算。"
   },
   inv: {
     kind: '类型',
@@ -174,7 +172,6 @@ export default {
     settled: '已结清',
     partOf: '所属',
     partsIncluded: '含 {n} 个单列部件（不计入金额）',
-    contributorNone: '未指定出资人',
     moreFilters: '更多筛选',
     saleFrom: '出售起',
     saleTo: '出售止',
@@ -253,7 +250,6 @@ export default {
     pickPart: '从左边选一个部件',
     partInfo: '部件信息',
     partMedia: '部件图片',
-    poolDrawHint: '确认扣除后，成本按扣到的那几批注资的汇率折算'
   },
   media: {
     upload: '上传',
@@ -343,12 +339,6 @@ export default {
     mediaCount: '{n} 张图',
     deleted: '已删除'
   },
-  fundShare: {
-    placeholder: '选择出资人',
-    sum: '合计 {n}%',
-    even: '平均分配',
-    sumWarn: '比例加起来要正好是 100%，否则这一项不会被保存',
-  },
   funds: {
     title: '资金池',
     injections: '注资批次',
@@ -379,9 +369,9 @@ export default {
     balanceCny: '余额成本',
     avgRate: '平均换汇汇率',
     purpose: '用途',
-    shortfall: '余额不足',
-    shortfallHint: '按当日市场牌价折算',
-    shortfallWarn: '有 {amount} 的支出发生时池内余额不足，这部分按当日市场牌价折算，请补录对应的注资。',
+    shortfall: "欠款",
+    shortfallHint: "暂按当日牌价估算，补充注资后自动顶上",
+    shortfallWarn: "资金池共欠 {amount}（余额为负），欠着的部分暂按当日牌价估算；之后补录注资会自动顶上。",
     incompleteWarn: '有注资批次缺少汇率，相关卡片的成本暂时算不出来。请在注资上补填汇率。',
     contributor: '出资人',
     contributors: '按出资人',
@@ -403,7 +393,8 @@ export default {
     requireDateAmount: '请填写日期和金额',
     noInjections: '还没有注资记录',
     noDraws: '还没有支出记录',
-    cat: { purchase: '购入价', intl_shipping: '国际运费', other: '其他支出' }
+    cat: { purchase: '购入价', intl_shipping: '国际运费', other: '其他支出' },
+    earmark: "专款"
   },
   fx: {
     title: '汇率',

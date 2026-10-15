@@ -23,7 +23,7 @@ CPU、显卡、内存、硬盘、主板、电源分别挂出去，于是有**一
 硬编出来的假精度（按售价比例分？按市场价分？两种分法能差出一倍），不如不给。
 需要看单件贡献时看它的售价与净收入即可。
 
-**资金池**（``fund_source='pool'``）与显卡完全同一套：这台机器的日元从池里出，采购侧
+**资金池**（设了归属人）与显卡完全同一套：这台机器的日元从归属人的池里出，采购侧
 成本就不是「金额按购入日牌价折」，而是被吃掉的那几批注资各按各自的换汇价折算再相加。
 分摊由 src.funds 按 FIFO 算好后回写在 ``pool_purchase_cny`` / ``pool_intl_cny`` 上，
 这里直接取用。出售侧不受影响：部件卖的是人民币，仍走各自的 ``sale_fx_rate``。
@@ -270,9 +270,9 @@ def serialize(row: Dict[str, Any], parts: Optional[List[Dict[str, Any]]] = None)
                 "pool_purchase_cny", "pool_intl_cny", "pool_fx_rate"):
         value = row.get(key)
         out[key] = float(value) if value is not None else None
-    out["fund_source"] = row.get("fund_source") or "own"
-    # 池子动没动，前端据此决定显示「确认扣除」还是「已扣除 / 撤销」
-    out["pool_confirmed_at"] = _iso(row.get("pool_confirmed_at"))
+    # 两列已停用（资金池改由归属人决定，见 cards.uses_pool），不再下发
+    out.pop("fund_source", None)
+    out.pop("pool_confirmed_at", None)
     out["money"] = compute_money(row, parts)
     out["parts"] = [serialize_part(p) for p in parts]
     return out

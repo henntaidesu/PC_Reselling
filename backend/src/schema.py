@@ -77,14 +77,10 @@ CURRENCIES: List[str] = ["JPY", "CNY"]
 # 人民币不需要进池（rate 恒等于 1，进了池只会让 FIFO 里多一堆无意义的批次）。
 POOL_CURRENCY: str = "JPY"
 
+# 已停用：资金池改由归属人决定（cards.uses_pool），fund_source 列只留不删。
 # 一张卡的采购资金从哪来。own = 自有资金（按交易日牌价折算，老逻辑）；
 # pool = 从资金池扣，成本按被消耗的那几笔注资各自的汇率分段折算。
 FUND_SOURCES: List[str] = ["own", "pool"]
-
-# 出资比例的单位：``fund_shares.share_pct`` 存的是**百分数**（60 表示 60%），一个归属方
-# 上的各项加起来必须等于 100。存百分数而不是 0~1 的小数，是为了让页面上填的数、接口上
-# 传的数、库里存的数完全一致——只有真正做乘法的地方（funds 里分金额、分利润）除这一次。
-SHARE_UNIT: int = 100
 
 # 资金池扣款的用途。purchase / intl_shipping 两类由卡片自动同步（跟着卡上的金额走），
 # other 是手工记的池内杂项支出（手续费、代购费…），不计入任何一张卡的成本。
@@ -499,6 +495,11 @@ _TABLES: List[Tuple[str, str]] = [
             -- 换汇渠道。界面上已经不录了（渠道对算账没有任何影响），列留着不删：
             -- 老数据里还有值，而这个库的迁移规矩是只加不改。
             channel     VARCHAR(64) NULL COMMENT '换汇渠道，已停用，不再写入',
+            -- 专款：这笔钱只给某一张卡 / 某一台整机扣（两列互斥），别的扣款碰不到它。
+            -- 用于给「早就买了、当时没走池子」的货补录资金：补的那笔得正好被它自己吃掉，
+            -- 按普通 FIFO 它会先去吃更早的批次，把后面那些货的钱占掉（见 funds.allocate）。
+            card_id     INT UNSIGNED NULL COMMENT '专款给哪张卡；NULL = 普通注资',
+            device_id   INT UNSIGNED NULL COMMENT '专款给哪台整机；NULL = 普通注资',
             note        VARCHAR(500) NULL,
             created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -555,7 +556,8 @@ _TABLES: List[Tuple[str, str]] = [
             card_id     INT UNSIGNED NULL COMMENT '归属卡片',
             device_id   INT UNSIGNED NULL COMMENT '归属整机设备',
             contributor VARCHAR(64) NOT NULL COMMENT '出资人名字，与 fund_injections.contributor 同一套写法',
-            -- 百分数（60 表示六成），同一件货上加起来必须是 100。见 schema.SHARE_UNIT。
+            -- 百分数（60 表示六成），同一件货上加起来必须是 100。
+            -- 已停用：资金池改由归属人决定，这张表只在迁移时读一次（_migrate_shares_to_owner）。
             share_pct   DECIMAL(9,4) NOT NULL COMMENT '出资比例，百分数',
             created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -660,6 +662,9 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("fund_draws", "contributor", "contributor VARCHAR(64) NULL"),
     # 注资类型：forex（外汇注资，按实付人民币算汇率）/ cash（现金注资，按注资日牌价记人民币成本）
     ("fund_injections", "inject_type", "inject_type VARCHAR(16) NOT NULL DEFAULT 'forex'"),
+    # 专款注资：只给某一件货扣（见 fund_injections 表定义）
+    ("fund_injections", "card_id", "card_id INT UNSIGNED NULL"),
+    ("fund_injections", "device_id", "device_id INT UNSIGNED NULL"),
     # 归属人：货是谁的（与出资比例无关）。部件为 NULL 时跟随整机
     ("cards", "owner", "owner VARCHAR(64) NULL"),
     ("devices", "owner", "owner VARCHAR(64) NULL"),
@@ -887,6 +892,117 @@ def _migrate_backfill_pool_confirmed() -> None:
         )
 
 
+# 资金池改成由归属人决定（cards.uses_pool）。那之前「这件货的钱谁出」记在 fund_shares
+# 的出资比例上，还要点「确认扣除」才动池子；之后只看 owner。存量数据要搬一次：
+# 1. 有比例、还没有归属人的货，把比例最大的那个人写成归属人（实际数据全是单人 100%）；
+# 2. 按新规则把全部货的扣款重新同步一遍——设了归属人却从没确认过扣除的货，要在这一步
+#    才开始扣钱，没有哪一次保存会替它们补上。
+# 第 1 步改存量数据，跑第二遍会把用户后来主动清空的归属人又填回去，所以照
+# _migrate_fx_rate_direction 的办法记一个做过的标记。fund_shares 表与 fund_source /
+# pool_confirmed_at 两列按惯例只留不删。
+_SHARES_TO_OWNER_KEY = "shares_to_owner_migrated"
+
+
+def _migrate_injection_earmark_fk() -> None:
+    """给 fund_injections 的两列专款归属补外键（ON DELETE SET NULL）。
+
+    列由 _MIGRATIONS 补上，外键 ALTER 不了已建好的表，只能在这里按需加。SET NULL 而不是
+    CASCADE：货删了，那笔钱仍然是真金白银进过池子的，退回成普通注资，而不是跟着消失。
+    """
+    for col, table, name in (("card_id", "cards", "fk_fund_injections_card"),
+                             ("device_id", "devices", "fk_fund_injections_device")):
+        if not _has_column("fund_injections", col):
+            continue
+        has_fk = int(db.query_scalar(
+            "SELECT COUNT(*) AS c FROM information_schema.TABLE_CONSTRAINTS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fund_injections' "
+            "AND CONSTRAINT_NAME = %s", (name,), default=0) or 0)
+        if not has_fk:
+            log.info("迁移：fund_injections.%s 增加外键", col)
+            # 列名、表名、约束名都来自上面这个固定的元组
+            db.execute(
+                f"ALTER TABLE fund_injections ADD CONSTRAINT {name} "
+                f"FOREIGN KEY ({col}) REFERENCES {table} (id) ON DELETE SET NULL"
+            )
+
+
+def _migrate_shares_to_owner() -> None:
+    if settings_store.get(_SHARES_TO_OWNER_KEY):
+        return
+    if not _has_column("fund_injections", "card_id"):
+        return
+    for table in ("cards", "devices"):
+        if not _has_column(table, "owner"):
+            return  # 列还没补上，等下次启动
+    log.info("迁移：出资比例 → 归属人，资金池改由归属人扣款")
+    with db.transaction() as cur:
+        # 第 0 步：早就设了归属人、却从没确认过扣除的货（当时是自有资金买的，后来才补的
+        # 归属人）。按新规则它们要开始扣池，可它们的钱当初并不是从池里出的——直接扣的话，
+        # 它们会按 FIFO 吃掉归属人最早那几批注资，把后面那些本来就走池子的货挤成欠款。
+        # 所以给每件补一笔专款注资：金额 = 它能进池的日元（购入价 + 国际运费），汇率 =
+        # 它原来的购入汇率，日期 = 购入日。扣完正好为零，成本与原来按牌价算的一致。
+        # 没有购入汇率的（成本本来就算不出来）不补，照常扣，以免凭空造一个汇率。
+        from src.funds import poolable_amounts  # 避开 funds → schema 的循环依赖
+
+        for col, table in (("card_id", "cards"), ("device_id", "devices")):
+            cur.execute(
+                f"SELECT * FROM {table} WHERE is_draft = 0 AND owner IS NOT NULL "
+                f"AND owner <> '' AND pool_confirmed_at IS NULL"
+            )
+            for row in cur.fetchall():
+                amount = sum(poolable_amounts(row).values())
+                if not amount or not row.get("purchase_fx_rate") or not row.get("purchase_date"):
+                    continue
+                cur.execute(
+                    f"INSERT INTO fund_injections (inject_date, amount, currency, fx_rate, fx_date, "
+                    f"fx_manual, contributor, inject_type, {col}, note) "
+                    f"VALUES (%s, %s, 'JPY', %s, %s, 1, %s, 'forex', %s, %s)",
+                    (row["purchase_date"], amount, row["purchase_fx_rate"],
+                     row.get("purchase_fx_date") or row["purchase_date"], row["owner"], row["id"],
+                     f"历史货补录：{row['mgmt_no']} 专款，按原购入汇率"),
+                )
+                log.info("迁移：为 %s 补录专款注资 %s 日元（%s）", row["mgmt_no"], amount, row["owner"])
+
+        # 表名与列名来自下面这个固定的元组，不是外部输入
+        for col, table in (("card_id", "cards"), ("device_id", "devices")):
+            cur.execute(
+                f"SELECT {col} AS oid, contributor, share_pct FROM fund_shares "
+                f"WHERE {col} IS NOT NULL ORDER BY {col}, share_pct DESC, id"
+            )
+            top: Dict[int, str] = {}
+            multi = set()
+            for row in cur.fetchall():
+                oid = int(row["oid"])
+                if oid in top:
+                    multi.add(oid)
+                else:
+                    top[oid] = row["contributor"]
+            if multi:
+                # 多人分摊的货只能归给一个人，记下来让人核对
+                log.warning("迁移：%s %s 原来是多人出资，归属人取了比例最大的那位",
+                            table, sorted(multi))
+            for oid, name in top.items():
+                cur.execute(
+                    f"UPDATE {table} SET owner = %s WHERE id = %s AND owner IS NULL",
+                    (name, oid),
+                )
+        cur.execute(
+            "INSERT INTO app_settings (`key`, `value`) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+            (_SHARES_TO_OWNER_KEY, "1"),
+        )
+    # 第 2 步不进事务：它只是按当前数据把派生出来的扣款与分摊重算一遍，失败了下次保存
+    # 或在资金池页点「重算」都能补回来。在函数里 import 是为了避开 funds → schema 的循环依赖。
+    try:
+        from src import funds
+
+        result = funds.resync_all()
+        for w in result.get("warnings", []):
+            log.warning("迁移后重算资金池：%s", w)
+    except Exception as exc:  # noqa: BLE001  重算失败不该拖垮启动
+        log.warning("迁移后重算资金池失败：%s", exc)
+
+
 def init() -> None:
     """建库 → 建表 → 补列 → 结构迁移 → 数据迁移 → 灌入首次运行的种子数据。可重复执行。"""
     db.ensure_database()
@@ -902,6 +1018,8 @@ def init() -> None:
     _migrate_fx_rate_direction()
     _migrate_backfill_pool_confirmed()
     _cleanup_stale_drafts()
+    _migrate_injection_earmark_fk()
+    _migrate_shares_to_owner()
     _seed()
 
 

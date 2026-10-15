@@ -200,26 +200,19 @@
             </div>
           </div>
 
-          <!-- ── 资金与结算：左边是钱从哪儿来（出资比例、确认扣款、扣到了哪几批注资），
+          <!-- ── 资金与结算：左边是钱从哪儿来（谁的池、扣到了哪几批注资、欠多少），
                右边是这台机器的账 ─────────────────────────────────────────── -->
           <div v-else-if="active === 'fund'" class="fund">
             <div class="fund-main">
-              <div class="pd-sub-label">{{ t('card.fundShares') }}</div>
-              <FundShares v-model="form.fund_shares" :options="contributorOptions" />
-
-              <div class="pd-sub-label sub-gap">{{ t('card.poolDraw') }}</div>
+              <!-- 钱从谁的池里扣：就是归属人。设了就扣，没有「确认」这一步（见 cards.uses_pool）；
+                   池子不够也照扣，欠着的部分在下面标出来，等这个人补了注资自动顶上 -->
+              <div class="pd-sub-label">{{ t('card.poolSource') }}</div>
               <div class="pool-draw">
-                <template v-if="poolDrawn">
-                  <span class="pool-done">{{ t('card.poolDrawn') }}</span>
-                  <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">{{ t('card.poolUndo') }}</el-button>
-                </template>
-                <el-button v-else type="primary" size="small" :loading="poolBusy"
-                  :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
-                  {{ t('card.poolConfirm') }}
-                </el-button>
+                <span v-if="device.money.from_pool" class="pool-done">{{ t('card.poolFrom', { name: device.owner }) }}</span>
+                <span v-else class="pd-note">{{ t('card.poolNoOwner') }}</span>
                 <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
-                <span class="pd-note">{{ t('detail.poolDrawHint') }}</span>
               </div>
+              <div v-if="owed" class="pool-warn sub-gap">{{ t('card.poolOwed', { amount: formatMoney(owed, 'JPY') }) }}</div>
 
               <PoolBreakdown v-if="device.fund_draws?.length" class="sub-gap" :draws="device.fund_draws" />
             </div>
@@ -238,15 +231,6 @@
                   <b class="pcr-mono" :class="profitClass(money.profit_cny)">{{ cny(money.profit_cny) }}</b>
                 </div>
               </div>
-              <!-- 分红：盈亏全额按出资比例分。整机是一进多出，没卖完的时候这个数是「到目前
-                   为止各人分到多少」，会随着部件陆续卖出往上走 -->
-              <template v-if="device.dividends?.length">
-                <div class="pd-sub-title sub-gap">{{ t('card.dividends') }}</div>
-                <div v-for="d in device.dividends" :key="d.contributor" class="pd-settle-row">
-                  <span>{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
-                  <b class="pcr-mono" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</b>
-                </div>
-              </template>
             </div>
           </div>
 
@@ -294,7 +278,6 @@ import { useMetaStore } from '@/stores/meta'
 import AutoSaveBadge from '@/components/AutoSaveBadge.vue'
 import DetailShell from '@/components/DetailShell.vue'
 import DevicePartPanel from '@/components/DevicePartPanel.vue'
-import FundShares from '@/components/FundShares.vue'
 import MediaGallery from '@/components/MediaGallery.vue'
 import MoneyInput from '@/components/MoneyInput.vue'
 import OwnerSelect from '@/components/OwnerSelect.vue'
@@ -316,7 +299,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 const meta = useMetaStore()
-const contributorOptions = computed(() => meta.contributors)
 
 // device = 服务端快照（金额、汇率、分摊、时间线、草稿标记），form = 可编辑的那些列。
 // 与显卡详情页同一套：保存的返回值只用来刷新展示部分，绝不回灌 form——请求往返的
@@ -353,12 +335,12 @@ function profitTone(v) {
   return Number(v) > 0 ? 'is-up' : 'is-down'
 }
 
-const poolRateLabel = computed(() => {
-  const shares = device.value?.fund_shares || []
-  if (shares.length === 1) return shares[0].contributor + ' ' + t('card.poolRate')
-  if (shares.length > 1) return shares.map((s) => s.contributor).join('/') + ' ' + t('card.poolRate')
-  return t('card.poolRate')
-})
+// 池子汇率是归属人那几批钱的加权，标上是谁的
+const poolRateLabel = computed(() =>
+  (device.value?.owner ? device.value.owner + ' ' : '') + t('card.poolRate'))
+// 这件货还欠着池子多少日元（归属人的钱不够时照扣，欠的部分记在扣款的 shortfall 上）
+const owed = computed(() =>
+  (device.value?.fund_draws || []).reduce((sum, d) => sum + (Number(d.shortfall) || 0), 0))
 // 走资金池时格子里摆的是池子汇率，当日牌价收进悬浮提示：四分之一宽的格子摆不下三段字
 const purchaseFxTip = computed(() => {
   const d = device.value
@@ -397,9 +379,6 @@ function blankForm() {
     source_platform: null, seller: null, item_url: null, order_no: null,
     purchase_date: null, purchase_amount: null, purchase_currency: 'JPY',
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
-    fund_source: 'pool',
-    // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
-    fund_shares: [],
     owner: null,
     status: 'purchased', note: null,
     parts: []
@@ -429,22 +408,6 @@ function canRemovePart(part) {
 const poolCurrencyMismatch = computed(() =>
   form.purchase_currency !== 'JPY' && form.purchase_amount
 )
-const poolDrawn = computed(() => Boolean(device.value?.pool_confirmed_at))
-const poolBusy = ref(false)
-
-// 确认 / 撤销都回 这台设备完整的一份（与 GET 同形），直接换掉展示数据即可。
-// **不能拿它回灌表单**：请求往返那几百毫秒里敲的字会被覆盖掉。
-async function togglePoolDraw(action, okKey) {
-  poolBusy.value = true
-  try {
-    device.value = await action(form.id)
-    ElMessage.success(t(okKey))
-  } catch { /* 拦截器已提示 */ } finally {
-    poolBusy.value = false
-  }
-}
-const confirmPoolDraw = () => togglePoolDraw(devicesApi.confirmPoolDraw, 'card.poolDrawnOk')
-const cancelPoolDraw = () => togglePoolDraw(devicesApi.cancelPoolDraw, 'card.poolUndoOk')
 
 const autosave = useAutoSave(doSave)
 watch(form, autosave.schedule, { deep: true })
@@ -497,12 +460,10 @@ async function doSave() {
   const res = await devicesApi.update(form.id, buildPayload(submitted))
   device.value = res
   await autosave.silently(() => mergePartIds(submitted, res))
-  // 出资人不用在这里建：后端存比例时已经顺手把新名字落进字典了，这里只把候选刷新一下，
-  // 否则同一次会话里换一台机器，刚敲的那个名字又不在下拉里了
-  // 归属人同理（整机和部件上现敲的新名字）
+  // 归属人不用在这里建：后端存的时候已经顺手把新名字落进字典了（整机和部件上现敲的
+  // 都算），这里只把候选刷新一下，否则同一次会话里换一台机器，那个名字又不在下拉里了
   const owners = [form.owner, ...form.parts.map((p) => p.owner)].filter(Boolean)
-  if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor)) ||
-      owners.some((n) => !meta.contributors.includes(n))) {
+  if (owners.some((n) => !meta.contributors.includes(n))) {
     meta.reloadContributors()
   }
 }
@@ -510,18 +471,14 @@ async function doSave() {
 function normalize(row) {
   const out = blankForm()
   for (const key of Object.keys(out)) {
-    if (key === 'parts' || key === 'fund_shares') continue
+    if (key === 'parts') continue
     out[key] = row[key] ?? out[key]
   }
   out.id = row.id
-  // 拷一份而不是直接引用：直接引用的话，组件改了这个数组等于改了 device 快照里的
-  // 同一个对象，「服务端返回的是什么」和「表单里现在是什么」就分不开了
-  out.fund_shares = (row.fund_shares || []).map((x) => ({ ...x }))
   // 币种与状态在库里是 NOT NULL，仍兜一层：null 传回后端会被校验器打回，
   // 于是整条保存链失败，表现成「这台机器怎么改都存不进去」
   out.purchase_currency = row.purchase_currency || 'JPY'
   out.intl_shipping_currency = row.intl_shipping_currency || 'JPY'
-  out.fund_source = 'pool'
   out.status = row.status || 'purchased'
 
   // 只挑表单认识的字段：服务端行上还有 money / 汇率快照等，整份铺回表单会被原样发回

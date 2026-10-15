@@ -57,7 +57,7 @@
             <div><span>{{ t('funds.injected') }}</span><b class="pcr-mono">{{ jpy(row.injected) }}</b>
               <i class="pcr-mono pcr-dim">{{ cny(row.injected_cny) }}</i></div>
             <div><span>{{ t('funds.used') }}</span><b class="pcr-mono">{{ jpy(row.used) }}</b></div>
-            <div><span>{{ t('funds.remaining') }}</span><b class="pcr-mono">{{ jpy(row.remaining) }}</b></div>
+            <div><span>{{ t('funds.remaining') }}</span><b class="pcr-mono" :class="{ 'is-owed': row.remaining < 0 }">{{ jpy(row.remaining) }}</b></div>
             <div><span>{{ t('funds.avgRate') }}</span><b class="pcr-mono">{{ row.avg_rate ? formatRate(row.avg_rate) : '—' }}</b></div>
           </div>
           <!-- 展开：资金去向。注资批次不在这里重复——下面「注资批次」那张卡已经按这个人
@@ -192,7 +192,7 @@
           <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.used) }}</span></template>
         </el-table-column>
         <el-table-column :label="t('funds.remaining')" align="right" min-width="110">
-          <template #default="{ row }"><span class="pcr-mono">{{ jpy(row.remaining) }}</span></template>
+          <template #default="{ row }"><span class="pcr-mono" :class="{ 'is-owed': row.remaining < 0 }">{{ jpy(row.remaining) }}</span></template>
         </el-table-column>
         <el-table-column :label="t('funds.share')" align="right" width="92">
           <template #default="{ row }">
@@ -222,6 +222,7 @@
               <div class="f-head">
                 <span class="pcr-mono pcr-dim">{{ row.inject_date }}</span>
                 <el-tag v-if="row.contributor" size="small" type="primary" effect="plain">{{ row.contributor }}</el-tag>
+                <el-tag v-if="row.earmark" size="small" type="warning" effect="dark">{{ t('funds.earmark') }} {{ row.earmark.mgmt_no }}</el-tag>
                 <el-tag v-if="row.inject_type === 'cash'" size="small" type="success" effect="plain">{{ t('funds.typeCash') }}</el-tag>
                 <el-tag v-else-if="row.fx_manual" size="small" type="warning" effect="plain">{{ t('funds.manualTag') }}</el-tag>
                 <el-button class="f-edit" :icon="EditPen" circle @click="openInjection(row)" />
@@ -244,6 +245,10 @@
               <template #default="{ row }">
                 <el-tag v-if="row.contributor" size="small" type="primary" effect="plain">{{ row.contributor }}</el-tag>
                 <span v-else class="pcr-dim">—</span>
+                <!-- 专款：只给这一件货扣（老货补录的那种），别的货吃不到它 -->
+                <el-tag v-if="row.earmark" size="small" type="warning" effect="dark" class="earmark-tag">
+                  {{ t('funds.earmark') }} {{ row.earmark.mgmt_no }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column :label="t('funds.amount')" align="right" min-width="110">
@@ -617,7 +622,8 @@ const statCards = computed(() => {
     { key: 'in', label: t('funds.totalInjected'), value: jpy(s.total_injected), icon: 'Wallet', color: '#5b8cff' },
     { key: 'inCny', label: t('funds.totalInjectedCny'), value: cny(s.total_injected_cny), icon: 'Money', color: '#7c5cff' },
     { key: 'out', label: t('funds.totalDrawn'), value: jpy(s.total_drawn), icon: 'Sell', color: '#e6a23c' },
-    { key: 'balance', label: t('funds.balance'), value: jpy(s.balance), icon: 'Coin', color: '#2ec4a6' },
+    // 余额允许为负（欠款，等补注资），负的时候标红
+    { key: 'balance', label: t('funds.balance'), value: jpy(s.balance), icon: 'Coin', color: s.balance < 0 ? '#F56C6C' : '#2ec4a6' },
     { key: 'balanceCny', label: t('funds.balanceCny'), value: cny(s.balance_cny), icon: 'PriceTag', color: '#3aa0ff' },
     { key: 'avg', label: t('funds.avgRate'), value: s.avg_rate ? formatRate(s.avg_rate) : '—', icon: 'TrendCharts', color: '#c471f5' }
   ]
@@ -783,6 +789,9 @@ onMounted(reload)
 .mt { margin-top: 10px; }
 .mb { margin-bottom: 12px; }
 .table-card { margin-bottom: 16px; }
+/* 余额为负 = 欠着池子的钱，等补注资 */
+.is-owed { color: #f87171; }
+.earmark-tag { margin-left: 4px; }
 .card-head { display: flex; align-items: center; justify-content: space-between; }
 .count { font-size: 12px; }
 .sub { font-size: 11px; }

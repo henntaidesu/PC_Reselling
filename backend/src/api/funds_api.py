@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from src import db, funds
 from src.auth import require_auth
-from src.schema import POOL_CURRENCY, SHARE_UNIT
+from src.schema import POOL_CURRENCY
 
 log = logging.getLogger(__name__)
 
@@ -96,69 +96,17 @@ class InjectionPayload(BaseModel):
 class DrawPayload(BaseModel):
     """手工记的池内支出（手续费、代购费…）。
 
-    卡片与整机的购入价、国际运费**不走这里**——那两类由各自表单上的「从资金池扣除」
-    开关自动同步，手工再记一笔就会重复扣钱。
+    卡片与整机的购入价、国际运费**不走这里**——那两类跟着各自的归属人自动同步，
+    手工再记一笔就会重复扣钱。
 
     ``contributor`` 指定这笔支出从谁的钱里扣：FIFO 只在那个人的注资批次里跑，
-    不影响别人的余额。留空则按全池 FIFO（老行为）。
+    不影响别人的余额，不够时同样记成欠款。留空则按全池 FIFO。
     """
 
     draw_date: dt.date
     amount: float = Field(gt=0)
     contributor: Optional[str] = Field(default=None, max_length=64)
     note: Optional[str] = Field(default=None, max_length=500)
-
-
-class SharePayload(BaseModel):
-    """一件货（显卡 / 整机）上某个出资人占的比例。
-
-    定义在这里、由 cards_api 和 devices_api 共同 import：两边是同一件事，各写一份的
-    下场是某天只给其中一边加了校验，另一边能存进一组加起来 97% 的比例。
-    """
-
-    contributor: str = Field(min_length=1, max_length=64)
-    # 百分数（60 = 60%），见 schema.SHARE_UNIT
-    share_pct: float = Field(gt=0, le=SHARE_UNIT)
-
-
-def validate_shares(shares: Optional[List[SharePayload]]) -> Optional[List[SharePayload]]:
-    """校验一组出资比例：不能重名，加起来必须正好是 100。
-
-    ``None`` = 这次请求没提交这一项，保持原样；``[]`` = 明确清空（不指定出资人，
-    回到全池 FIFO）。两者必须分开：详情页是逐字段自动保存的，把「没提交」当成「清空」
-    会让改一次备注就把出资比例抹掉。
-
-    合计必须是 100 而不是「按填的归一化」：填了 60 和 30 的人，想的多半是还有一个人
-    没填完，而不是「那就按 2:1 分」。当场拦住，比事后发现分红少算一个人强。
-    """
-    if shares is None:
-        return None
-    names = [sh.contributor.strip() for sh in shares]
-    if any(not n for n in names):
-        raise ValueError("出资人不能为空")
-    if len(set(names)) != len(names):
-        raise ValueError("同一个出资人只能出现一次")
-    if not shares:
-        return []
-    total = round(sum(sh.share_pct for sh in shares), 4)
-    if abs(total - SHARE_UNIT) > 0.01:
-        raise ValueError(f"出资比例加起来要等于 {SHARE_UNIT}%，现在是 {total:g}%")
-    return shares
-
-
-def apply_shares(kind: str, owner_id: int, shares: Optional[List[SharePayload]]) -> bool:
-    """把出资比例写到一件货上，返回是否真的变了（变了要重算池子）。
-
-    顺带把名字落进出资人字典（与注资那头同一个 upsert），所以在显卡详情页现敲一个
-    新出资人也能用，不必先跑一趟资金池页面。
-    """
-    if shares is None:
-        return False
-    rows = [
-        {"contributor": funds.ensure_contributor(sh.contributor), "share_pct": sh.share_pct}
-        for sh in shares
-    ]
-    return funds.write_shares(kind, owner_id, [r for r in rows if r["contributor"]])
 
 
 def _clean(value):

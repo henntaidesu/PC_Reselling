@@ -14,7 +14,7 @@
 不快照的话，同一张卡今天算出来的利润和昨天不一样——汇率每天都在动，而已经发生的
 交易的盈亏是不会变的。要改只能显式改（fx_manual=1，自动刷新会跳过它）。
 
-**资金池例外**（fund_source='pool'）：这张卡的日元是从资金池里出的，那它的人民币成本
+**资金池例外**（设了归属人 ``owner``）：这张卡的日元是从归属人的资金池里出的，那它的人民币成本
 就不是「金额按买卡那天的牌价折」，而是「被吃掉的那几批注资，各按各自的换汇价折算再
 相加」——钱早就换好了，买卡那天的市场价与真实成本无关。分摊结果由 src.funds 算好后
 回写在 pool_purchase_cny / pool_intl_cny 上，这里直接取用。出售侧不受影响：卖卡收的是
@@ -167,17 +167,16 @@ def _round_jpy(value: Optional[Decimal]) -> Optional[float]:
 
 
 def uses_pool(row: Dict[str, Any]) -> bool:
-    """这一行的采购成本该不该按资金池的注资汇率算。
+    """这一行的采购成本该不该按资金池的注资汇率算：**有归属人就是**。
 
-    选了「从资金池扣除」还不够，**必须已经点过「确认扣除」**（``pool_confirmed_at``
-    有值）。详情页是边填边自动保存的，少了这道闸门，购入价刚敲了两位数就已经从池里
-    扣走一笔了。确认之前这行照旧按购入日牌价折算——而不是显示成「缺汇率」的一串「—」，
-    那会让人以为汇率没取到。
+    归属人即「这件货的钱从谁的池子里出」，选了就扣，不再有单独的「确认扣除」——
+    原来那道闸门（``fund_source`` + ``pool_confirmed_at``，两列留着不删）防的是
+    「购入价刚敲两位数就扣走一笔」，可扣款本来就跟着金额同步，敲完自然就对了；
+    反倒是闸门让「设了归属人却没扣钱」成了常态，池子余额和实际对不上。
 
-    确认之后金额再改，扣款跟着改（``funds.sync_owner_draws`` 照常同步），不用重新确认：
-    闸门管的是第一次动池子，不是每一次改数字。
+    没有归属人的货不进池，照旧按购入日牌价折算。
     """
-    return (row.get("fund_source") or "own") == "pool" and row.get("pool_confirmed_at") is not None
+    return bool((row.get("owner") or "").strip())
 
 
 def _purchase_side(
@@ -190,6 +189,10 @@ def _purchase_side(
     也返回 None，让它按「缺汇率」处理——总比拿市场牌价冒充真实换汇成本强。
     """
     if uses_pool(row) and (row.get(currency_key) or "").upper() == "JPY":
+        # 填了 0 的那项（常见于「国际运费 0」）不会生成扣款（funds.poolable_amounts 只收
+        # 正数），分摊结果自然是空的——那是「没花钱」，不是「缺汇率」
+        if _dec(row.get(amount_key)) == 0:
+            return Decimal("0")
         return _dec(row.get(pool_key))
     return _to_cny(row.get(amount_key), row.get(currency_key), rate)
 
@@ -307,9 +310,9 @@ def serialize(row: Dict[str, Any], media: Optional[List[Dict[str, Any]]] = None)
         value = row.get(key)
         out[key] = float(value) if value is not None else None
     out["fx_manual"] = bool(row.get("fx_manual"))
-    out["fund_source"] = row.get("fund_source") or "own"
-    # 池子动没动，前端据此决定显示「确认扣除」还是「已扣除 / 撤销」
-    out["pool_confirmed_at"] = _iso(row.get("pool_confirmed_at"))
+    # 两列已停用（资金池改由归属人决定，见 uses_pool），不再下发
+    out.pop("fund_source", None)
+    out.pop("pool_confirmed_at", None)
     out["money"] = compute_money(row)
     if media is not None:
         out["media"] = media

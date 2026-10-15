@@ -9,24 +9,31 @@
 
 - ``fund_injections`` 注资批次：一次换汇进池一条，带自己那天的汇率快照。
 - ``fund_draws`` 扣款：卡片与整机侧的「购入价 / 国际运费」跟着各自的金额自动同步
-  （一卡一类一条 / 一机一类一条），另有手工记的池内杂项支出。**要先在详情页点过
-  「确认扣除」**（``pool_confirmed_at`` 有值）才会生成——详情页边填边自动保存，
-  没有这道闸门，购入价刚敲了两位数就已经从池里扣走一笔了。
+  （一卡一类一条 / 一机一类一条），另有手工记的池内杂项支出。**设了归属人就扣**，
+  扣款行上的 ``contributor`` 就是那件货的归属人（见 ``cards.uses_pool``）。
 - ``fund_allocations`` 分摊明细：一笔扣款按 FIFO 拆到若干批次上，每段带该批次的汇率。
 
-**FIFO 与两条硬规则**：
+**按人分池**：注资上的 ``contributor`` 标记这笔钱是谁的，扣款上的 ``contributor``
+（卡片 / 整机的扣款取自货的归属人）决定从谁的钱里扣——FIFO 只在那个人的注资批次里跑，
+等价于每人一个池子。没指定人的手工支出在全池上跑。``pool_fx_rate`` 因此是这个人
+那几批钱的加权汇率，而不是全池平均。
 
-1. 先进先出，按 ``inject_date`` 排序——最早换进来的钱先花掉。
-2. 一笔扣款只能吃 ``inject_date <= draw_date`` 的批次：还没进池的钱花不出去。
-   吃不满的部分记为 ``shortfall``（当时池内余额不够），按当日市场牌价折算并给出
-   警告，而不是硬凑到后面的批次上——那会让成本凭空变好看。
+**FIFO 与欠款**：
 
-**出资人（``fund_injections.contributor``）**：池子里的钱可能是几个人凑的。注资上的
-``contributor`` 是归属标签，标记这笔钱是谁出的。**当一件货指定了出资比例
-（``fund_shares``）**，FIFO 会按比例把扣款拆成几段，每段**只在该出资人的注资批次里**
-先进先出——等价于按人分池。没指定比例的扣款照旧在全池上跑一遍 FIFO（老数据的行为）。
-因此 ``pool_fx_rate`` 已经是出资人维度的加权汇率，而不是全池的平均。
-谁出了多少、被用掉多少、还剩多少，全部由分摊结果反算（``contributor_totals()``）。
+1. 先进先出：扣款按 ``draw_date``、注资按 ``inject_date`` 各自排好，前面的扣款先吃
+   最早的批次。
+2. **允许池子为负**：一个人的钱不够时照样扣，欠下的记为 ``shortfall``。这个人**之后**
+   再注资，那笔钱会先顶上欠款（按 FIFO，较早的扣款先吃到），被顶上的那部分成本
+   就按新注资的汇率算——这就是「先买、后补钱」的真实成本。还没补上的部分按扣款日的
+   市场牌价暂估，并给出警告；补齐之后重算一遍，暂估自动消失。
+   所以不再限制「只能吃扣款日之前进池的钱」：那条规则下，欠款永远补不上。
+
+**专款**：注资上的 ``card_id`` / ``device_id`` 指定这笔钱只给那一件货扣。那件货的扣款
+先吃自己的专款，再按普通 FIFO 吃归属人的其余批次；别的扣款一律碰不到专款。用于给
+「当初没走池子、后来才补上归属人」的老货补录资金（见 schema._migrate_shares_to_owner）：
+补的那笔按普通 FIFO 排的话，老货会先吃掉更早的批次，把后面的货挤成欠款。
+
+谁出了多少、被用掉多少、还剩（或欠）多少，全部由分摊结果反算（``contributor_totals()``）。
 
 **分摊是全量派生数据**：任何注资或扣款变动后都整体重算（``rebuild()``），而不是增量
 维护。理由是「补录一笔上个月的注资」会改变它之后所有扣款的分摊结果，增量算法要处理
@@ -45,7 +52,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Tuple
 
 from src import db
-# uses_pool 的定义只有 cards.py 那一份（「选了资金池 **且** 已确认扣除」）。
+# uses_pool 的定义只有 cards.py 那一份（「有归属人」）。
 # 在这里照抄一遍条件的下场是某天只改了其中一处，成本按池子算、扣款却没同步。
 from src.cards import uses_pool
 from src.fx import RATE_UNIT, FxError, get_rate
@@ -158,32 +165,12 @@ def resolve_injection_fx(
 
 # ── FIFO 分摊（纯函数，不碰数据库，便于单独验算）──────────────────────────── #
 
-def split_amount(total: Optional[Decimal], shares: List[Dict[str, Any]]) -> List[Tuple[str, Decimal]]:
-    """按出资比例把一笔钱拆成几段。返回 ``[(出资人, 金额)]``。
-
-    最后一段吃掉余数，而不是每段各自四舍五入——三个人各 1/3 分 100 日元，各自取整是
-    33.33×3=99.99，池子里会凭空剩下一分钱，而且它会一直跟着后面每一笔扣款漂下去。
-
-    比例之和不是 100 时按**实际之和**归一化。表单那头已经拦了（必须凑够 100），这里
-    不重复报错：重算是个后台动作，为一条比例填错的旧数据整体算不下去，比按它本来的
-    意思摊开更糟。
-    """
-    if total is None or not shares:
-        return []
-    weights = [(str(sh["contributor"]), _dec(sh.get("share_pct")) or _ZERO) for sh in shares]
-    weight_sum = sum(w for _n, w in weights)
-    if weight_sum <= 0:
-        return []
-    out: List[Tuple[str, Decimal]] = []
-    taken = _ZERO
-    for idx, (name, weight) in enumerate(weights):
-        if idx == len(weights) - 1:
-            part = total - taken
-        else:
-            part = _round(total * weight / weight_sum) or _ZERO
-            taken += part
-        out.append((name, part))
-    return out
+def _earmark_of(row: Dict[str, Any]) -> Optional[Tuple[str, int]]:
+    """注资的专款对象，或扣款的归属对象：(card|device, id)。两边用同一个键配对。"""
+    for kind, (col, _table) in _OWNERS.items():
+        if row.get(col):
+            return (kind, int(row[col]))
+    return None
 
 
 def allocate(
@@ -196,14 +183,12 @@ def allocate(
     ``injections`` 必须按 (inject_date, id) 升序，``draws`` 按 (draw_date, id) 升序——
     扣款也要按时间顺序处理，否则「谁先花掉了那批便宜的钱」会取决于录入顺序。
 
-    **指定了出资人的扣款只在那几个人的批次里扣**：``draw["shares"]`` 里有比例时，先按
-    比例把金额拆成几段，每段单独跑一遍 FIFO，候选批次只有该出资人的那些。没填 shares
-    的扣款照旧在**全部**批次上跑一遍 FIFO——这是老数据的行为，也是「没说是谁的钱」的
-    正确含义。两者混在一个池子里的后果要知道：一笔没指定出资人的旧扣款会按日期吃掉
-    最早的批次，其中可能就有老李的钱；轮到一张指定老李的卡时，他名下可能已经不够了，
-    那一段就记成余额不足。这不是算错——它恰好说明那笔旧扣款也该把出资人补上。
+    ``draw["contributor"]`` 有值时只在那个人的批次里扣，没有就在全部批次上扣。
+    专款批次（注资上带 card_id / device_id）只给对应那件货的扣款，而且排在最前面。
+    批次的日期不设上限：比扣款晚进池的钱同样能被吃到，那就是「欠着、后来补上」
+    （见模块文档）。全部批次都吃光了还不够的部分记为 shortfall。
 
-    ``market_rate`` 是个 ``(date) -> Decimal | None`` 的函数，用于折算池子不够的部分。
+    ``market_rate`` 是个 ``(date) -> Decimal | None`` 的函数，用于暂估还欠着的部分。
 
     返回 ``(分摊行, 每笔扣款的汇总)``。
     """
@@ -212,8 +197,16 @@ def allocate(
     }
     # 按出资人预先分好候选批次。每笔扣款现筛一遍的话是「几百笔 × 几十批」次比较，
     # 而且筛出来的顺序还得再保证一次；这里分一次，各桶天然继承了入参的日期升序。
+    # 专款单独分桶，不进普通候选。
     by_contributor: Dict[Optional[str], List[Dict[str, Any]]] = {}
+    general: List[Dict[str, Any]] = []
+    earmarked: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
     for inj in injections:
+        target = _earmark_of(inj)
+        if target:
+            earmarked.setdefault(target, []).append(inj)
+            continue
+        general.append(inj)
         by_contributor.setdefault(inj.get("contributor") or None, []).append(inj)
 
     allocations: List[Dict[str, Any]] = []
@@ -222,9 +215,7 @@ def allocate(
     for draw in draws:
         total = _dec(draw["amount"]) or _ZERO
         draw_date = draw["draw_date"]
-        shares = draw.get("shares") or []
-        # 每段 = (在谁的批次里扣, 扣多少)。没指定出资人就是一段、候选是全池。
-        parts = split_amount(total, shares) if shares else [(None, total)]
+        contributor = draw.get("contributor") or None
 
         seq = 0
         lines: List[Dict[str, Any]] = []
@@ -232,45 +223,45 @@ def allocate(
         jpy_converted = _ZERO
         shortfall = _ZERO
 
-        for contributor, need in parts:
-            candidates = by_contributor.get(contributor, []) if contributor else injections
-            for inj in candidates:
-                if need <= 0:
-                    break
-                # 候选已按日期升序：碰到晚于扣款日的批次，后面的只会更晚，直接收工
-                if draw_date and inj["inject_date"] and inj["inject_date"] > draw_date:
-                    break
-                available = remaining.get(int(inj["id"]), _ZERO)
-                if available <= 0:
-                    continue
-                take = available if available < need else need
-                rate = _dec(inj.get("fx_rate"))
-                # 现金注资也按它自己的汇率（注资日牌价）折算，不当 0：那等于说这笔钱是
-                # 白来的，吃到它的货成本归零、利润凭空多出一整份购入价。
-                cny = _to_cny(take, rate)
-                remaining[int(inj["id"])] = available - take
-                need -= take
-                lines.append({
-                    "draw_id": int(draw["id"]),
-                    "injection_id": int(inj["id"]),
-                    "seq": seq,
-                    "amount": take,
-                    "fx_rate": rate,
-                    "cny_amount": cny,
-                })
-                seq += 1
-                # 任何一段折不出来（该批次还没汇率），整笔扣款的人民币成本就作废：
-                # 拿「能算的那部分」当合计，会得到一个明显偏低却看不出问题的成本。
-                if cny is None:
-                    cny_total = None
-                elif cny_total is not None:
-                    cny_total += cny
-                    jpy_converted += take
-            if need > 0:
-                shortfall += need
+        need = total
+        # 先吃给这件货的专款，再吃普通批次：指定了人就只在他的批次里扣（每人一个池子），
+        # 没指定就是全池
+        candidates = earmarked.get(_earmark_of(draw), []) + (
+            by_contributor.get(contributor, []) if contributor else general)
+        for inj in candidates:
+            if need <= 0:
+                break
+            available = remaining.get(int(inj["id"]), _ZERO)
+            if available <= 0:
+                continue
+            take = available if available < need else need
+            rate = _dec(inj.get("fx_rate"))
+            # 现金注资也按它自己的汇率（注资日牌价）折算，不当 0：那等于说这笔钱是
+            # 白来的，吃到它的货成本归零、利润凭空多出一整份购入价。
+            cny = _to_cny(take, rate)
+            remaining[int(inj["id"])] = available - take
+            need -= take
+            lines.append({
+                "draw_id": int(draw["id"]),
+                "injection_id": int(inj["id"]),
+                "seq": seq,
+                "amount": take,
+                "fx_rate": rate,
+                "cny_amount": cny,
+            })
+            seq += 1
+            # 任何一段折不出来（该批次还没汇率），整笔扣款的人民币成本就作废：
+            # 拿「能算的那部分」当合计，会得到一个明显偏低却看不出问题的成本。
+            if cny is None:
+                cny_total = None
+            elif cny_total is not None:
+                cny_total += cny
+                jpy_converted += take
+        if need > 0:
+            shortfall += need
 
         if shortfall > 0:
-            # 各段的缺口都发生在同一天，市场牌价只需取一次
+            # 还欠着的部分先按扣款日牌价暂估；之后补了注资，重算时就被新批次顶上
             fallback = market_rate(draw_date) if callable(market_rate) else _dec(market_rate)
             short_cny = _to_cny(shortfall, _dec(fallback))
             if short_cny is None:
@@ -325,41 +316,13 @@ def ensure_contributor(name: Optional[str]) -> Optional[str]:
     return name
 
 
-# ── 出资比例（一件货的钱由谁出）─────────────────────────────────────────── #
-
-def load_shares(kind: str, owner_ids: List[int]) -> Dict[int, List[Dict[str, Any]]]:
-    """一次 IN 查询取回多件货的出资比例，按归属 id 分好组。
-
-    列表页和重算都要按批取（一次 rebuild 会碰到全部扣款），一件一查就是 N+1。
-    """
-    if not owner_ids:
-        return {}
-    col, _table = _OWNERS[kind]
-    placeholders = ", ".join(["%s"] * len(owner_ids))
-    rows = db.query(
-        f"SELECT {col} AS owner_id, contributor, share_pct FROM fund_shares "
-        f"WHERE {col} IN ({placeholders}) ORDER BY id",
-        list(owner_ids),
-    )
-    grouped: Dict[int, List[Dict[str, Any]]] = {}
-    for row in rows:
-        grouped.setdefault(int(row["owner_id"]), []).append({
-            "contributor": row["contributor"],
-            "share_pct": _float(row["share_pct"]),
-        })
-    return grouped
-
-
-def owner_shares(kind: str, owner_id: int) -> List[Dict[str, Any]]:
-    return load_shares(kind, [owner_id]).get(owner_id, [])
-
+# ── 扣款实际吃到了谁的钱 ────────────────────────────────────────────────── #
 
 def load_draw_contributors(kind: str, owner_ids: List[int]) -> Dict[int, List[Optional[str]]]:
     """多件货的扣款**实际吃到了谁的钱**，按归属 id 分组，名字去重、按分摊顺序排。
 
-    取的是分摊结果（注资批次上的出资人），而不是 ``fund_shares`` 里写的比例：没写比例的
-    扣款在全池上跑 FIFO，钱照样落在某几个人头上，只看比例的话这类货一个名字都给不出来。
-    没登记出资人的批次记作 None，前端据此退回显示「池」。
+    取的是分摊结果（注资批次上的出资人）。货的扣款只在归属人名下扣，所以这里通常就是
+    归属人本人；欠着还没补上的那部分没有批次，自然不在里面。
     """
     if not owner_ids:
         return {}
@@ -379,63 +342,6 @@ def load_draw_contributors(kind: str, owner_ids: List[int]) -> Dict[int, List[Op
         if name not in names:
             names.append(name)
     return grouped
-
-
-def write_shares(kind: str, owner_id: int, shares: Optional[List[Dict[str, Any]]]) -> bool:
-    """整体替换一件货的出资比例，返回是否真的变了。
-
-    这里**可以**先删后插——与整机部件相反：没有任何东西挂在一行 share 上（部件上挂着
-    图片，行 id 一换图就被外键级联删了），比例本身就是一组数。
-
-    「真的变了才写」不是省事：详情页改一个字段就 PUT 一次，每次都删掉重插会让
-    ``updated_at`` 一直跳，更要紧的是每次都触发一遍全量重算。
-    """
-    col, _table = _OWNERS[kind]
-    wanted = []
-    for sh in (shares or []):
-        name = (sh.get("contributor") or "").strip()
-        pct = _dec(sh.get("share_pct"))
-        if not name or pct is None or pct <= 0:
-            continue
-        wanted.append((name, pct.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)))
-
-    existing = [
-        (r["contributor"], (_dec(r["share_pct"]) or _ZERO).quantize(Decimal("0.0001")))
-        for r in db.query(
-            f"SELECT contributor, share_pct FROM fund_shares WHERE {col} = %s ORDER BY id",
-            (owner_id,),
-        )
-    ]
-    if existing == wanted:
-        return False
-
-    with db.transaction() as cur:
-        cur.execute(f"DELETE FROM fund_shares WHERE {col} = %s", (owner_id,))
-        if wanted:
-            cur.executemany(
-                f"INSERT INTO fund_shares ({col}, contributor, share_pct) VALUES (%s, %s, %s)",
-                [(owner_id, name, pct) for name, pct in wanted],
-            )
-    return True
-
-
-def _draw_share_lookup(draws: List[Dict[str, Any]]) -> None:
-    """给每笔扣款挂上它那件货的出资比例（原地改 ``draw["shares"]``）。
-
-    比例存在货上而不是扣款上，所以这里要绕一道：购入价和国际运费是同一件货的两笔扣款，
-    自然共用同一个比例。手工记的池内支出若指定了出资人（``fund_draws.contributor``），
-    等价于 100% 比例挂在那个人名下——FIFO 只在那个人的批次里跑。
-    """
-    for kind, (col, _table) in _OWNERS.items():
-        ids = sorted({int(d[col]) for d in draws if d.get(col)})
-        shares = load_shares(kind, ids)
-        for draw in draws:
-            if draw.get(col):
-                draw["shares"] = shares.get(int(draw[col]), [])
-    # 手工支出指定了出资人：等价于该人占 100%，FIFO 只在他的批次里扣
-    for draw in draws:
-        if not draw.get("card_id") and not draw.get("device_id") and draw.get("contributor"):
-            draw["shares"] = [{"contributor": draw["contributor"], "share_pct": 100}]
 
 
 # ── 重算 ────────────────────────────────────────────────────────────────── #
@@ -464,15 +370,15 @@ def _market_rate_lookup():
 def rebuild() -> Dict[str, Any]:
     """整体重算全部分摊，并把结果回写到扣款行与它的归属行。可重复执行，结果幂等。"""
     injections = db.query(
-        "SELECT id, inject_date, amount, fx_rate, contributor, inject_type "
+        "SELECT id, inject_date, amount, fx_rate, contributor, inject_type, card_id, device_id "
         "FROM fund_injections ORDER BY inject_date, id"
     )
+    # 扣款在谁的钱里扣就看它自己的 contributor：货的扣款由 sync_owner_draws 写成归属人，
+    # 手工支出是录入时选的
     draws = db.query(
         "SELECT id, card_id, device_id, category, draw_date, amount, contributor "
         "FROM fund_draws ORDER BY draw_date, id"
     )
-    # 扣款要在谁的钱里扣，取决于它那件货上的出资比例
-    _draw_share_lookup(draws)
     allocations, results = allocate(injections, draws, _market_rate_lookup())
 
     # 每个归属方（一张卡 / 一台整机）把它的两类扣款汇总起来，一次性回写。
@@ -536,7 +442,7 @@ def rebuild() -> Dict[str, Any]:
     warnings: List[str] = []
     short = [r for r in results if r["shortfall"] > 0]
     if short:
-        warnings.append(f"有 {len(short)} 笔扣款超出了当时的池内余额，超出部分按当日市场牌价折算")
+        warnings.append(f"有 {len(short)} 笔扣款超出了池内余额（欠款），欠着的部分暂按当日市场牌价折算，补充注资后自动重算")
     missing = [r for r in results if r["cny_amount"] is None]
     if missing:
         warnings.append(f"有 {len(missing)} 笔扣款因缺少汇率算不出人民币成本")
@@ -581,8 +487,8 @@ def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = N
     先删后插——先删后插会让 id 每次保存都变，分摊明细也就没法追溯了。
     只有日元金额进池：池子装的是日元，人民币支出与它无关（照旧走牌价折算）。
 
-    ``uses_pool`` 里含「已确认扣除」这一条，所以确认之前 wanted 是空的，这里正好把
-    可能残留的扣款删干净——撤销扣除也就不必另写一套删除逻辑，置回 NULL 再同步即可。
+    扣款的 ``contributor`` 就是货的归属人：换了归属人，钱就改从新那个人的池里扣；
+    清空归属人，``uses_pool`` 为假、wanted 为空，扣款被删掉，钱还回池子。
     """
     col, table = _OWNERS[kind]
     row = row or db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
@@ -590,10 +496,11 @@ def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = N
         return False
     draw_date = row.get("purchase_date") or dt.date.today()
     wanted = poolable_amounts(row) if uses_pool(row) else {}
+    owner = (row.get("owner") or "").strip() or None
 
     existing = {
         r["category"]: r for r in db.query(
-            f"SELECT id, category, draw_date, amount FROM fund_draws WHERE {col} = %s",
+            f"SELECT id, category, draw_date, amount, contributor FROM fund_draws WHERE {col} = %s",
             (owner_id,),
         )
     }
@@ -609,64 +516,31 @@ def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = N
             continue
         if not have:
             db.insert(
-                f"INSERT INTO fund_draws ({col}, category, draw_date, amount, currency) "
-                f"VALUES (%s, %s, %s, %s, %s)",
-                (owner_id, category, draw_date, want, POOL_CURRENCY),
+                f"INSERT INTO fund_draws ({col}, category, draw_date, amount, currency, contributor) "
+                f"VALUES (%s, %s, %s, %s, %s, %s)",
+                (owner_id, category, draw_date, want, POOL_CURRENCY, owner),
             )
             changed = True
-        elif _dec(have["amount"]) != want or have["draw_date"] != draw_date:
+        elif (_dec(have["amount"]) != want or have["draw_date"] != draw_date
+              or (have.get("contributor") or None) != owner):
             db.execute(
-                "UPDATE fund_draws SET draw_date = %s, amount = %s WHERE id = %s",
-                (draw_date, want, have["id"]),
+                "UPDATE fund_draws SET draw_date = %s, amount = %s, contributor = %s WHERE id = %s",
+                (draw_date, want, owner, have["id"]),
             )
             changed = True
 
     return changed
 
 
-def set_confirmed(kind: str, owner_id: int, confirmed: bool) -> Dict[str, Any]:
-    """点「确认扣除」/「撤销扣除」：只动确认标记，扣款行照旧由同步派生出来。
-
-    这里**不吞异常**（与自动保存路径的 ``sync_and_rebuild`` 相反）：那边是防抖自动触发的，
-    算不动池子不该让保存失败；这里是用户按了一个按钮，失败了必须说出来，
-    否则表现成「点了没反应，钱也没动」。
-
-    返回归属行最新的那一份，省得调用方再查一遍。
-    """
-    col, table = _OWNERS[kind]
-    row = db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
-    if not row:
-        raise LookupError("记录不存在")
-    if confirmed:
-        if (row.get("fund_source") or "own") != "pool":
-            raise ValueError("资金来源不是「从资金池扣除」")
-        if not poolable_amounts(row):
-            # 选了池子却没有日元金额（金额空着、或填的是人民币）：确认下去也扣不出东西，
-            # 与其静悄悄地记一个没有扣款的确认，不如当场说清楚
-            raise ValueError("没有可从资金池扣除的日元金额")
-
-    db.execute(
-        f"UPDATE {table} SET pool_confirmed_at = %s WHERE id = %s",
-        (dt.datetime.now() if confirmed else None, owner_id),
-    )
-    if sync_owner_draws(kind, owner_id):
-        rebuild()
-    return db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
-
-
-def sync_and_rebuild(
-    kind: str, owner_id: int, row: Optional[Dict[str, Any]] = None, force: bool = False
-) -> None:
+def sync_and_rebuild(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = None) -> None:
     """存卡 / 存整机后调用：同步扣款，真的有变化时才重算。
 
     「有变化才重算」不只是省事——保存是防抖自动触发的（改一个字段就是一次 PUT），
-    每次都全量重算会把大量无谓的写打到库上。
-
-    ``force`` 给「扣款金额没动、但池子的账会变」的情形用，目前就是出资比例改了
-    （``write_shares`` 返回 True）：钱数一分没变，但它该从谁的批次里扣变了。
+    每次都全量重算会把大量无谓的写打到库上。换归属人也是「有变化」（扣款的
+    contributor 变了），不需要另外强制重算。
     """
     try:
-        if sync_owner_draws(kind, owner_id, row) or force:
+        if sync_owner_draws(kind, owner_id, row):
             rebuild()
     except Exception as exc:  # noqa: BLE001  资金池算不动不该让保存失败
         log.warning("同步%s %s 的资金池扣款失败：%s", kind, owner_id, exc)
@@ -676,16 +550,25 @@ def sync_card_draws(card_id: int, row: Optional[Dict[str, Any]] = None) -> bool:
     return sync_owner_draws("card", card_id, row)
 
 
-def sync_card_and_rebuild(
-    card_id: int, row: Optional[Dict[str, Any]] = None, force: bool = False
-) -> None:
-    sync_and_rebuild("card", card_id, row, force)
+def sync_card_and_rebuild(card_id: int, row: Optional[Dict[str, Any]] = None) -> None:
+    sync_and_rebuild("card", card_id, row)
 
 
-def sync_device_and_rebuild(
-    device_id: int, row: Optional[Dict[str, Any]] = None, force: bool = False
-) -> None:
-    sync_and_rebuild("device", device_id, row, force)
+def sync_device_and_rebuild(device_id: int, row: Optional[Dict[str, Any]] = None) -> None:
+    sync_and_rebuild("device", device_id, row)
+
+
+def resync_all() -> Dict[str, Any]:
+    """把全部卡片与整机的扣款按当前规则重新同步一遍，再整体重算。
+
+    平时用不到（每次保存各自同步）。规则本身变了的时候才需要——比如资金池改成由归属人
+    决定之后，那些早就设了归属人、却从没点过「确认扣除」的货，没有一次保存会替它们
+    补上扣款。
+    """
+    for kind, (_col, table) in _OWNERS.items():
+        for row in db.query(f"SELECT * FROM {table} WHERE is_draft = 0"):
+            sync_owner_draws(kind, int(row["id"]), row)
+    return rebuild()
 
 
 # ── 查询 ────────────────────────────────────────────────────────────────── #
@@ -694,8 +577,12 @@ def list_injections() -> List[Dict[str, Any]]:
     """注资列表，带每批的已用 / 剩余。已用量从分摊明细汇总，池子的账永远自洽。"""
     rows = db.query(
         "SELECT i.*, COALESCE(SUM(a.amount), 0) AS used_amount, "
-        "       COALESCE(SUM(a.cny_amount), 0) AS used_cny "
+        "       COALESCE(SUM(a.cny_amount), 0) AS used_cny, "
+        # 专款对象的编号。包一层 MAX：一批注资只对应一张卡 / 一台整机，但 GROUP BY 下
+        # MySQL 推不出这一点，ONLY_FULL_GROUP_BY 会拒绝裸列
+        "       MAX(c.mgmt_no) AS earmark_card_no, MAX(v.mgmt_no) AS earmark_device_no "
         "FROM fund_injections i LEFT JOIN fund_allocations a ON a.injection_id = i.id "
+        "LEFT JOIN cards c ON c.id = i.card_id LEFT JOIN devices v ON v.id = i.device_id "
         "GROUP BY i.id ORDER BY i.inject_date DESC, i.id DESC"
     )
     out = []
@@ -715,6 +602,13 @@ def list_injections() -> List[Dict[str, Any]]:
             "fx_date": _iso(row["fx_date"]),
             "fx_manual": bool(row["fx_manual"]),
             "contributor": row.get("contributor") or None,
+            # 专款：只给这一件货扣的钱（见 allocate）。{kind, id, mgmt_no}，普通注资为 None
+            "earmark": (
+                {"kind": "card", "id": row["card_id"], "mgmt_no": row["earmark_card_no"]}
+                if row.get("card_id") else
+                {"kind": "device", "id": row["device_id"], "mgmt_no": row["earmark_device_no"]}
+                if row.get("device_id") else None
+            ),
             "note": row["note"],
             "cny_cost": _float(cny_cost),
             "used_amount": _float(used),
@@ -722,42 +616,6 @@ def list_injections() -> List[Dict[str, Any]]:
             "remaining_amount": _float(amount - used),
             "remaining_cny": _float(remaining_cny),
             "created_at": _iso(row["created_at"]),
-        })
-    return out
-
-
-def split_dividends(
-    shares: List[Dict[str, Any]], money: Dict[str, Any]
-) -> List[Dict[str, Any]]:
-    """把一件货的成本与盈亏按出资比例分给各出资人。
-
-    分红口径：**利润全额按出资比例分**，操作人不另外抽成。所以这里就是一次按比例的
-    等分，没有第二条规则——真要加「运营分成」，加在这一个函数里，别在页面上各算各的。
-
-    利润算不出来（缺汇率、还没卖）时每个人的分红都是 ``None``，不按 0 分：
-    与全系统同一条规矩，把缺失当零会分出一笔看着正常、实际不存在的钱。
-    """
-    if not shares:
-        return []
-    profit = _dec(money.get("profit_cny"))
-    cost = _dec(money.get("cost_total_cny"))
-    # 还没有任何收入的货，利润栏是「-成本」或空，那不是亏损而是没卖——分红留空，
-    # 占用的本金另记在 cost_cny 上
-    has_revenue = money.get("sale_cny") is not None
-    total_pct = sum(_dec(sh.get("share_pct")) or _ZERO for sh in shares) or _ZERO
-
-    out = []
-    for sh in shares:
-        pct = _dec(sh.get("share_pct")) or _ZERO
-        weight = (pct / total_pct) if total_pct > 0 else _ZERO
-        out.append({
-            "contributor": sh["contributor"],
-            "share_pct": _float(pct),
-            "cost_cny": _float(_round(cost * weight)) if cost is not None else None,
-            "dividend_cny": (
-                _float(_round(profit * weight))
-                if (profit is not None and has_revenue) else None
-            ),
         })
     return out
 
@@ -770,6 +628,7 @@ def _bucket(buckets: Dict[Any, Dict[str, Any]], name: Optional[str]) -> Dict[str
         "injected": 0.0, "injected_cny": 0.0,
         "used": 0.0, "used_cny": 0.0,
         "remaining": 0.0, "remaining_cny": 0.0,
+        "shortfall": 0.0,
         "incomplete": False,
     })
 
@@ -791,8 +650,10 @@ def contributor_totals() -> List[Dict[str, Any]]:
     另外十批已经算清楚的钱也一起藏掉。
 
 
-    这里只管钱本身，**不算分红**：分红按货算、看详情页（``split_dividends``），
-    在池子页上按人再汇总一遍只会多一个和详情页对不上的数。
+    **欠款算进余额**：扣款超出这个人的钱时，超出部分（``fund_draws.shortfall``，扣款上
+    的 contributor 就是他）从 ``remaining`` 里减掉，余额于是成了负数——「还差多少要补」。
+    批次层面的剩余永远 ≥ 0（批次不可能被吃成负的），负数只出现在按人汇总上。欠款的
+    人民币没有批次汇率可折，``remaining_cny`` 不扣它（暂估的成本已经按牌价记在货上了）。
     """
     rows = list_injections()
     total_in = sum(r["amount"] or 0 for r in rows)
@@ -809,10 +670,19 @@ def contributor_totals() -> List[Dict[str, Any]]:
         b["remaining_cny"] += row["remaining_cny"] or 0
         if row["fx_rate"] is None:
             b["incomplete"] = True
+    # 欠款按扣款的 contributor 记到人头上；没指定人的全池支出欠下的归「未指定」
+    for row in db.query(
+        "SELECT contributor, SUM(shortfall) AS s FROM fund_draws "
+        "WHERE shortfall > 0 GROUP BY contributor"
+    ):
+        b = _bucket(buckets, row.get("contributor") or None)
+        owed = _float(row["s"]) or 0.0
+        b["shortfall"] += owed
+        b["remaining"] -= owed
 
     out = []
     for b in buckets.values():
-        for key in ("injected", "injected_cny", "used", "used_cny", "remaining", "remaining_cny"):
+        for key in ("injected", "injected_cny", "used", "used_cny", "remaining", "remaining_cny", "shortfall"):
             b[key] = round(b[key], 2)
         b["avg_rate"] = (
             round(b["injected_cny"] / b["injected"] * RATE_UNIT, 4)
@@ -948,6 +818,8 @@ def summary() -> Dict[str, Any]:
     ) or {}
     used_jpy = _dec(used_row.get("jpy")) or _ZERO
     used_cny = _dec(used_row.get("cny")) or _ZERO
+    # 欠款从余额里减掉：池子允许为负，负数就是「还差多少要补」（见 contributor_totals）
+    owed = _float(used_row.get("shortfall")) or 0.0
 
     return {
         "currency": POOL_CURRENCY,
@@ -955,7 +827,7 @@ def summary() -> Dict[str, Any]:
         "total_injected_cny": round(total_in_cny, 2),
         "total_drawn": _float(used_jpy),
         "total_drawn_cny": _float(used_cny),
-        "balance": round(remaining, 2),
+        "balance": round(remaining - owed, 2),
         "balance_cny": round(remaining_cny, 2),
         "shortfall": _float(used_row.get("shortfall")),
         "draw_count": int(used_row.get("n") or 0),

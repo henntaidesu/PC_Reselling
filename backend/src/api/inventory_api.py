@@ -47,22 +47,8 @@ _SORT_KEYS = {
 
 # ── 规范化：两种货 → 同一种行 ───────────────────────────────────────────── #
 
-def _involved(drawn: List[Optional[str]], shares: List[Dict[str, Any]]) -> List[str]:
-    """这件货**牵涉到**哪些出资人：出资比例里写了的，加上扣款实际吃到了钱的。
-
-    按出资人筛选用的是这一份，两个来源缺一不可：只看比例的话，没写比例、在全池上
-    FIFO 扣到了老李那批钱的货筛不出来；只看扣款的话，写了比例但还没点「确认扣除」的
-    货也筛不出来——而那正是「老李出钱、还没扣」最该被找到的时候。
-    """
-    names: List[str] = []
-    for name in [sh.get("contributor") for sh in shares] + list(drawn):
-        if name and name not in names:
-            names.append(name)
-    return names
-
-
 def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
-               contributors: List[Optional[str]], shares: List[Dict[str, Any]]) -> Dict[str, Any]:
+               contributors: List[Optional[str]]) -> Dict[str, Any]:
     data = cards.serialize(row, media)
     money = data["money"]
     return {
@@ -97,14 +83,10 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
         "sale_cny": money["sale_cny"],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
+        # 成本按资金池算的（有归属人）。列表在金额后面标「扣款实际吃到了谁的钱」
+        # （见 funds.load_draw_contributors），欠着还没补上的那部分不在其中
         "from_pool": money["from_pool"],
-        # 这笔钱从哪儿出的。from_pool 只在**确认扣除之后**才为真，所以两者不是互为反面：
-        # 选了池子但还没点确认的行，fund_source 是 pool 而 from_pool 是 false，列表里
-        # 不该给它贴任何一个标（成本这会儿还是按购入日牌价折的）。
-        "fund_source": row.get("fund_source") or "own",
-        # 扣款实际吃到了谁的钱（见 funds.load_draw_contributors），列表在金额后面标名字
         "pool_contributors": contributors if money["from_pool"] else [],
-        "fund_contributors": _involved(contributors, shares),
         "owner": row.get("owner"),
         # 按归属人筛选看的是这一份（整机要把部件的也算上，见 _device_item）
         "owners": [row["owner"]] if row.get("owner") else [],
@@ -152,11 +134,9 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str])
         "domestic_shipping_cny": money["domestic_shipping_cny"],
         "profit_cny": None,
         "incomplete": money["incomplete"],
-        "from_pool": False,
         # 部件不单独出钱：整机是一口价买的，资金来源在整机那一行上
-        "fund_source": None,
+        "from_pool": False,
         "pool_contributors": [],
-        "fund_contributors": [],
         "owner": owner,
         # 归属人是部件自己填的，而不是跟随整机——列表上据此区分显示
         "owner_own": bool(part.get("owner")),
@@ -166,8 +146,7 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str])
 
 
 def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
-                 media: List[Dict[str, Any]], contributors: List[Optional[str]],
-                 shares: List[Dict[str, Any]]) -> Dict[str, Any]:
+                 media: List[Dict[str, Any]], contributors: List[Optional[str]]) -> Dict[str, Any]:
     data = devices.serialize(row, parts)
     money = data["money"]
     # 整机没有单一的「出售日期」——部件是分批卖的，这里取最后成交的那天。
@@ -209,9 +188,7 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
-        "fund_source": row.get("fund_source") or "own",
         "pool_contributors": contributors if money["from_pool"] else [],
-        "fund_contributors": _involved(contributors, shares),
         "owner": row.get("owner"),
         "owners": owners,
         # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
@@ -232,9 +209,9 @@ def _solo_part(part_item: Dict[str, Any], device_item: Dict[str, Any],
     整机里已回国的是那块显卡，把整台机器（连同还在日本的其他部件）列出来等于答非所问。
     所以这一行只是部件本身，另带 ``parent`` 让前端能标出来自哪台、点开时进那台整机。
 
-    购入日、出资人、池内扣除这几样部件自己没有，取整机的——它们本来就是整机这一笔
-    买卖上的事实，部件跟着整机；不继承的话「按出资人筛」「按购入日排序」会把单列的部件
-    全部漏掉或垫底。成本 / 利润照旧空着（总价不往部件上摊）。
+    购入日、池内扣除这几样部件自己没有，取整机的——它们本来就是整机这一笔买卖上的
+    事实，部件跟着整机；不继承的话「按池内扣除筛」「按购入日排序」会把单列的部件
+    全部漏掉或垫底。归属人部件自己有（没填时已经回退成整机的，见 _part_row）。成本 / 利润照旧空着（总价不往部件上摊）。
     """
     return {
         **part_item,
@@ -246,9 +223,7 @@ def _solo_part(part_item: Dict[str, Any], device_item: Dict[str, Any],
         },
         "purchase_date": device_item["purchase_date"],
         "source_platform": device_item["source_platform"],
-        "fund_source": device_item["fund_source"],
         "from_pool": device_item["from_pool"],
-        "fund_contributors": device_item["fund_contributors"],
         # 部件的图由 _attach_part_media 只给当前页补
         "media": media or [],
     }
@@ -277,10 +252,8 @@ def _load_universe() -> Dict[str, List[tuple]]:
     cids = [r["id"] for r in card_rows]
     media_map = cards.load_media(cids)
     contrib_map = funds.load_draw_contributors("card", cids)
-    shares_map = funds.load_shares("card", cids)
     card_list = [
-        (_card_item(r, media_map.get(r["id"], []), contrib_map.get(r["id"], []),
-                    shares_map.get(r["id"], [])), r)
+        (_card_item(r, media_map.get(r["id"], []), contrib_map.get(r["id"], [])), r)
         for r in card_rows
     ]
 
@@ -289,12 +262,10 @@ def _load_universe() -> Dict[str, List[tuple]]:
     parts_map = devices.load_parts(dids)
     dmedia_map = devices.load_media(dids)
     dcontrib_map = funds.load_draw_contributors("device", dids)
-    dshares_map = funds.load_shares("device", dids)
     device_list = []
     for r in dev_rows:
         parts = parts_map.get(r["id"], [])
-        item = _device_item(r, parts, dmedia_map.get(r["id"], []),
-                            dcontrib_map.get(r["id"], []), dshares_map.get(r["id"], []))
+        item = _device_item(r, parts, dmedia_map.get(r["id"], []), dcontrib_map.get(r["id"], []))
         device_list.append((item, r, {p["id"]: p for p in parts}))
     return {"cards": card_list, "devices": device_list}
 
@@ -368,9 +339,9 @@ def _part_ok(part: Dict[str, Any], device: Dict[str, Any], f: Dict[str, Any],
     return _kw_hit(f["keyword"], values)
 
 
-# 出资人筛选里「未指定」的取值：比例没写、扣款也没吃到任何有名字的批次的那些货。
-# 用一个不可能是人名的记号，而不是空串——空串在查询串里会被当成「没传」。
-CONTRIBUTOR_NONE = "__none__"
+# 归属人筛选里「未指定」的取值。用一个不可能是人名的记号，而不是空串——
+# 空串在查询串里会被当成「没传」。
+OWNER_NONE = "__none__"
 
 _STOCK_STATES = {"in_stock", "settled"}
 _PROFIT_STATES = {"gain", "loss", "incomplete"}
@@ -387,8 +358,7 @@ def _inventory_filters(
     source_platform: Optional[str] = Query(default=None),
     purchase_from: Optional[dt.date] = Query(default=None),
     purchase_to: Optional[dt.date] = Query(default=None),
-    contributor: Optional[str] = Query(default=None, description=f"逗号分隔的出资人，{CONTRIBUTOR_NONE} 表示未指定"),
-    owner: Optional[str] = Query(default=None, description=f"逗号分隔的归属人，{CONTRIBUTOR_NONE} 表示未指定"),
+    owner: Optional[str] = Query(default=None, description=f"逗号分隔的归属人，{OWNER_NONE} 表示未指定"),
     sale_from: Optional[dt.date] = Query(default=None),
     sale_to: Optional[dt.date] = Query(default=None),
     stock: Optional[str] = Query(default=None, description="in_stock / settled"),
@@ -408,7 +378,6 @@ def _inventory_filters(
         model=(model or "").strip() or None,
         source_platform=(source_platform or "").strip() or None,
         purchase_from=purchase_from, purchase_to=purchase_to,
-        contributors=[c.strip() for c in (contributor or "").split(",") if c.strip()],
         owners=[c.strip() for c in (owner or "").split(",") if c.strip()],
         sale_from=sale_from, sale_to=sale_to,
         stock=stock if stock in _STOCK_STATES else None,
@@ -435,20 +404,15 @@ def _sold_in_range(item: Dict[str, Any], start: Optional[dt.date], end: Optional
 
 
 def _match_derived(item: Dict[str, Any], f: Dict[str, Any]) -> bool:
-    """按**算出来的**字段筛：出资人、结清、盈亏、池内扣除、成本。
+    """按**算出来的**字段筛：归属人、结清、盈亏、池内扣除、成本。
 
-    这些都不是数据库列（成本 / 利润按汇率快照现算，出资人来自分摊结果），所以和排序
+    这些都不是数据库列（成本 / 利润按汇率快照现算，归属人要把整机的部件合起来看），所以和排序
     一样放在规范化之后、在内存里做，口径与列表上显示的那个数天然一致。
     """
-    if f["contributors"]:
-        names = item["fund_contributors"]
-        want_none = CONTRIBUTOR_NONE in f["contributors"]
-        if not (any(n in names for n in f["contributors"]) or (want_none and not names)):
-            return False
     if f["owners"]:
-        # 与出资人同一套：命中任一人即可，「未指定」= 这件货上一个归属人都没有
+        # 命中任一人即可，「未指定」= 这件货上一个归属人都没有
         names = item["owners"]
-        want_none = CONTRIBUTOR_NONE in f["owners"]
+        want_none = OWNER_NONE in f["owners"]
         if not (any(n in names for n in f["owners"]) or (want_none and not names)):
             return False
     if (f["sale_from"] or f["sale_to"]) and not _sold_in_range(item, f["sale_from"], f["sale_to"]):
@@ -557,8 +521,6 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
     card_rows = [row for _, row in universe["cards"]]
     device_rows = [row for _, row, _ in universe["devices"]]
     all_parts = [p for _, _, parts in universe["devices"] for p in parts.values()]
-    contributors = distinct(
-        n for entry in universe["cards"] + universe["devices"] for n in entry[0]["fund_contributors"])
     owners = distinct(
         n for entry in universe["cards"] + universe["devices"] for n in entry[0]["owners"])
 
@@ -573,8 +535,7 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
             [r.get("model") for r in card_rows] + [p.get("model") for p in all_parts])],
         "source_platform": [(v, {"source_platform": v}) for v in distinct(
             r.get("source_platform") for r in card_rows + device_rows)],
-        "contributor": [(v, {"contributors": [v]}) for v in contributors + [CONTRIBUTOR_NONE]],
-        "owner": [(v, {"owners": [v]}) for v in owners + [CONTRIBUTOR_NONE]],
+        "owner": [(v, {"owners": [v]}) for v in owners + [OWNER_NONE]],
         "stock": [(v, {"stock": v}) for v in sorted(_STOCK_STATES)],
         "profit": [(v, {"profit": v}) for v in ("gain", "loss", "incomplete")],
         "pool": [(v, {"pool": v}) for v in ("drawn", "undrawn")],

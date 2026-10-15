@@ -183,26 +183,19 @@
         </el-tabs>
 
         <div class="pd-tab-body">
-          <!-- 资金与结算：左边是钱从哪儿来（出资比例、确认扣款、扣到了哪几批注资），
-               右边是这张卡的账（成本三项摊开、利润、分红） -->
+          <!-- 资金与结算：左边是钱从哪儿来（谁的池、扣到了哪几批注资、欠多少），
+               右边是这张卡的账（成本三项摊开、利润） -->
           <div v-if="active === 'fund'" class="fund">
             <div class="fund-main">
-              <div class="pd-sub-label">{{ t('card.fundShares') }}</div>
-              <FundShares v-model="form.fund_shares" :options="contributorOptions" />
-
-              <div class="pd-sub-label sub-gap">{{ t('card.poolDraw') }}</div>
+              <!-- 钱从谁的池里扣：就是归属人。设了就扣，没有「确认」这一步（见 cards.uses_pool）；
+                   池子不够也照扣，欠着的部分在下面标出来，等这个人补了注资自动顶上 -->
+              <div class="pd-sub-label">{{ t('card.poolSource') }}</div>
               <div class="pool-draw">
-                <template v-if="poolDrawn">
-                  <span class="pool-done">{{ t('card.poolDrawn') }}</span>
-                  <el-button link size="small" :loading="poolBusy" @click="cancelPoolDraw">{{ t('card.poolUndo') }}</el-button>
-                </template>
-                <el-button v-else type="primary" size="small" :loading="poolBusy"
-                  :disabled="poolCurrencyMismatch" @click="confirmPoolDraw">
-                  {{ t('card.poolConfirm') }}
-                </el-button>
+                <span v-if="card.money.from_pool" class="pool-done">{{ t('card.poolFrom', { name: card.owner }) }}</span>
+                <span v-else class="pd-note">{{ t('card.poolNoOwner') }}</span>
                 <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
-                <span class="pd-note">{{ t('detail.poolDrawHint') }}</span>
               </div>
+              <div v-if="owed" class="pool-warn sub-gap">{{ t('card.poolOwed', { amount: jpy(owed) }) }}</div>
 
               <PoolBreakdown v-if="card.fund_draws?.length" class="sub-gap" :draws="card.fund_draws" />
             </div>
@@ -220,15 +213,6 @@
                   <b class="pcr-mono" :class="profitClass(card.money.profit_cny)">{{ cny(card.money.profit_cny) }}</b>
                 </div>
               </div>
-              <!-- 分红：利润全额按出资比例分。没卖出去时利润本身是空的，这里跟着显示「—」，
-                   不拿成本当亏损分下去 -->
-              <template v-if="card.dividends?.length">
-                <div class="pd-sub-title sub-gap">{{ t('card.dividends') }}</div>
-                <div v-for="d in card.dividends" :key="d.contributor" class="pd-settle-row">
-                  <span>{{ d.contributor }} <i class="pcr-dim">{{ d.share_pct }}%</i></span>
-                  <b class="pcr-mono" :class="profitClass(d.dividend_cny)">{{ cny(d.dividend_cny) }}</b>
-                </div>
-              </template>
             </div>
           </div>
 
@@ -273,7 +257,6 @@ import MoneyInput from '@/components/MoneyInput.vue'
 import OwnerSelect from '@/components/OwnerSelect.vue'
 import SwapDialog from '@/components/SwapDialog.vue'
 import SwapHistory from '@/components/SwapHistory.vue'
-import FundShares from '@/components/FundShares.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StatusSelect from '@/components/StatusSelect.vue'
@@ -312,7 +295,6 @@ const coverUrl = computed(() => {
 const brands = computed(() => meta.brands)
 const models = computed(() => meta.models)
 const { platforms } = usePlatforms()
-const contributorOptions = computed(() => meta.contributors)
 
 // 顶栏利润药丸的色调：赚了绿、亏了红，算不出来（缺汇率）或刚好持平不上色
 function profitTone(v) {
@@ -329,9 +311,6 @@ function blankForm() {
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
-    fund_source: 'pool',
-    // [{ contributor, share_pct }]，空数组 = 不指定出资人，按全池 FIFO 扣
-    fund_shares: [],
     owner: null,
     status: 'purchased', note: null
     // 汇率一律按日期自动获取，不在这里填
@@ -342,35 +321,19 @@ const form = reactive(blankForm())
 const poolCurrencyMismatch = computed(() =>
   form.purchase_currency !== 'JPY' && form.purchase_amount
 )
-const poolDrawn = computed(() => Boolean(card.value?.pool_confirmed_at))
-
-const poolRateLabel = computed(() => {
-  const shares = card.value?.fund_shares || []
-  if (shares.length === 1) return shares[0].contributor + ' ' + t('card.poolRate')
-  if (shares.length > 1) return shares.map((s) => s.contributor).join('/') + ' ' + t('card.poolRate')
-  return t('card.poolRate')
-})
+// 池子汇率是归属人那几批钱的加权，标上是谁的
+const poolRateLabel = computed(() =>
+  (card.value?.owner ? card.value.owner + ' ' : '') + t('card.poolRate'))
+// 这件货还欠着池子多少日元（归属人的钱不够时照扣，欠的部分记在扣款的 shortfall 上）
+const owed = computed(() =>
+  (card.value?.fund_draws || []).reduce((sum, d) => sum + (Number(d.shortfall) || 0), 0))
 // 走资金池时格子里摆的是池子汇率，当日牌价收进悬浮提示：半宽的格子摆不下三段字
 const purchaseFxTip = computed(() => {
   const c = card.value
   if (!c?.money.from_pool || !c.money.pool_fx_rate || !c.purchase_fx_rate) return ''
   return t('card.marketRate') + ' ' + formatRate(c.purchase_fx_rate)
 })
-const poolBusy = ref(false)
 
-// 确认 / 撤销都回 这张卡完整的一份（与 GET 同形），直接换掉展示数据即可。
-// **不能拿它回灌表单**：请求往返那几百毫秒里敲的字会被覆盖掉。
-async function togglePoolDraw(action, okKey) {
-  poolBusy.value = true
-  try {
-    card.value = await action(form.id)
-    ElMessage.success(t(okKey))
-  } catch { /* 拦截器已提示 */ } finally {
-    poolBusy.value = false
-  }
-}
-const confirmPoolDraw = () => togglePoolDraw(cardsApi.confirmPoolDraw, 'card.poolDrawnOk')
-const cancelPoolDraw = () => togglePoolDraw(cardsApi.cancelPoolDraw, 'card.poolUndoOk')
 
 const autosave = useAutoSave(doSave)
 watch(form, autosave.schedule, { deep: true })
@@ -393,10 +356,6 @@ function normalize(row) {
   out.intl_shipping_currency = row.intl_shipping_currency || 'JPY'
   out.sale_currency = row.sale_currency || 'CNY'
   out.domestic_shipping_currency = row.domestic_shipping_currency || 'CNY'
-  out.fund_source = 'pool'
-  // 拷一份而不是直接引用：直接引用的话，组件改了这个数组等于改了 card 快照里的同一个
-  // 对象，「服务端返回的是什么」和「表单里现在是什么」就分不开了
-  out.fund_shares = (row.fund_shares || []).map((x) => ({ ...x }))
   out.status = row.status || 'purchased'
   return out
 }
@@ -425,10 +384,9 @@ async function persistDict() {
       await optionsApi.createModel({ name: form.model })
       meta.reloadModels()
     }
-    // 出资人 / 归属人不用在这里建：后端存的时候已经顺手把新名字落进字典了，这里只把
-    // 候选刷新一下，否则同一次会话里换一张卡，刚敲的那个名字又不在下拉里了
-    if (form.fund_shares?.some((x) => !meta.contributors.includes(x.contributor)) ||
-        (form.owner && !meta.contributors.includes(form.owner))) {
+    // 归属人不用在这里建：后端存的时候已经顺手把新名字落进字典了，这里只把候选刷新
+    // 一下，否则同一次会话里换一张卡，刚敲的那个名字又不在下拉里了
+    if (form.owner && !meta.contributors.includes(form.owner)) {
       meta.reloadContributors()
     }
   } catch { /* 字典写入失败不影响卡片本身 */ }

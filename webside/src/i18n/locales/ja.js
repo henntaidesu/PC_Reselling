@@ -106,14 +106,8 @@ export default {
     saleAmount: '販売価格',
     status: 'ステータス',
     note: '備考',
-    fundShares: '出資者と比率',
-    dividends: '配当（出資比率で按分）',
     poolDraw: 'プール引き落とし',
-    poolConfirm: '引き落としを確定',
     poolDrawn: 'プールから引き落とし済み',
-    poolUndo: '引き落としを取消',
-    poolDrawnOk: 'プールから引き落としました。残高を更新しました',
-    poolUndoOk: '引き落としを取り消し、プールに戻しました',
     poolTag: 'プール',
     poolCurrencyWarn: 'プールに入っているのは日本円です。購入価格が人民元の場合はプールから引き落とされません。',
     media: '画像/動画',
@@ -145,7 +139,11 @@ export default {
     saving: '保存中…',
     autoSaved: '自動保存しました',
     newBrand: 'ブランド「{name}」を追加',
-    newModel: 'モデル「{name}」を追加'
+    newModel: 'モデル「{name}」を追加',
+    poolSource: "資金元",
+    poolFrom: "「{name}」の資金プールから引き落とし",
+    poolNoOwner: "所有者が未設定のため資金プールを使いません。原価は購入日のレートで換算します。所有者を設定すると自動でその人のプールから引き落とします。",
+    poolOwed: "プール残高が不足し、{amount} が未払いです。購入日のレートで仮計算しています。入金後に自動で再計算されます。"
   },
   inv: {
     kind: '種別',
@@ -174,7 +172,6 @@ export default {
     settled: '清算済',
     partOf: '所属',
     partsIncluded: '単独表示の部品 {n} 件を含む（金額に含めず）',
-    contributorNone: '出資者未指定',
     moreFilters: '詳細フィルター',
     saleFrom: '売却開始',
     saleTo: '売却終了',
@@ -253,7 +250,6 @@ export default {
     pickPart: '左のリストからパーツを選択してください',
     partInfo: 'パーツ情報',
     partMedia: 'パーツ画像',
-    poolDrawHint: '引き落とし確定後、原価は充当した入金分のレートで換算されます'
   },
   media: {
     upload: 'アップロード',
@@ -343,12 +339,6 @@ export default {
     mediaCount: '画像 {n} 枚',
     deleted: '削除済み'
   },
-  fundShare: {
-    placeholder: '出資者を選択',
-    sum: '合計 {n}%',
-    even: '均等に配分',
-    sumWarn: '比率の合計は 100% にしてください。そうでないとこの項目は保存されません',
-  },
   funds: {
     title: '資金プール',
     injections: '入金',
@@ -379,9 +369,9 @@ export default {
     balanceCny: '残高原価',
     avgRate: '平均レート',
     purpose: '用途',
-    shortfall: '残高不足',
-    shortfallHint: '当日の市場レートで換算',
-    shortfallWarn: '支出時にプール残高が {amount} 不足していました。その分は当日の市場レートで換算しています。対応する入金を登録してください。',
+    shortfall: "未払い",
+    shortfallHint: "当日レートで仮計算、入金後に自動補填",
+    shortfallWarn: "プール全体で {amount} が未払い（残高マイナス）です。未払い分は当日レートで仮計算し、入金すると自動で補填されます。",
     incompleteWarn: 'レート未設定の入金があるため、それを使ったカードの原価が計算できません。',
     contributor: '出資者',
     contributors: '出資者別',
@@ -403,7 +393,8 @@ export default {
     requireDateAmount: '日付と金額を入力してください',
     noInjections: '入金はまだありません',
     noDraws: '支出はまだありません',
-    cat: { purchase: '購入価格', intl_shipping: '国際送料', other: 'その他' }
+    cat: { purchase: '購入価格', intl_shipping: '国際送料', other: 'その他' },
+    earmark: "専用"
   },
   fx: {
     title: '為替レート',

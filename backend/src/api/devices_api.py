@@ -15,15 +15,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from src import db, devices, funds, swaps
-# 出资比例的载荷与校验只有 funds_api 那一份，显卡和整机都从那儿取
-from src.api import funds_api
 from src.auth import require_auth
 from src.cards import uses_pool
 from src.schema import (
     CARD_STATUSES,
     CURRENCIES,
     DEVICE_PART_TYPES,
-    FUND_SOURCES,
 )
 
 log = logging.getLogger(__name__)
@@ -36,7 +33,6 @@ _WRITABLE = [
     "source_platform", "seller", "item_url", "order_no",
     "purchase_date", "purchase_amount", "purchase_currency",
     "intl_shipping_amount", "intl_shipping_currency",
-    "fund_source",
     "owner", "status", "note",
 ]
 
@@ -122,14 +118,9 @@ class DevicePayload(BaseModel):
     intl_shipping_amount: Optional[float] = Field(default=None, ge=0)
     intl_shipping_currency: str = "JPY"
 
-    # 采购资金来源：own = 自有资金；pool = 从资金池扣。选 pool 后这台机器的日元支出会
-    # 在资金池里生成对应扣款，成本改由被消耗的注资批次的汇率分段折算。
-    fund_source: str = "own"
-    # 这台机器的钱由哪几位出资人按什么比例出。None = 本次请求没提交，保持原样；
-    # [] = 明确清空。校验与写入与显卡共用 funds_api 那一份。
-    fund_shares: Optional[List[funds_api.SharePayload]] = None
 
-    # 这台机器是谁的（与 cards.owner 同义）。部件不另填时跟随它。
+    # 这台机器是谁的，也是钱从谁的池里扣（与 cards.owner 同义）。部件不另填时跟随它；
+    # 部件的归属人只是标签，整机是一口价买的，扣款只认整机这一个。
     owner: Optional[str] = Field(default=None, max_length=64)
 
     status: str = "purchased"
@@ -152,19 +143,6 @@ class DevicePayload(BaseModel):
         v = (v or "purchased").strip()
         if v not in CARD_STATUSES:
             raise ValueError(f"未知状态：{v}")
-        return v
-
-    @field_validator("fund_shares")
-    @classmethod
-    def _check_shares(cls, v):
-        return funds_api.validate_shares(v)
-
-    @field_validator("fund_source")
-    @classmethod
-    def _check_fund_source(cls, v: str) -> str:
-        v = (v or "own").strip().lower()
-        if v not in FUND_SOURCES:
-            raise ValueError(f"资金来源只能是 {' / '.join(FUND_SOURCES)}")
         return v
 
     @field_validator("source_platform")
@@ -275,11 +253,6 @@ def _result(device_id: int, warnings: List[str]) -> Dict[str, Any]:
     for item in out["parts"]:
         item["media_count"] = counts.get(item["id"], 0)
     out["fund_draws"] = funds.device_draws(device_id) if uses_pool(row) else []
-    # 与显卡同一套：比例本身与「确认扣除」无关，所以不套在 uses_pool 里
-    out["fund_shares"] = (
-        funds.owner_shares("device", device_id) if (row.get("fund_source") or "own") == "pool" else []
-    )
-    out["dividends"] = funds.split_dividends(out["fund_shares"], out["money"])
     out["status_logs"] = [
         {
             "from_status": log_row["from_status"],
@@ -347,10 +320,8 @@ def create_device(payload: DevicePayload):
     )
     _write_parts(device_id, payload, fx)
     devices.log_status(device_id, None, values["status"], "创建")
-    # 比例要先落库：它决定这笔扣款在谁的批次里扣，写晚了这一轮重算用的还是旧的
-    shares_changed = funds_api.apply_shares("device", device_id, payload.fund_shares)
     # 先同步资金池扣款再读回：分摊结果是写在设备行上的，读早了成本还是空的
-    funds.sync_device_and_rebuild(device_id, force=shares_changed)
+    funds.sync_device_and_rebuild(device_id)
     return _result(device_id, fx["warnings"])
 
 
@@ -368,10 +339,6 @@ def update_device(device_id: int, payload: DevicePayload):
     values["purchase_fx_date"] = fx["purchase_fx_date"]
     # 一旦保存就转正：草稿变正式设备，从此进列表与统计
     values["is_draft"] = 0
-    # 改回自有资金就把确认作废。留着的话下次再切回「从资金池扣除」会无声无息地
-    # 又扣一笔——闸门就白做了。
-    if values["fund_source"] != "pool":
-        values["pool_confirmed_at"] = None
 
     db.execute(
         "UPDATE devices SET {sets} WHERE id = %s".format(
@@ -381,8 +348,7 @@ def update_device(device_id: int, payload: DevicePayload):
     )
     _write_parts(device_id, payload, fx)
     devices.log_status(device_id, existing["status"], values["status"], "编辑")
-    shares_changed = funds_api.apply_shares("device", device_id, payload.fund_shares)
-    funds.sync_device_and_rebuild(device_id, force=shares_changed)
+    funds.sync_device_and_rebuild(device_id)
     return _result(device_id, fx["warnings"])
 
 
@@ -426,32 +392,6 @@ def refresh_fx(device_id: int):
             (rate, rate_date, part["id"]),
         )
     return _result(device_id, resolved["warnings"])
-
-
-@router.post("/{device_id}/pool-draw")
-def confirm_pool_draw(device_id: int):
-    """确认把这台设备的日元从资金池里扣掉：池内余额当场减少，成本改按注资批次的汇率算。
-
-    单独一个接口而不是表单上的一个字段：详情页改一个字段就 PUT 一次，
-    「动池子」这种事不该跟着防抖自动保存一起发生。
-    """
-    return _pool_draw(device_id, True)
-
-
-@router.delete("/{device_id}/pool-draw")
-def cancel_pool_draw(device_id: int):
-    """撤销扣除：扣款行删掉，钱还回池子，成本退回按购入日牌价折算。"""
-    return _pool_draw(device_id, False)
-
-
-def _pool_draw(device_id: int, confirmed: bool):
-    try:
-        funds.set_confirmed("device", device_id, confirmed)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="台设备不存在")
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return _result(device_id, [])
 
 
 @router.delete("/{device_id}")
