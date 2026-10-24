@@ -113,11 +113,34 @@ _TABLES: List[Tuple[str, str]] = [
             is_active      TINYINT(1) NOT NULL DEFAULT 1,
             is_admin       TINYINT(1) NOT NULL DEFAULT 0,
             token_version  INT UNSIGNED NOT NULL DEFAULT 0,
+            display_name   VARCHAR(64) NULL,
+            last_login_at  DATETIME NULL,
             last_active_at DATETIME NULL,
             created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
             UNIQUE KEY uk_users_username (username)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='password_hash 为 security.NO_PASSWORD 的是门户单点登录建的号，密码登录对它关着'
+        """,
+    ),
+    (
+        "sso_identities",
+        """
+        CREATE TABLE IF NOT EXISTS sso_identities (
+            id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+            provider        VARCHAR(16) NOT NULL,
+            subject         VARCHAR(128) NOT NULL,
+            user_id         INT UNSIGNED NOT NULL,
+            portal_username VARCHAR(128) NULL,
+            created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_login_at   DATETIME NULL,
+            PRIMARY KEY (id),
+            UNIQUE KEY uk_sso_subject (provider, subject),
+            UNIQUE KEY uk_sso_user (provider, user_id),
+            CONSTRAINT fk_sso_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+          COMMENT='门户账号 ↔ 本系统用户。认人只认 (provider, subject)，见 portal_sso/identity.py。
+                   一个本系统用户在同一个提供方下最多绑一个账号（uk_sso_user），删用户连带删绑定'
         """,
     ),
     (
@@ -645,6 +668,8 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("users", "is_admin", "is_admin TINYINT(1) NOT NULL DEFAULT 0"),
     ("users", "token_version", "token_version INT UNSIGNED NOT NULL DEFAULT 0"),
     ("users", "last_active_at", "last_active_at DATETIME NULL"),
+    ("users", "display_name", "display_name VARCHAR(64) NULL"),
+    ("users", "last_login_at", "last_login_at DATETIME NULL"),
     ("cards", "is_draft", "is_draft TINYINT(1) NOT NULL DEFAULT 0"),
     ("cards", "fund_source", "fund_source VARCHAR(8) NOT NULL DEFAULT 'own'"),
     ("cards", "pool_purchase_cny", "pool_purchase_cny DECIMAL(14,2) NULL"),

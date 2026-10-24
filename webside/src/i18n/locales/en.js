@@ -51,7 +51,10 @@ export default {
     placeholderUser: 'Enter username',
     placeholderPwd: 'Enter password',
     firstRun: 'First run uses admin / admin. Change the password in Settings right after login.',
-    defaultAccount: 'Default account: admin / admin'
+    defaultAccount: 'Default account: admin / admin',
+    or: 'or',
+    sso: 'Sign in with Portal',
+    ssoFailed: 'Portal sign-in failed: '
   },
   status: {
     intent: 'Intent to buy',
@@ -409,6 +412,58 @@ export default {
     noRate: 'No rate for that date',
     ecbNote: 'ECB reference mid-rate, not the actual exchange rate you get. Enter a manual rate on the card when you need exact cost.'
   },
+  users: {
+    title: 'Users',
+    add: 'Add user',
+    edit: 'Edit user',
+    username: 'Username',
+    displayName: 'Display name',
+    password: 'Password',
+    passwordOptional: 'Empty = Portal sign-in only',
+    admin: 'Admin',
+    active: 'Active',
+    disabled: 'Disabled',
+    enable: 'Enable',
+    disable: 'Disable',
+    loginMethods: 'Sign-in methods',
+    viaPassword: 'Password',
+    viaPortal: 'Portal',
+    noMethod: 'None (reset the password or sign in via Portal)',
+    lastActive: 'Last active',
+    resetPwd: 'Reset password',
+    resetPwdPrompt: 'New password for {name} (at least 8 characters). All of their signed-in devices will be signed out.',
+    pwdReset: 'Password reset',
+    revoke: 'Sign out everywhere',
+    revokeConfirm: 'Invalidate every session of {name} right now?',
+    revoked: 'Signed out everywhere',
+    removeConfirm: 'Delete user {name}? Their Portal binding goes too; inventory and accounts are untouched.',
+    usernameRequired: 'Username is required',
+    createHint: 'If the username matches a Portal username, that person is bound to this account on their first Portal sign-in.'
+  },
+  sso: {
+    title: 'Portal single sign-on',
+    on: 'Active',
+    off: 'Inactive',
+    enable: 'Enable',
+    needConfig: 'Fill in Portal URL, Client ID and Client Secret and save first',
+    portalUrl: 'Portal URL',
+    internalUrl: 'Internal URL (token exchange)',
+    internalUrlPlaceholder: 'Empty = same as Portal URL; set it when this server reaches Portal over the LAN',
+    secretKeep: 'Set — leave empty to keep',
+    autoCreate: 'Create a user when no same-name user exists',
+    buttonLabel: 'Login button label',
+    callbackHint: 'Register this callback URL under "Single sign-on" on the Portal card:',
+    loginHint: 'The "Portal login" entry for the Portal card (Portal derives it from the callback URL; usually no need to fill in):',
+    proxiedHint: 'This page is opened through the Portal proxy, so the URLs above are the proxied ones. If you also open this system directly, register that callback URL as well (up to 10 per card).',
+    directHint: 'This page is opened directly. If you also open this system through the Portal proxy, open this page from there and register the callback URL shown as well.',
+    bindings: 'Portal account bindings',
+    portalUser: 'Portal user',
+    localUser: 'Local user',
+    lastLogin: 'Last sign-in',
+    unbind: 'Unbind',
+    unbindConfirm: 'Unbind Portal account {name}? Their next Portal sign-in will match by username again.',
+    noBindings: 'Nobody has signed in via Portal yet'
+  },
   settings: {
     title: 'Settings',
     tabImageHosting: 'Image hosting',
@@ -458,6 +513,10 @@ export default {
     addModel: 'Add model',
     selectBrand: 'Select brand',
     preferences: 'Preferences',
-    language: 'Language'
+    language: 'Language',
+    tabUsers: 'Users',
+    tabSso: 'Single sign-on',
+    setPwd: 'Set password',
+    noPwdHint: 'This account was created by Portal single sign-on and has no local password yet. Set one to also sign in with username and password.'
   }
 }

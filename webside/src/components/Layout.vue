@@ -83,7 +83,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { currentLocale, localeOptions, setLocale } from '@/i18n'
@@ -115,7 +115,9 @@ const menuItems = [
 // 「设备库存」那一项要连带 /cards?open=…（详情弹窗）一起高亮，所以只比路径
 const activePath = computed(() => route.path)
 
-const userName = computed(() => auth.user?.username || 'admin')
+const userName = computed(() => auth.displayName || 'admin')
+// 本地那份用户快照可能是很久以前登录时存的（令牌永不过期），进主框架就向后端对一次
+onMounted(() => auth.refresh())
 
 // 切页面自动收起手机抽屉，否则点完还挡着内容
 watch(() => route.path, () => { drawerOpen.value = false })

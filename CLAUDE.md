@@ -234,8 +234,26 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
   后端那套增删查按 `media_api._FLAT_OWNERS` 参数化，两种归属共用一份实现。要给一个还没落盘的
   部件传图时，前端先 `useAutoSave.saveNow()` 把那一行建出来拿到 id（`ensurePartId`）——文件挂在
   行上，行不存在就无处可挂，但这不该变成「你得先填点什么才能拍照」。
-- 鉴权：Bearer JWT，默认**永不过期**，靠 `users.token_version` 自增作废旧令牌（改密码 / 禁用账号）。
-  新增受保护路由挂 `dependencies=[Depends(require_auth)]`（管理员用 `require_admin`）。
+- 鉴权：Bearer JWT，默认**永不过期**，靠 `users.token_version` 自增作废旧令牌（改密码 / 重置密码 /
+  停用 / 强制下线）。新增受保护路由挂 `dependencies=[Depends(require_auth)]`（管理员用 `require_admin`）。
+  登录响应只有 `auth.issue_login()` 一个出口（账号密码与门户单点登录共用，前端 `stores/auth.js` 的
+  `enter()` 只认这一种形状）；用户行的列清单是 `auth.USER_COLUMNS`。用户管理（`users_api.py`）的
+  护栏写在它的 docstring 里：不能对自己停用 / 降级 / 删除，至少留一个启用中的管理员。
+
+### 门户单点登录（`src/portal_sso/` + `api/sso_api.py`）
+
+门户（`D:\Project\Portal`）当 OIDC 提供方，PCR 当客户端，与 FreeMarket_Manager 的 `portal_sso` 同一套。
+流程与理由在 `portal_sso/flow.py` 的 docstring；认人只认 `sso_identities` 里的 `(provider, sub)`，首次按用户名
+匹配（`identity.py`）。门户建的号 `password_hash` 是 `security.NO_PASSWORD`（列是 NOT NULL，不改成可空）。
+
+**PCR 常经门户的「直接转发」代理打开**（`https://门户/api/proxy/<卡片 id>/`），后端收到的路径已被剥掉前缀，
+门户也不发前缀头，所以：
+
+- **`/sso/login` 是跳板页，不读 `base` 参数**：门户卡片按回调地址推出来的入口带的 `base` 只到门户根，被代理时是错的；
+  由浏览器从自己的 `location` 剥掉 `api/v1/sso/login` 得到站点根再去 `/sso/start`。
+- 前端跳去登录时用**相对当前页面**的地址（`ssoApi.loginUrl`），别写成 `/api/...`——那会打到门户自己身上。
+- 门户卡片上登记的回调地址是**被代理后的那个**；系统配置 → 单点登录 页按当前页面拼出来给你看，从哪个入口打开就显示哪个。
+- 路由守卫在 `/login` 带着 `sso_ticket` 时不能因为「已登录」就跳走，否则票被吞掉、永远进的是上一个账号。
 
 ## 前端的三个非常规模式
 

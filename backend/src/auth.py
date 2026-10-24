@@ -14,6 +14,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from src import db
+from src.security import has_password
 
 JWT_ALGORITHM = "HS256"
 # 0 = 永不过期（默认）：不写 exp 声明。失效由 token_version 控制——
@@ -59,6 +60,34 @@ def verify_access_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="登录已过期，请重新登录")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="无效的登录凭证")
+
+
+# 用户行在登录、门户登录、用户管理三处取，列表只在这里写一份
+USER_COLUMNS = (
+    "id, username, display_name, password_hash, is_active, is_admin, token_version, "
+    "last_login_at, last_active_at, created_at"
+)
+
+
+def public_user(row: dict) -> dict:
+    """发给前端的当前用户。**password_hash / token_version 绝不能进来**，只说有没有本地密码。"""
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "display_name": row.get("display_name") or row["username"],
+        "is_admin": bool(row["is_admin"]),
+        "has_password": has_password(row.get("password_hash") or ""),
+    }
+
+
+def issue_login(row: dict) -> dict:
+    """账号密码登录与门户单点登录的唯一出口：两边回给前端的形状必须完全一样，
+    前端 stores/auth.js 的 enter() 只认这一种。"""
+    db.execute("UPDATE users SET last_login_at = NOW() WHERE id = %s", (row["id"],))
+    return {
+        "token": create_access_token(row["id"], row["username"], row["token_version"] or 0),
+        "user": public_user(row),
+    }
 
 
 def _load_auth_user(user_id: int) -> Optional[dict]:

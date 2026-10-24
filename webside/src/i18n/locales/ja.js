@@ -51,7 +51,10 @@ export default {
     placeholderUser: 'ユーザー名を入力',
     placeholderPwd: 'パスワードを入力',
     firstRun: '初回は admin / admin でログインし、「システム設定」でパスワードを変更してください',
-    defaultAccount: 'デフォルトアカウント：admin / admin'
+    defaultAccount: 'デフォルトアカウント：admin / admin',
+    or: 'または',
+    sso: 'ポータルでログイン',
+    ssoFailed: 'ポータルログインに失敗しました：'
   },
   status: {
     intent: '購入予定',
@@ -409,6 +412,58 @@ export default {
     noRate: 'その日のレートを取得できません',
     ecbNote: '欧州中央銀行の参考中値であり実際の両替レートではありません。正確な原価が必要な場合はカードで手動入力してください'
   },
+  users: {
+    title: 'ユーザー',
+    add: 'ユーザーを追加',
+    edit: 'ユーザーを編集',
+    username: 'ユーザー名',
+    displayName: '表示名',
+    password: 'パスワード',
+    passwordOptional: '空欄 = ポータルからのみログイン可',
+    admin: '管理者',
+    active: '有効',
+    disabled: '停止中',
+    enable: '有効化',
+    disable: '停止',
+    loginMethods: 'ログイン方法',
+    viaPassword: 'パスワード',
+    viaPortal: 'ポータル',
+    noMethod: 'なし（パスワードをリセットするかポータルからログイン）',
+    lastActive: '最終アクティブ',
+    resetPwd: 'パスワードをリセット',
+    resetPwdPrompt: '{name} の新しいパスワード（8 文字以上）。ログイン中の端末はすべてログアウトされます。',
+    pwdReset: 'パスワードをリセットしました',
+    revoke: '強制ログアウト',
+    revokeConfirm: '{name} のすべての端末のログインを無効にしますか？',
+    revoked: '強制ログアウトしました',
+    removeConfirm: 'ユーザー {name} を削除しますか？ポータル連携も削除されます。商品と帳簿には影響しません。',
+    usernameRequired: 'ユーザー名を入力してください',
+    createHint: 'ポータルのユーザー名と同じにしておくと、初回のポータルログイン時に自動でこのアカウントに紐付きます。'
+  },
+  sso: {
+    title: 'ポータル シングルサインオン',
+    on: '有効',
+    off: '無効',
+    enable: '有効化',
+    needConfig: 'ポータルアドレス・Client ID・Client Secret を入力して保存してください',
+    portalUrl: 'ポータルアドレス',
+    internalUrl: '内部アドレス（トークン交換用）',
+    internalUrlPlaceholder: '空欄 = ポータルアドレスと同じ。本機から内部ネットワーク経由で接続する場合に入力',
+    secretKeep: '設定済み。空欄なら変更しません',
+    autoCreate: '同名ユーザーがいなければ自動作成',
+    buttonLabel: 'ログイン画面のボタン表記',
+    callbackHint: 'ポータルのカードの「シングルサインオン」にこのコールバック URL を登録してください：',
+    loginHint: 'ポータルカードの「ポータルログイン」入口（通常はコールバック URL から自動で導出されます）：',
+    proxiedHint: '現在はポータルのプロキシ経由で開いています。上はプロキシ後のアドレスです。直接アクセスも使う場合は、そのコールバック URL も登録してください（1 カード最大 10 件）。',
+    directHint: '現在は直接アクセスです。ポータルのプロキシ経由でも開く場合は、プロキシからこのページを開き、表示されるコールバック URL も登録してください。',
+    bindings: 'ポータルアカウント連携',
+    portalUser: 'ポータルユーザー',
+    localUser: '本システムのユーザー',
+    lastLogin: '最終ログイン',
+    unbind: '連携解除',
+    unbindConfirm: 'ポータルアカウント {name} の連携を解除しますか？次回ポータルログイン時にユーザー名で再照合されます。',
+    noBindings: 'まだポータルからログインした人はいません'
+  },
   settings: {
     title: 'システム設定',
     tabImageHosting: '画像ホスティング',
@@ -458,6 +513,10 @@ export default {
     addModel: 'モデル追加',
     selectBrand: 'ブランドを選択',
     preferences: '表示設定',
-    language: '表示言語'
+    language: '表示言語',
+    tabUsers: 'ユーザー',
+    tabSso: 'シングルサインオン',
+    setPwd: 'パスワードを設定',
+    noPwdHint: 'このアカウントはポータルのシングルサインオンで作成され、まだパスワードがありません。設定するとユーザー名とパスワードでもログインできます。'
   }
 }

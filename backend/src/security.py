@@ -8,6 +8,16 @@ import secrets
 
 import bcrypt
 
+# 门户单点登录自动建的号没有本地密码。password_hash 是 NOT NULL 列（建表只加不改，
+# 不会为它放开成可空），所以填一个**不可能是 bcrypt 结果**的值：bcrypt 串以 `$2` 开头，
+# 带 `!` 的这串让 checkpw 抛 ValueError，verify_password 判失败——密码登录这条路对他关着，
+# 直到管理员给他设一个密码。
+NO_PASSWORD = "!portal-sso"
+
+
+def has_password(hashed: str) -> bool:
+    return bool(hashed) and hashed != NO_PASSWORD
+
 
 def hash_password(plain: str) -> str:
     """bcrypt 散列。
@@ -20,7 +30,7 @@ def hash_password(plain: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    if not hashed:
+    if not has_password(hashed):
         return False
     try:
         return bcrypt.checkpw((plain or "").encode("utf-8")[:72], hashed.encode("ascii"))

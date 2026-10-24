@@ -51,7 +51,10 @@ export default {
     placeholderUser: '请输入用户名',
     placeholderPwd: '请输入密码',
     firstRun: '首次使用默认账号 admin / admin，登录后请立即在「系统配置」中修改密码',
-    defaultAccount: '默认账号：admin / admin'
+    defaultAccount: '默认账号：admin / admin',
+    or: '或',
+    sso: '门户登录',
+    ssoFailed: '门户登录失败：'
   },
   status: {
     intent: '意向购入',
@@ -409,6 +412,58 @@ export default {
     noRate: '取不到该日汇率',
     ecbNote: '欧洲央行参考中间价，非实际换汇成交价；需要精确成本时可在卡片上手工填写汇率'
   },
+  users: {
+    title: '用户',
+    add: '新增用户',
+    edit: '编辑用户',
+    username: '用户名',
+    displayName: '显示名',
+    password: '密码',
+    passwordOptional: '留空 = 只能从门户登录',
+    admin: '管理员',
+    active: '启用',
+    disabled: '已停用',
+    enable: '启用',
+    disable: '停用',
+    loginMethods: '登录方式',
+    viaPassword: '密码',
+    viaPortal: '门户',
+    noMethod: '无（请重置密码或从门户登录）',
+    lastActive: '最近活跃',
+    resetPwd: '重置密码',
+    resetPwdPrompt: '为 {name} 设置新密码（至少 8 个字符）。他已登录的设备会全部下线。',
+    pwdReset: '密码已重置',
+    revoke: '强制下线',
+    revokeConfirm: '让 {name} 在所有设备上的登录立即失效？',
+    revoked: '已强制下线',
+    removeConfirm: '删除用户 {name}？他的门户绑定一并删除，货和账不受影响。',
+    usernameRequired: '请填写用户名',
+    createHint: '用户名与门户用户名一致时，这个人第一次从门户登录会自动绑到这个账号上。'
+  },
+  sso: {
+    title: '门户单点登录',
+    on: '已生效',
+    off: '未生效',
+    enable: '启用',
+    needConfig: '先填齐门户地址、Client ID 和 Client Secret 并保存',
+    portalUrl: '门户地址',
+    internalUrl: '内网地址（换 token 用）',
+    internalUrlPlaceholder: '留空 = 同门户地址；本机经内网访问门户时填',
+    secretKeep: '已设置，留空不修改',
+    autoCreate: '没有同名用户时自动新建',
+    buttonLabel: '登录页按钮文案',
+    callbackHint: '在门户卡片的「单点登录」里登记这个回调地址：',
+    loginHint: '门户卡片上的「门户登录」入口（门户会从回调地址自动推出，一般不用手填）：',
+    proxiedHint: '当前是经门户代理打开的，上面是代理后的地址。若也会直接访问本系统，把直接访问的回调地址一并登记（一张卡片最多 10 条）。',
+    directHint: '当前是直接访问。若会经门户代理打开本系统，从代理打开这一页，把那里显示的回调地址也登记上。',
+    bindings: '门户账号绑定',
+    portalUser: '门户用户',
+    localUser: '本系统用户',
+    lastLogin: '最近登录',
+    unbind: '解绑',
+    unbindConfirm: '解除门户账号 {name} 的绑定？下次他从门户登录时会重新按用户名匹配。',
+    noBindings: '还没有人从门户登录过'
+  },
   settings: {
     title: '系统配置',
     tabImageHosting: '图床',
@@ -458,6 +513,10 @@ export default {
     addModel: '添加型号',
     selectBrand: '选择品牌',
     preferences: '界面偏好',
-    language: '界面语言'
+    language: '界面语言',
+    tabUsers: '用户',
+    tabSso: '单点登录',
+    setPwd: '设置密码',
+    noPwdHint: '这个账号是从门户单点登录建的，还没有本地密码。设一个之后也能用账号密码直接登录。'
   }
 }

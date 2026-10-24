@@ -64,19 +64,30 @@
         </el-form-item>
       </el-form>
 
+      <!-- 门户单点登录：系统配置 → 单点登录 里开启后才出现（/sso/status） -->
+      <template v-if="ssoEnabled">
+        <el-divider>{{ t('login.or') }}</el-divider>
+        <el-button size="large" class="sso-btn" :loading="ssoLoading" @click="handleSsoLogin">
+          {{ ssoLabel || t('login.sso') }}
+        </el-button>
+      </template>
+
       <div class="tip">{{ t('login.defaultAccount') }}</div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { currentLocale, localeOptions, setLocale } from '@/i18n'
 import { useAuthStore } from '@/stores/auth'
+import { ssoApi } from '@/api'
+import { ElMessage } from '@/utils/notify'
 
 const { t } = useI18n()
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -94,6 +105,16 @@ function onLocaleChange(val) {
   setLocale(val)
 }
 
+// 正常用 router 跳；个别情况下（并发导航/守卫）router.replace 会静默失败，
+// 兜底直接改 hash 强制跳转，保证登录后一定离开登录页。
+async function goHome() {
+  try {
+    await router.replace('/dashboard')
+  } catch {
+    window.location.hash = '#/dashboard'
+  }
+}
+
 async function handleLogin() {
   // 校验不过时 validate() 会 reject——单独 try 住，不让它把后面的登录流程也带崩
   try {
@@ -104,17 +125,46 @@ async function handleLogin() {
   loading.value = true
   try {
     await auth.login(form.username, form.password)
-    // 正常用 router 跳；个别情况下（并发导航/守卫）router.replace 会静默失败，
-    // 兜底直接改 hash 强制跳转，保证登录后一定离开登录页。
-    try {
-      await router.replace('/dashboard')
-    } catch {
-      window.location.hash = '#/dashboard'
-    }
+    await goHome()
   } finally {
     loading.value = false
   }
 }
+
+// ---- 门户单点登录 ----
+const ssoEnabled = ref(false)
+const ssoLabel = ref('')
+const ssoLoading = ref(false)
+
+function handleSsoLogin() {
+  ssoLoading.value = true
+  location.href = ssoApi.loginUrl()   // 整页跳转，门户走完会带着一次性票跳回本页
+}
+
+onMounted(async () => {
+  const { sso_ticket: ticket, sso_error: failed } = route.query
+  if (ticket || failed) router.replace({ path: '/login' })   // 票只能用一次，别留在地址栏
+  if (failed) ElMessage.error(t('login.ssoFailed') + failed)
+  if (ticket) {
+    ssoLoading.value = true
+    try {
+      auth.enter(await ssoApi.exchange(String(ticket)))
+      await goHome()
+      return
+    } catch {
+      /* http.js 已提示错误，留在登录页 */
+    } finally {
+      ssoLoading.value = false
+    }
+  }
+  try {
+    const st = await ssoApi.status()
+    ssoEnabled.value = Boolean(st.enabled)
+    ssoLabel.value = st.label || ''
+  } catch {
+    ssoEnabled.value = false
+  }
+})
 </script>
 
 <style scoped>
@@ -161,6 +211,9 @@ async function handleLogin() {
 .login-card :deep(.el-form .el-input) {
   width: 100% !important;
 }
+
+.sso-btn { width: 100%; margin-bottom: 18px; }
+.login-card :deep(.el-divider__text) { background: var(--el-card-bg-color, var(--el-bg-color)); color: #94a3b8; }
 
 .tip {
   font-size: 12px;

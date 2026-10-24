@@ -3,7 +3,40 @@ import http from './http'
 export const authApi = {
   login: (payload) => http.post('/auth/login', payload),
   me: () => http.get('/auth/me'),
+  // 只能改自己的显示名；用户名是登录名，归管理员在用户管理里改
+  updateProfile: (payload) => http.put('/auth/profile', payload),
   changePassword: (payload) => http.post('/auth/change-password', payload)
+}
+
+// 用户管理（仅管理员）。重置密码 / 停用 / 强制下线都会让那个人已有的登录全部失效
+export const usersApi = {
+  list: () => http.get('/users'),
+  // password 不给 = 没有本地密码，只能从门户单点登录进来
+  create: (payload) => http.post('/users', payload),
+  update: (id, payload) => http.put(`/users/${id}`, payload),
+  resetPassword: (id, password) => http.post(`/users/${id}/password`, { password }),
+  revoke: (id) => http.post(`/users/${id}/revoke`),
+  remove: (id) => http.delete(`/users/${id}`)
+}
+
+// 门户单点登录（门户当 OIDC 提供方，本系统当客户端），流程见后端 src/portal_sso/flow.py
+export const ssoApi = {
+  // 本系统开没开单点登录、按钮文案（没开时登录页不画按钮）
+  status: () => http.get('/sso/status'),
+  // 拿门户跳回来时带的一次性票换 JWT，返回形状与账号密码登录相同 { token, user }
+  exchange: (ticket) => http.post('/sso/exchange', { ticket }),
+  // 整页跳转去门户授权（不是 fetch：授权要浏览器自己走完门户那一趟）。
+  // **相对当前页面拼**而不是写成 /api/...：经门户代理打开时页面在 /api/proxy/<id>/ 底下，
+  // 根绝对地址会打到门户自己身上。后端那个跳板页再从它自己的地址里算出 base
+  loginUrl: () => new URL('api/v1/sso/login', location.origin + location.pathname).href,
+
+  getConfig: () => http.get('/sso/config'),
+  // client_secret 留空 = 不修改
+  saveConfig: (payload) => http.put('/sso/config', payload),
+  // 用已保存的配置读门户的发现文档，核对地址
+  test: () => http.post('/sso/test'),
+  bindings: () => http.get('/sso/bindings'),
+  unbind: (id) => http.delete(`/sso/bindings/${id}`)
 }
 
 export const cardsApi = {

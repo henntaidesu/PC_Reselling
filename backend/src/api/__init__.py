@@ -17,8 +17,10 @@ from src.api import (
     fx_api,
     media_api,
     options_api,
+    sso_api,
     swaps_api,
     system_api,
+    users_api,
 )
 
 router = APIRouter(prefix="/api/v1")
@@ -34,3 +36,5 @@ router.include_router(swaps_api.router)
 router.include_router(options_api.router)
 router.include_router(dashboard_api.router)
 router.include_router(system_api.router)
+router.include_router(users_api.router)
+router.include_router(sso_api.router)
