@@ -656,9 +656,10 @@ const ssoTestResult = ref(null)
 const ssoBindings = ref([])
 const ssoBindingsLoading = ref(false)
 
-// hash 路由下 pathname 就是站点根：直接访问是 /，经门户代理是 /api/proxy/<卡片 id>/
+// hash 路由下 pathname 就是站点根：直接访问是 /，经门户代理是 /api/proxy/<卡片 id>/，
+// 整站模式再多一截 __portal__/http/<上游>/
 const siteRoot = location.origin + location.pathname
-const isProxied = /\/api\/proxy\/[^/]+\/$/.test(location.pathname)
+const isProxied = /^\/api\/proxy\/[^/]+\//.test(location.pathname)
 const ssoCallbackUrl = computed(() => siteRoot + sso.callback_path)
 const ssoLoginUrl = computed(() => siteRoot + sso.login_path)
 

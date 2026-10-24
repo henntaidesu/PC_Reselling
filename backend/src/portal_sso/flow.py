@@ -1,31 +1,29 @@
 # -*- coding: utf-8 -*-
 """门户单点登录的授权码流程（本系统 = OIDC 客户端，门户 = 提供方）。
 
-    浏览器  GET  /api/v1/sso/login            跳板页：浏览器自己算出本系统地址（base）
-       →    GET  /api/v1/sso/start?base=<本系统地址>
+    浏览器  GET  /api/v1/sso/login            跳板页：浏览器自己算出本系统地址（站点根）
+       →    GET  /api/v1/sso/start?root=<站点根，base64url>
        →    门户 /api/oidc/authorize（没登录门户就先登录）
        →    GET  /api/v1/sso/callback?code=&state=
             本机后端拿授权码去门户换 id_token，校验，找/建本系统用户（identity.py）
-       →    <本系统地址>#/login?sso_ticket=<一次性票>
+       →    /#/login?sso_ticket=<一次性票>
             前端 POST /api/v1/sso/exchange 拿票换 JWT，和账号密码登录拿到的完全一样
 
 ## 经门户代理访问
 
-PCR 常常是经门户的「直接转发」代理打开的，那时它的外部地址是
-``https://门户/api/proxy/<卡片 id>/``，而后端收到的路径已经被剥成 ``/api/v1/...``，
-门户也不发任何前缀头——**后端无从得知自己挂在哪个前缀底下**。门户卡片上的「门户登录」入口
-又是门户从回调地址推出来的（门户 utils.js 的 ``ssoLoginFrom``：``…/callback`` →
-``…/login?base=<门户根>/``），那个 base 只到门户根，被代理时是错的。
+PCR 是经门户的**整站**代理打开的，外部地址是
+``https://门户/api/proxy/<卡片 id>/__portal__/http/127.0.0.1:9910/``（直接转发模式则是
+``https://门户/api/proxy/<卡片 id>/``），而后端收到的路径已经被剥成 ``/api/v1/...``——
+**后端无从得知自己挂在哪个前缀底下**。门户卡片上的「门户登录」入口又是门户从回调地址推出来的
+（门户 utils.js 的 ``ssoLoginFrom``：``…/callback`` → ``…/login?base=<门户根>/``），那个 base 只到门户根。
 
 所以 ``/login`` 不读 base，而是回一个跳板页：浏览器看得见自己真实的地址，从
-``location.pathname`` 剥掉 LOGIN_PATH 就是站点根，再带着它去 ``/start``。直接访问、
-Vite 代理、门户代理三种情形同一份逻辑。这也要求 CALLBACK_PATH 以 ``/callback`` 结尾、
-与 login 同级，门户那条推导才落得到 ``/login`` 上。
+``location.pathname`` 剥掉 LOGIN_PATH 就是站点根，再带着它去 ``/start``。这也要求
+CALLBACK_PATH 以 ``/callback`` 结尾、与 login 同级，门户那条推导才落得到 ``/login`` 上。
 
-其余几步在代理底下天然成立：临时 Cookie 的 Path 会被门户改写成 ``/api/proxy/<id>/``，
-回调也在那底下，照样带得上；去门户授权、回调后跳回 base 都是指向门户自己的绝对地址，
-直接转发模式下原样放行。**门户卡片上要登记的回调地址是被代理后的那个**，直接访问也要用的话
-两条都登记（门户一张卡片最多 10 条）。
+整站模式还会改写跳转与查询串，/start 与 /callback 的写法为此专门绕开，理由在 api/sso_api.py
+的模块头。临时 Cookie 的 Path 会被门户改写成 ``/api/proxy/<id>/``，回调也在那底下，照样带得上。
+**门户卡片上要登记的回调地址是被代理后的那个**，直接访问也要用的话两条都登记（一张卡片最多 10 条）。
 
 **为什么多一张一次性票，而不是回调里直接把 JWT 塞进地址**：本系统的 JWT 默认永不过期
 （见 auth.py），放进地址栏就会进浏览器历史、进反代日志。票 60 秒、只能换一次，漏了也没用。

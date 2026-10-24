@@ -246,11 +246,16 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 流程与理由在 `portal_sso/flow.py` 的 docstring；认人只认 `sso_identities` 里的 `(provider, sub)`，首次按用户名
 匹配（`identity.py`）。门户建的号 `password_hash` 是 `security.NO_PASSWORD`（列是 NOT NULL，不改成可空）。
 
-**PCR 常经门户的「直接转发」代理打开**（`https://门户/api/proxy/<卡片 id>/`），后端收到的路径已被剥掉前缀，
-门户也不发前缀头，所以：
+**PCR 是经门户的「整站」代理打开的**（`https://门户/api/proxy/<卡片 id>/__portal__/http/127.0.0.1:9910/`），
+后端收到的路径已被剥掉前缀，门户也不发前缀头；整站模式还会改写 Location、正文里的完整地址和查询串里指回门户的地址。
+所以（每一条的理由在 `sso_api.py` 模块头）：
 
 - **`/sso/login` 是跳板页，不读 `base` 参数**：门户卡片按回调地址推出来的入口带的 `base` 只到门户根，被代理时是错的；
-  由浏览器从自己的 `location` 剥掉 `api/v1/sso/login` 得到站点根再去 `/sso/start`。
+  由浏览器从自己的 `location` 剥掉 `api/v1/sso/login` 得到站点根，**base64url 编码**成 `root=` 再去 `/sso/start`
+  （明文会被门户 `_clean_query` 换成 `http://127.0.0.1:9910/`）。
+- **`/sso/start` 不发 303**，回一张页面 `location.replace(atob(...))` 去门户：303 指向门户的 Location 会被整站模式
+  折成「经代理访问门户」，丢掉门户的登录态。
+- **回调后跳 `/#/login` 这个根绝对地址**，别拼成 base + `#/login`：各种访问方式由各自那一层折回正确位置。
 - 前端跳去登录时用**相对当前页面**的地址（`ssoApi.loginUrl`），别写成 `/api/...`——那会打到门户自己身上。
 - 门户卡片上登记的回调地址是**被代理后的那个**；系统配置 → 单点登录 页按当前页面拼出来给你看，从哪个入口打开就显示哪个。
 - 路由守卫在 `/login` 带着 `sso_ticket` 时不能因为「已登录」就跳走，否则票被吞掉、永远进的是上一个账号。
