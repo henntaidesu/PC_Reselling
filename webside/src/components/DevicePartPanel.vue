@@ -1,6 +1,6 @@
 <template>
   <!-- 整机详情「部件」模块右侧的编辑区：一次只编辑左边列表里选中的那一件。
-       上半是字段（两列网格），下半是这件的图片。整块按一屏放得下来排，不需要往下拉。 -->
+       只有字段（两列网格），这件的图片在详情右侧的图片侧栏。 -->
   <div class="part-editor">
     <div class="pe-head">
       <PartTypeTag :type="part.part_type" />
@@ -66,20 +66,7 @@
         <el-input v-model="part.note" type="textarea" :rows="2" resize="none" />
       </el-form-item>
     </el-form>
-
-    <h4 class="pcr-sec-title">{{ t('detail.partMedia') }}</h4>
-    <!-- 图片区一直在，空槽位也能直接传：要传的那一刻页面会先把这一行存出来拿到 id
-         （ensureId），而不是要求用户先填点什么。limit：一行摆得下的张数，再多收进
-         「更多图片」，免得把编辑区撑出一屏 -->
-    <MediaGallery
-      :key="part._uid"
-      owner="parts"
-      :owner-id="part.id"
-      :ensure-id="ensureId"
-      :hosting-configured="hostingConfigured"
-      :limit="6"
-      @changed="(n) => emit('media-changed', n)"
-    />
+    <!-- 这一件的图片不在这里，在详情右侧的图片侧栏：选中部件时侧栏换成它的图 -->
   </div>
 </template>
 
@@ -91,7 +78,6 @@ import { cny } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
 import { useIsTouch } from '@/composables/useIsMobile'
-import MediaGallery from './MediaGallery.vue'
 import PartTypeTag from './PartTypeTag.vue'
 import MoneyInput from './MoneyInput.vue'
 import StatusSelect from './StatusSelect.vue'
@@ -104,15 +90,12 @@ const props = defineProps({
   part: { type: Object, required: true },
   // 这个部件折人民币后的净收入，由页面从上次保存的返回值里按 id 取
   net: { type: Number, default: null },
-  // 上传图片前把这一行落盘并返回它的 id，由详情页提供
-  ensureId: { type: Function, default: null },
-  hostingConfigured: { type: Boolean, default: true },
   // 能不能删。同类只剩一件的必有槽位传 false
   deletable: { type: Boolean, default: true },
   // 整机的归属人：部件自己没填时就是它，用作下拉的占位提示
   deviceOwner: { type: String, default: null }
 })
-const emit = defineEmits(['remove', 'media-changed', 'swap'])
+const emit = defineEmits(['remove', 'swap'])
 
 const { t } = useI18n()
 const meta = useMetaStore()

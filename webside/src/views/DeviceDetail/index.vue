@@ -95,7 +95,6 @@
       <section class="pd-card">
         <div class="pd-card-head">
           <span class="pd-card-title">{{ t('detail.modPurchase') }}</span>
-          <span class="pd-card-extra">{{ t('device.noPartCost') }}</span>
         </div>
         <el-form label-position="top" size="small" class="pd-form pd-grid purchase-grid" @submit.prevent>
           <el-form-item :label="t('card.purchaseDate')">
@@ -157,7 +156,7 @@
             <div class="parts-list">
               <!-- 一行一件。没落盘的模板槽位还没有 id，key 用本地的 _uid -->
               <button v-for="row in form.parts" :key="row._uid" type="button" class="pl-row"
-                :class="{ 'is-active': row._uid === selectedUid }" @click="selectedUid = row._uid">
+                :class="{ 'is-active': row._uid === selectedUid }" @click="togglePart(row)">
                 <PartTypeTag :type="row.part_type" />
                 <span class="pl-name" :class="{ 'pcr-dim': !hasPartContent(row) }">
                   {{ hasPartContent(row) ? partTitle(row) : t('device.blankSlot') }}
@@ -189,12 +188,9 @@
                 :part="selectedPart"
                 :net="partNet(selectedPart)"
                 :deletable="canRemovePart(selectedPart)"
-                :ensure-id="() => ensurePartId(selectedPart)"
-                :hosting-configured="hostingConfigured"
                 :device-owner="form.owner"
                 @remove="removePart(selectedPart)"
                 @swap="openSwap(selectedPart)"
-                @media-changed="(n) => onPartMediaChanged(selectedPart, n)"
               />
               <el-empty v-else :description="t('detail.pickPart')" :image-size="60" />
             </div>
@@ -244,13 +240,34 @@
       </section>
     </template>
 
-    <!-- ── 整机照片侧栏：拍的是「这台机器」本身，不属于任何一个部件 ──────────── -->
-    <template v-if="device" #aside>
+    <!-- ── 图片侧栏：在「部件」页选中了一件就是那一件的图，否则是整机照片（拍的是
+         「这台机器」本身，不属于任何一个部件）。部件图一直能传，空槽位也行：要传的那一刻
+         先把这一行存出来拿到 id（ensurePartId），而不是要求用户先填点什么 ──────── -->
+    <template v-if="device && asidePart" #aside>
+      <div class="pd-card-head">
+        <PartTypeTag :type="asidePart.part_type" />
+        <span class="pd-card-title aside-part-title">
+          {{ hasPartContent(asidePart) ? partTitle(asidePart) : t('detail.partMedia') }}
+        </span>
+        <el-button class="aside-back" size="small" text type="primary" :icon="Back" @click="selectedUid = null">
+          {{ t('device.backToDeviceMedia') }}
+        </el-button>
+      </div>
+      <MediaGallery
+        :key="asidePart._uid"
+        owner="parts"
+        :owner-id="asidePart.id"
+        :ensure-id="() => ensurePartId(asidePart)"
+        :hosting-configured="hostingConfigured"
+        @changed="(n) => onPartMediaChanged(asidePart, n)"
+      />
+    </template>
+    <template v-else-if="device" #aside>
       <div class="pd-card-head">
         <span class="pd-card-title">{{ t('detail.modDeviceMedia') }}</span>
       </div>
-      <p class="pd-note media-hint">{{ t('device.deviceMediaHint') }}</p>
       <MediaGallery
+        key="device"
         owner="devices"
         :owner-id="device.id"
         :hosting-configured="hostingConfigured"
@@ -266,7 +283,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Picture, Plus, WarningFilled } from '@element-plus/icons-vue'
+import { Back, Picture, Plus, WarningFilled } from '@element-plus/icons-vue'
 import { devicesApi, systemApi } from '@/api'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
@@ -314,6 +331,14 @@ const active = ref('parts')
 // 部件还没有 id，而 _uid 从载入起就有、保存回填 id 时也不变
 const selectedUid = ref(null)
 const selectedPart = computed(() => form.parts.find((p) => p._uid === selectedUid.value) || null)
+// 右侧图片栏跟着谁：只有停在「部件」页、而且选中了一件时才是部件图。切到资金 / 记录页时
+// 编辑区不在眼前，侧栏还挂着某个部件的图会让人以为那是整机照片
+const asidePart = computed(() => (active.value === 'parts' ? selectedPart.value : null))
+
+// 再点一下已选中的那一件就是取消选中，侧栏回到整机照片
+function togglePart(row) {
+  selectedUid.value = selectedUid.value === row._uid ? null : row._uid
+}
 
 // 名称的长度上限。与后端 DevicePayload.title 的 max_length 一致——两边不一样的话，
 // 前端放进去的字后端会原地打回 422，而这一页是自动保存的，表现成「怎么改都存不上」。
@@ -386,7 +411,7 @@ function blankForm() {
 }
 const form = reactive(blankForm())
 
-// 部件按标签页归组。散热 / 机箱这类没有自己标签页的历史类型都落在「其他」里。
+// 部件按标签页归组。机箱这类没有自己标签页的历史类型都落在「其他」里。
 const partsByTab = computed(() => {
   const map = Object.fromEntries(PART_TABS.map((type) => [type, []]))
   for (const part of form.parts) map[partTab(part.part_type)].push(part)
@@ -398,7 +423,7 @@ const partsByTab = computed(() => {
 // 模板槽位、只传了图的行都算数，可它们在人眼里就是还没录，算进去反而对不上。
 const filledPartCount = computed(() => form.parts.filter(hasPartContent).length)
 
-// 六个标准槽位每类至少留一件——一台机器不可能没有 CPU，而空槽位不落库，留着没成本。
+// 七个标准槽位每类至少留一件——一台机器不可能没有 CPU，而空槽位不落库，留着没成本。
 // 「其他」是可选的，删到零也行。
 function canRemovePart(part) {
   const type = partTab(part.part_type)
@@ -497,9 +522,9 @@ function normalize(row) {
     item._keep = true
     return item
   })
-  // 详情页上也摆齐六个标准槽位：这台机器当初没录显卡，不代表之后不想补录，而空槽位
-  // 不会被保存，摆着不会污染数据。已有的部件按标准顺序归组，非标准类型（散热 / 机箱
-  // / 其他）排在最后。
+  // 详情页上也摆齐七个标准槽位：这台机器当初没录显卡，不代表之后不想补录，而空槽位
+  // 不会被保存，摆着不会污染数据。已有的部件按标准顺序归组，非标准类型（机箱 / 其他）
+  // 排在最后。
   out.parts = []
   for (const type of DEFAULT_PART_TYPES) {
     const rows = saved.filter((p) => p.part_type === type)
@@ -602,11 +627,10 @@ async function load() {
     const res = await devicesApi.get(props.id)
     device.value = res
     Object.assign(form, normalize(res))
-    // 部件页默认选中第一件填过的（都没填就第一个槽位）。从库存列表的部件一览点进来时
-    // 带着部件类型：直接选中那一类的第一件。走 partTab 归一：散热 / 机箱这类历史类型
-    // 落在「其他」
-    const first = form.parts.find(hasPartContent) || form.parts[0]
-    selectedUid.value = first?._uid ?? null
+    // 默认不选中任何部件：侧栏先给整机照片，打开一台机器先看到的应该是它本身。
+    // 从库存列表的部件一览点进来时带着部件类型：直接选中那一类的第一件。走 partTab
+    // 归一：机箱这类历史类型落在「其他」
+    selectedUid.value = null
     if (props.tab) {
       const type = partTab(props.tab)
       const hit = form.parts.find((p) => partTab(p.part_type) === type)
@@ -664,7 +688,12 @@ onMounted(async () => {
 .ro-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .hint { flex: none; padding: 6px 10px; font-size: 12px; line-height: 1.7; border-radius: 6px; }
 .hint.warn { color: #e6a23c; background: rgba(230, 162, 60, 0.08); }
-.media-hint { margin: 0 0 10px; }
+/* 部件图模式的侧栏标题：名字可能很长（品牌 + 型号 + 规格），省略号截断，「整机照片」按钮靠右 */
+.aside-part-title { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aside-back { flex: none; margin-left: auto; padding: 0 2px; }
+@media (hover: none) {
+  .aside-back { min-height: 34px; padding: 8px 10px; }
+}
 
 /* ── 部件：左列表 / 右编辑区。两边各自占满高度、各自滚——部件多到十几件时列表自己滚，
    编辑区不动 ─────────────────────────────────────────────────────── */
