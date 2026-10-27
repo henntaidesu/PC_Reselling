@@ -13,6 +13,7 @@ from src.api import (
     dashboard_api,
     devices_api,
     funds_api,
+    import_api,
     inventory_api,
     fx_api,
     media_api,
@@ -30,6 +31,7 @@ router.include_router(cards_api.router)
 router.include_router(devices_api.router)
 router.include_router(inventory_api.router)
 router.include_router(media_api.router)
+router.include_router(import_api.router)
 router.include_router(fx_api.router)
 router.include_router(funds_api.router)
 router.include_router(swaps_api.router)

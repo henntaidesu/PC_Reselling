@@ -60,7 +60,26 @@ class ReorderPayload(BaseModel):
 
 
 async def _store_files(files, key_prefix: str, base_order: int, insert_row):
-    """把一批文件传到图床，成功一个落库一个。显卡与部件共用。
+    """把浏览器传上来的一批文件读成字节，交给 ``_store_blobs``。"""
+    if len(files) > MAX_FILES_PER_REQUEST:
+        raise HTTPException(
+            status_code=400, detail=f"一次最多上传 {MAX_FILES_PER_REQUEST} 个文件"
+        )
+    blobs = []
+    for offset, upload_file in enumerate(files):
+        try:
+            content = await upload_file.read()
+        finally:
+            await upload_file.close()
+        blobs.append((upload_file.filename or f"file_{offset}", content, upload_file.content_type))
+    return _store_blobs(blobs, key_prefix, base_order, insert_row)
+
+
+def _store_blobs(blobs, key_prefix: str, base_order: int, insert_row):
+    """把一批 ``(文件名, 内容, content_type)`` 传到图床，成功一个落库一个。
+
+    浏览器上传与「从商品页导入」（``import_api``，图是服务端自己下载的）共用这一份，
+    所以收的是字节而不是 UploadFile。
 
     逐个文件独立成败：一个失败不影响其余，响应里分别列出成功和失败的项。批量传 10 张
     照片时最后一张格式不对就整批回滚，用户得重新选 10 个文件——这种设计是在惩罚用户。
@@ -68,28 +87,19 @@ async def _store_files(files, key_prefix: str, base_order: int, insert_row):
     ``insert_row(kind, stored_name, public_url, filename, content_type, size, sort_order)``
     负责把这一条写进对应的表并返回给前端的那个 dict。
     """
-    if len(files) > MAX_FILES_PER_REQUEST:
-        raise HTTPException(
-            status_code=400, detail=f"一次最多上传 {MAX_FILES_PER_REQUEST} 个文件"
-        )
     try:
         client = ImageHostingClient()
     except ImageHostingError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
     uploaded, errors = [], []
-    for offset, upload_file in enumerate(files):
-        filename = upload_file.filename or f"file_{offset}"
-        try:
-            content = await upload_file.read()
-        finally:
-            await upload_file.close()
+    for offset, (filename, content, provided_type) in enumerate(blobs):
         if not content:
             errors.append({"filename": filename, "error": "文件为空"})
             continue
 
         digest = hashlib.sha256(content).hexdigest()
-        content_type = _guess_content_type(filename, upload_file.content_type)
+        content_type = _guess_content_type(filename, provided_type)
         kind = _kind_of(filename, content_type)
         # external_key 让图床侧幂等：同一份内容重复上传不会产生第二个文件。
         # 用「归属 + 内容摘要」而不是文件名——手机相册里到处都是 IMG_0001.jpg。
@@ -144,7 +154,16 @@ async def upload(
         raise HTTPException(status_code=400, detail=f"未知分类：{category}")
     if not db.query_one("SELECT id FROM cards WHERE id = %s", (card_id,)):
         raise HTTPException(status_code=404, detail="显卡不存在")
+    return await _store_files(files, f"card{card_id}-{category}", *_card_target(card_id, category))
 
+
+def store_card_blobs(card_id: int, category: str, blobs) -> dict:
+    """给一张卡的某个分类落一批已经在内存里的文件（导入用）。调用方保证卡存在。"""
+    return _store_blobs(blobs, f"card{card_id}-{category}", *_card_target(card_id, category))
+
+
+def _card_target(card_id: int, category: str):
+    """一张卡某个分类的 ``(起始排序号, insert_row)``，交给 ``_store_blobs``。"""
     # 追加到分类末尾，不打乱已有顺序
     base_order = int(db.query_scalar(
         "SELECT COALESCE(MAX(sort_order), -1) AS m FROM card_media "
@@ -167,7 +186,7 @@ async def upload(
             "mime_type": content_type, "size_bytes": size, "sort_order": sort_order,
         }
 
-    return await _store_files(files, f"card{card_id}-{category}", base_order, insert_row)
+    return base_order, insert_row
 
 
 # ── 平铺一组图：整机部件 / 整机本身 ────────────────────────────────────── #
@@ -203,10 +222,21 @@ async def _upload_flat(owner: str, owner_id: int, files):
     部件那一行由前端在上传前先存一次建出来（详情页的 ensurePartId），所以界面上不再
     需要「先填点什么才能传图」这条规矩。
     """
-    table, fk, owner_table, label, prefix = _FLAT_OWNERS[owner]
+    _table, _fk, owner_table, label, prefix = _FLAT_OWNERS[owner]
     if not db.query_one(f"SELECT id FROM {owner_table} WHERE id = %s", (owner_id,)):
         raise HTTPException(status_code=404, detail=f"{label}不存在")
+    return await _store_files(files, f"{prefix}{owner_id}", *_flat_target(owner, owner_id))
 
+
+def store_flat_blobs(owner: str, owner_id: int, blobs) -> dict:
+    """给一个部件 / 一台整机落一批已经在内存里的文件（导入用）。调用方保证归属存在。"""
+    prefix = _FLAT_OWNERS[owner][4]
+    return _store_blobs(blobs, f"{prefix}{owner_id}", *_flat_target(owner, owner_id))
+
+
+def _flat_target(owner: str, owner_id: int):
+    """平铺一组的 ``(起始排序号, insert_row)``，交给 ``_store_blobs``。"""
+    table, fk, _owner_table, _label, _prefix = _FLAT_OWNERS[owner]
     # 追加到末尾，不打乱已有顺序
     base_order = int(db.query_scalar(
         f"SELECT COALESCE(MAX(sort_order), -1) AS m FROM {table} WHERE {fk} = %s",
@@ -227,7 +257,7 @@ async def _upload_flat(owner: str, owner_id: int, files):
             "mime_type": content_type, "size_bytes": size, "sort_order": sort_order,
         }
 
-    return await _store_files(files, f"{prefix}{owner_id}", base_order, insert_row)
+    return base_order, insert_row
 
 
 def _list_flat(owner: str, owner_id: int) -> dict:

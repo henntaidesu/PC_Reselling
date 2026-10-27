@@ -77,6 +77,17 @@ export const devicesApi = {
   nextMgmtNo: () => http.get('/devices/next-mgmt-no')
 }
 
+// 从商品页链接新建一张卡 / 一台整机（煤炉 / 煤炉 Shops / 雅虎拍卖 / 雅虎二手），见后端 import_api。
+// 建出来的是正式行，返回 { id, mgmt_no, title, photos, photo_total, errors }。
+// 要下载十几张图再逐张传图床，默认的 20 秒不够
+export const importApi = {
+  card: (url) => http.post('/import/card', { url }, { timeout: 180000 }),
+  device: (url) => http.post('/import/device', { url }, { timeout: 180000 }),
+  // 雅虎拍卖算送料用的收货都道府县 { ship_pref: 1–47 }
+  getSettings: () => http.get('/import/settings'),
+  saveSettings: (payload) => http.put('/import/settings', payload)
+}
+
 export const mediaApi = {
   // 上传走 multipart，交给调用方自己构造 FormData
   upload: (formData) =>

@@ -543,24 +543,71 @@
     </el-dialog>
 
     <!-- 新增什么：显卡还是整机。两者的录入方式根本不同（一进一出 vs 一笔买进、拆成
-         部件分别卖），选错了只能删掉重来，所以这里摆两张把区别说清楚的卡片，
-         而不是下拉菜单里两行长得一样的字。 -->
-    <el-dialog v-model="addVisible" :title="t('inv.addPick')" width="520px" align-center>
-      <div class="add-picker">
+         部件分别卖），选错了只能删掉重来，所以摆两张图标 + 标题的大卡片，
+         而不是下拉菜单里两行长得一样的字。
+         选完类型再选怎么录：自动导入（贴商品页链接）或手动录入（空草稿），三步在同一个
+         弹窗里换内容，导入进行中锁住关闭——那时行可能已经建好、图正传到一半。 -->
+    <el-dialog
+      v-model="addVisible"
+      :title="addTitle"
+      width="520px"
+      align-center
+      :show-close="!adding"
+      :close-on-click-modal="!adding"
+      :close-on-press-escape="!adding"
+      @closed="resetAdd"
+    >
+      <div v-if="!addKind" class="add-picker">
         <button
           v-for="opt in ADD_OPTIONS"
           :key="opt.kind"
           class="add-option"
           type="button"
-          :disabled="adding"
           :style="{ '--opt-color': opt.color }"
-          @click="onAdd(opt.kind)"
+          @click="addKind = opt.kind"
         >
           <el-icon class="add-option-icon"><component :is="opt.icon" /></el-icon>
           <span class="add-option-title">{{ t(opt.label) }}</span>
-          <span class="add-option-desc">{{ t(opt.desc) }}</span>
         </button>
       </div>
+      <div v-else-if="addMode !== 'import'" class="add-picker">
+        <button
+          v-for="opt in ADD_MODES"
+          :key="opt.mode"
+          class="add-option"
+          type="button"
+          :disabled="adding"
+          :style="{ '--opt-color': addKindOption.color }"
+          @click="onPickMode(opt.mode)"
+        >
+          <el-icon class="add-option-icon"><component :is="opt.icon" /></el-icon>
+          <span class="add-option-title">{{ t(opt.label) }}</span>
+        </button>
+      </div>
+      <div v-else class="add-import">
+        <el-input
+          ref="importInputRef"
+          v-model="importUrl"
+          type="textarea"
+          :rows="3"
+          :disabled="adding"
+          :placeholder="t('inv.importPlaceholder')"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
+          @keydown.enter.exact.prevent="onImport"
+        />
+      </div>
+      <template v-if="addKind" #footer>
+        <el-button :disabled="adding" @click="addBack">{{ t('inv.back') }}</el-button>
+        <el-button
+          v-if="addMode === 'import'"
+          type="primary"
+          :loading="adding"
+          :disabled="!importUrl.trim()"
+          @click="onImport"
+        >{{ t('inv.importGo') }}</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -570,9 +617,10 @@ import { computed, nextTick, onActivated, onBeforeUnmount, reactive, ref, watch 
 import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  ArrowDown, ArrowRight, ArrowUp, Cpu, Filter, Grid, List, Monitor, Plus, Refresh, Search, WarningFilled
+  ArrowDown, ArrowRight, ArrowUp, Cpu, EditPen, Filter, Grid, Link, List, Monitor, Plus, Refresh, Search,
+  WarningFilled
 } from '@element-plus/icons-vue'
-import { cardsApi, devicesApi, inventoryApi } from '@/api'
+import { cardsApi, devicesApi, importApi, inventoryApi } from '@/api'
 import { cny, firstImage, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsCompact, useIsMobile, useIsTouch } from '@/composables/useIsMobile'
@@ -955,16 +1003,49 @@ async function loadAux() {
 // 新增弹窗的两张卡片。图标与颜色跟顶部统计卡里的「显卡」「整机」一致——
 // 同一个东西在一个页面里换个地方就换套长相，只会让人多认一遍。
 const ADD_OPTIONS = [
-  { kind: 'card', icon: Cpu, color: '#5b8cff', label: 'inv.addCard', desc: 'inv.addCardDesc' },
-  { kind: 'device', icon: Monitor, color: '#E6A23C', label: 'inv.addDevice', desc: 'inv.addDeviceDesc' }
+  { kind: 'card', icon: Cpu, color: '#5b8cff', label: 'inv.addCard' },
+  { kind: 'device', icon: Monitor, color: '#E6A23C', label: 'inv.addDevice' }
+]
+
+// 第二步：怎么录。颜色沿用上一步选的那一类，一眼还能看出是在加显卡还是整机。
+const ADD_MODES = [
+  { mode: 'import', icon: Link, label: 'inv.addImport' },
+  { mode: 'manual', icon: EditPen, label: 'inv.addManual' }
 ]
 
 const addVisible = ref(false)
 const adding = ref(false)
+const addKind = ref(null)        // null = 还在选类型
+const addMode = ref(null)        // 'import' = 在贴链接那一步
+const importUrl = ref('')
+const importInputRef = ref(null)
 
-// 建一行空草稿再跳进详情页（见 CLAUDE.md 的「草稿行」）。建的过程中把两张卡片禁掉：
+const addKindOption = computed(() => ADD_OPTIONS.find((o) => o.kind === addKind.value))
+const addTitle = computed(() =>
+  addKindOption.value ? t('inv.addHow', { kind: t(addKindOption.value.label) }) : t('inv.addPick')
+)
+
+// 关上之后再复位（@closed 而不是 @close）：关闭动画还在播时就换回第一步，弹窗会闪一下
+function resetAdd() {
+  addKind.value = null
+  addMode.value = null
+  importUrl.value = ''
+}
+
+function addBack() {
+  if (addMode.value) addMode.value = null
+  else addKind.value = null
+}
+
+function onPickMode(mode) {
+  if (mode === 'manual') return onAddManual(addKind.value)
+  addMode.value = 'import'
+  nextTick(() => importInputRef.value?.focus())
+}
+
+// 建一行空草稿再跳进详情页（见 CLAUDE.md 的「草稿行」）。建的过程中把卡片禁掉：
 // 手快点两下会建出两行草稿，其中一行没人管，只能等两小时后被清理掉。
-async function onAdd(kind) {
+async function onAddManual(kind) {
   if (adding.value) return
   adding.value = true
   try {
@@ -972,6 +1053,35 @@ async function onAdd(kind) {
     addVisible.value = false
     openDetail(kind, draft.id)
   } catch { /* 拦截器已提示 */ } finally {
+    adding.value = false
+  }
+}
+
+// 自动导入：后端读商品页、建正式行、把商品图传进图床，回来直接打开详情接着填价钱。
+// 图片逐张独立成败，传失败的几张单独提示，行本身照样打开。
+async function onImport() {
+  const url = importUrl.value.trim()
+  if (!url || adding.value) return
+  const kind = addKind.value
+  adding.value = true
+  try {
+    const res = kind === 'device' ? await importApi.device(url) : await importApi.card(url)
+    ElMessage.success(t('inv.importDone', {
+      title: res.title,
+      price: res.breakdown || '—',
+      photos: res.photos,
+      total: res.photo_total
+    }))
+    // 到付 / 送料没查到 / 没读到价格：购入价不完整，得让人知道要回头补
+    for (const w of res.warnings || []) ElMessage.warning(w)
+    if (res.errors?.length) {
+      ElMessage.warning(t('inv.importPhotoFailed', { n: res.errors.length, reason: res.errors[0].error }))
+    }
+    // 雅虎二手这类平台可能是导入时才补进字典的，不刷新的话详情页的平台下拉选不中它
+    meta.reloadPlatforms().catch(() => {})
+    addVisible.value = false
+    openDetail(kind, res.id)
+  } catch { /* 拦截器已提示（认不出链接 / 已录入过 / 商品已删除） */ } finally {
     adding.value = false
   }
 }
@@ -1169,7 +1279,6 @@ onActivated(() => {
 .add-option:disabled { opacity: 0.6; cursor: default; }
 .add-option-icon { font-size: 24px; color: var(--opt-color); }
 .add-option-title { font-size: 15px; font-weight: 600; }
-.add-option-desc { font-size: 12px; line-height: 1.5; color: var(--pcr-text-dim); }
 
 /* ── 手机卡片列表 ──────────────────────────────────────────────────────
    一行摊成一张卡：上半是「这是什么」（封面 / 名称 / 类型 / 状态），中间一排是三个钱
@@ -1343,6 +1452,8 @@ onActivated(() => {
   .f-add { flex: 1 1 100%; margin-left: 0; }
   /* 两张卡片并排在手机上只剩半屏宽，说明文字会碎成每行两三个字 */
   .add-picker { flex-direction: column; }
+  /* 手机输入框必须 16px，否则 iOS 聚焦会放大整页 */
+  .add-import :deep(.el-textarea__inner) { font-size: 16px; }
   /* 卡片列表自己带圆角和边框，外面那张卡的内边距只会白白吃掉两边各 12px */
   .table-card :deep(.el-card__body) { padding: 10px; }
   .pager { justify-content: center; }

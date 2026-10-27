@@ -167,6 +167,17 @@
           <template #empty><span class="pcr-dim">{{ t('common.noData') }}</span></template>
         </el-table>
       </el-card>
+      <el-card shadow="never" class="pane-card form-pane">
+        <template #header>{{ t('settings.importTitle') }}</template>
+        <el-form label-position="top">
+          <el-form-item :label="t('settings.shipPref')">
+            <el-select v-model="shipPref" filterable :disabled="!auth.isAdmin" style="width: 220px"
+              @change="saveShipPref">
+              <el-option v-for="p in PREFECTURES" :key="p.code" :label="p.name" :value="p.code" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </el-card>
     </template>
 
     <!-- ── 用户（管理员）──────────────────────────────────────────────── -->
@@ -394,7 +405,8 @@ import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { Coin, Collection, Connection, Delete, Picture, Plus, Refresh, Shop, User, UserFilled } from '@element-plus/icons-vue'
-import { authApi, optionsApi, ssoApi, systemApi, usersApi } from '@/api'
+import { authApi, importApi, optionsApi, ssoApi, systemApi, usersApi } from '@/api'
+import { PREFECTURES } from '@/constants/prefectures'
 import { useIsCompact, useIsMobile } from '@/composables/useIsMobile'
 import { ElMessage } from '@/utils/notify'
 import { currentLocale, localeOptions, setLocale } from '@/i18n'
@@ -431,12 +443,13 @@ const activeTab = ref(SECTIONS.value.some((s) => s.name === route.query.tab) ? r
 
 // 每块的数据只在第一次点开时拉一次，切回来不重复请求
 // 品牌 / 型号 / 平台在 meta.ensure() 里已经一次带回，这里只管另外几块
-const loaded = reactive({ hosting: false, db: false, users: false, sso: false })
+const loaded = reactive({ hosting: false, db: false, users: false, sso: false, platform: false })
 function ensureSection(name) {
   if (name === 'hosting' && !loaded.hosting) { loaded.hosting = true; loadHosting() }
   if (name === 'db' && !loaded.db) { loaded.db = true; loadDb() }
   if (name === 'users' && !loaded.users) { loaded.users = true; loadUsers() }
   if (name === 'sso' && !loaded.sso) { loaded.sso = true; loadSso() }
+  if (name === 'platform' && !loaded.platform) { loaded.platform = true; loadImportSettings() }
 }
 watch(activeTab, (v) => {
   ensureSection(v)
@@ -523,6 +536,20 @@ async function addPlatform() {
 async function removePlatform(p) {
   await optionsApi.removePlatform(p.id)
   await meta.reloadPlatforms()
+}
+
+// 从商品页导入时，雅虎拍卖的送料按寄到哪个都道府县算（转运仓库所在地）。选了就存
+const shipPref = ref(null)
+async function loadImportSettings() {
+  try {
+    shipPref.value = (await importApi.getSettings()).ship_pref
+  } catch { /* 拦截器已提示 */ }
+}
+async function saveShipPref(v) {
+  try {
+    await importApi.saveSettings({ ship_pref: v })
+    ElMessage.success(t('common.saved'))
+  } catch { await loadImportSettings() }
 }
 
 // ---- 品牌 / 型号（两者相互独立）----

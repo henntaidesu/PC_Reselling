@@ -173,6 +173,15 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 所以不触发 `funds.rebuild()`。显卡图搬到部件上时原分类记在 `device_part_media.category`，
 换回来能归位。记录在 `item_swaps`（含置换前快照），跟着两头详情响应的 `swaps` 字段下发。
 
+### 从商品页导入
+
+新增弹窗选完显卡 / 整机后可以「自动导入」：贴煤炉（含 Shops）/ 雅虎拍卖 / 雅虎二手的链接，
+`item_import.py` 免登录读出标题、卖家、全部商品图和价格（购入价 = 现价 + 送料；雅虎拍卖的送料按
+「系统配置 → 购买平台」里设的收货都道府县另请求接口算，存在 `app_settings` 的 `import.ship_pref`；
+各平台取法写在它的 docstring 里，煤炉要 DPoP 签名），
+`api/import_api.py` 直接建一行**正式行**（不是草稿）并把图经 `media_api.store_*_blobs` 传进图床。
+显卡没有标题列，标题写进备注；雅虎二手的平台 key 是 `paypay`，老库里没有时导入会按需补进字典。
+
 ### 枚举的单一事实来源在后端，文案在前端
 
 `schema.py` 顶部的 `CARD_STATUSES` / `MEDIA_CATEGORIES` / `DEVICE_PART_TYPES` /

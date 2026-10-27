@@ -67,9 +67,10 @@ DEVICE_PART_TYPES: List[str] = [
 ]
 
 # 购买平台**不是枚举**，是 source_platforms 字典表（用户在系统配置里自己加）。这份清单
-# 只是首次建库时的初始内容：库里存的就是这三个 key，前端对它们有中日英三套文案；
+# 只是首次建库时的初始内容：库里存的就是这几个 key，前端对它们有中日英三套文案；
 # 用户后加的平台没有文案，原样显示名字即可（见 webside 的 usePlatforms）。
-SOURCE_PLATFORM_SEEDS: List[str] = ["yahoo", "mercari", "other"]
+# paypay（雅虎二手）是后加的：老库里没有它，从商品页导入时由 import_api 按需补进字典。
+SOURCE_PLATFORM_SEEDS: List[str] = ["yahoo", "paypay", "mercari", "other"]
 
 CURRENCIES: List[str] = ["JPY", "CNY"]
 
