@@ -163,6 +163,8 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "mgmt_no": row["mgmt_no"],
         "title": row.get("title"),
         "subtitle": None,
+        # 整机没有自己的状态（只有部件有）：列表不显示它、按状态筛也不看它（见 _select）。
+        # 字段留着只是为了和别的行同一个形状，按状态排序时不至于缺键
         "status": row["status"],
         "source_platform": row.get("source_platform"),
         "purchase_date": data["purchase_date"],
@@ -198,7 +200,7 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
 
 def _solo_part(part_item: Dict[str, Any], device_item: Dict[str, Any],
                media: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """把整机里的一个部件**单独列成一行**（按状态筛选时，整机本身没命中、部件命中）。
+    """把整机里的一个部件**单独列成一行**（按状态筛选时——整机没有状态，命中的只能是部件）。
 
     为什么不干脆出整机那一行：筛「已回国」的人要的是「现在手上有哪几件回国了」，
     整机里已回国的是那块显卡，把整台机器（连同还在日本的其他部件）列出来等于答非所问。
@@ -451,8 +453,9 @@ def _select(universe: Dict[str, List[tuple]], f: Dict[str, Any]) -> List[Dict[st
     - **部件模式**（类型选了「部件 / 某种部件」，或者按型号筛而类型没限定）：整机不出现，
       只把满足条件的部件逐个单列（_solo_part）。整机本身没有型号，按型号命中的只能是
       里面那个部件——「RTX 4090」筛出来的是 4090 单卡加整机里拆出来的那块 4090。
-    - **按状态筛**：整机自己的状态命中就出整机那一行；没命中而部件命中，就只列那个部件
-      （类型选了「整机」时不列部件——那是明说了只要整机）。
+    - **按状态筛**：整机**没有自己的状态**（只有部件有，devices.status 列只留不用），所以
+      只把状态命中的部件单列出来。类型选了「整机」时不列部件——那是明说了只要整机——
+      改成出「里面有这个状态的部件」的整台。
     - 其余：整机整台列出，品牌 / 型号按「里面有这样的部件」匹配。
     """
     status = f["status"]
@@ -482,9 +485,13 @@ def _select(universe: Dict[str, List[tuple]], f: Dict[str, Any]) -> List[Dict[st
                 not f[key] or any((p.get(key) or "") == f[key] for p in parts.values())
                 for key in ("brand", "model")
             )
-            if dev_ok and (not statuses or item["status"] in statuses):
-                out.append(item)
-            elif statuses and kind is None:
+            if not statuses:
+                if dev_ok:
+                    out.append(item)
+            elif kind == KIND_DEVICE:
+                if dev_ok and any(p.get("status") in statuses for p in parts.values()):
+                    out.append(item)
+            else:
                 out.extend(_solo_part(c, item) for c in children
                            if _part_ok(parts[c["id"]], row, f, statuses, None))
 
@@ -496,12 +503,20 @@ def _collect(f: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _attach_part_media(items: List[Dict[str, Any]]) -> None:
-    """给单列的部件行补上部件自己的图。只对**当前页**做：全量筛选时每一行都去取图，
-    一页 20 行却要把几十个部件的图全查一遍。"""
+    """给当前页的部件补上它们自己的图：单列的部件行，以及整机展开后的部件卡片。
+    只对**当前页**做：全量筛选时每一行都去取图，一页 20 行却要把几百个部件的图全查一遍。
+
+    展开区的部件只留封面那一张（与前端 format.firstImage 同一取法：第一张图片）——一台
+    机器七八个部件，整组图全带上的话一页列表的体积要翻几倍，而卡片上只用得到这一张。
+    """
     solo = [i for i in items if i.get("solo")]
-    media = devices.load_part_media([i["id"] for i in solo])
+    children = [c for i in items for c in i.get("children", [])]
+    media = devices.load_part_media([i["id"] for i in solo + children])
     for i in solo:
         i["media"] = media.get(i["id"], [])
+    for c in children:
+        cover = next((m for m in media.get(c["id"], []) if m.get("kind") == "image"), None)
+        c["media"] = [cover] if cover else []
 
 
 # ── 联动的下拉选项 ──────────────────────────────────────────────────────── #

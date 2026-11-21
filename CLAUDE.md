@@ -117,14 +117,16 @@ onefile 每次启动把 DLL、前端 dist、certifi 的 `cacert.pem` 等解压�
 而存储感知 / 磁盘清理会删掉 `%TEMP%` 里放了约 7 天的文件，exe 挂着跑一周就被掏空：页面 500
 （`index.html` 不存在）、HTTPS 全挂（找不到 CA 证书包）、晚加载的模块 import 失败，进程却还活着。
 
-现在是三层，理由都在 `meipass_lock.py` 的 docstring：spec 的 `runtime_tmpdir` 解压到
-`%LOCALAPPDATA%\PCResellingManager`；`main.py` 第一件事 `lock_bundle()` 给每个文件开只读句柄持有到退出
-（别的进程删不掉）；紧接着 `sweep_stale()` 清掉强杀 / 断电留下的 `_MEI*`（AppData 没人替你清）。
-**顺序别换**：清残留靠「改名失败 = 有实例占着文件」分辨死活，得先占住自己的。spec 里那个目录名和
-`meipass_lock._RUNTIME_DIR_NAME` 要一致，对不上时清理会直接不干活（故意的：免得去删 `%TEMP%` 里
-别的程序的 `_MEI`）。
-不放 exe 旁边，是因为 `runtime_tmpdir` 的相对路径按的是**当前工作目录**而不是 exe 所在目录（实测），
-开机自启或快捷方式改了起始位置就解到别处去了；也不用 onedir，发布物要求是单个 exe。
+现在是三层，理由都在 `meipass_lock.py` 的 docstring：spec 的 `runtime_tmpdir` 解压到 **exe 旁边的
+`runtime\`**；`main.py` 第一件事 `lock_bundle()` 给每个文件开只读句柄持有到退出（别的进程删不掉）；
+紧接着 `sweep_stale()` 清掉强杀 / 断电留下的 `_MEI*`。**顺序别换**：清残留靠「改名失败 = 有实例占着
+文件」分辨死活，得先占住自己的。spec 里那个目录名和 `meipass_lock._RUNTIME_DIR_NAME` 要一致。
+
+`runtime_tmpdir` 写的是 `%_PYI_ARCHIVE_FILE%\..\runtime`，不是 `runtime`：相对路径按的是**当前工作目录**
+而不是 exe 所在目录（实测），开机自启或快捷方式改了起始位置就解到别处去了。`_PYI_ARCHIVE_FILE` 是
+引导程序放 exe 路径的**内部变量**（PyInstaller 6.22 实测可用，文档里没有）：升级 PyInstaller 后要看一眼
+运行窗口，出现「解压目录没落在 exe 旁边」的警告就是它没了，此时残留清理也会自动停手。
+exe 所在目录必须可写，别放进 Program Files。也不用 onedir，发布物要求是单个 exe。
 
 ### 配置分两处，别搞混
 
@@ -221,7 +223,7 @@ onefile 每次启动把 DLL、前端 dist、certifi 的 `cacert.pem` 等解压�
 状态色只有 `format.js` 那一份，标签（`StatusTag.vue`）、下拉选项（`StatusSelect.vue`，四处状态
 下拉共用它，别再在页面里手写 `v-for el-option`）、时间轴圆点、概览页的图全从它取；
 挑颜色的规则写在那份 map 的注释里（红绿是语义色、暖色表示等人动手、未购入的画描边）。
-部件类型另有一份 `PART_TYPE_COLOR`（同文件，走 `PartTypeTag.vue`，库存列表的二级行与整机
+部件类型另有一份 `PART_TYPE_COLOR`（同文件，走 `PartTypeTag.vue`，库存列表的部件卡片与整机
 详情的部件表共用），与状态色刻意不共用——状态是流程、类型是分类。新增部件类型不配色也不会
 出错，会落到 `other` 的灰色。
 
@@ -236,9 +238,15 @@ onefile 每次启动把 DLL、前端 dist、certifi 的 `cacert.pem` 等解压�
 新增筛选条件：参数只加在 `_inventory_filters` 这一个依赖上；原始列的判断进 `_card_ok` /
 `_device_ok` / `_part_ok`，成本 / 利润 / 归属人这类算出来的值进 `_match_derived`；要做成下拉的
 在 `_facet_candidates` 里登记取值。
-按状态筛选时整机里状态命中的部件、以及类型筛选选了「部件 / 某种部件」（`kind=part` +
+**整机没有状态，只有部件有**：`devices.status` 列只留不用（表单照旧原样回传，因为它 NOT NULL），
+列表与整机详情都不显示它，按状态筛选也不看它。
+按状态筛选时状态命中的部件、以及类型筛选选了「部件 / 某种部件」（`kind=part` +
 `part_type`，此时不出整机行）时满足条件的部件，都会**单独成为顶层行**（`_solo_part`，`kind=part` + `solo` +
 `parent`），点击进所属整机并停在该部件的标签上；它只计件数、不进统计的金额合计（没有单件成本）。
+类型选了「整机」再按状态筛，出的是「里面有这个状态的部件」的整台。
+桌面表格里整机的部件不是树形子行，而是展开列（`type="expand"`）里的一排卡片；`children` 仍是
+那份数据（卡片列表的「部件一览」弹窗也读它），所以表格的 `tree-props` 特意指向一个不存在的键
+把树形关掉。展开区的部件只带封面那一张图（`_attach_part_media`，只给当前页补）。
 
 ### 建表与迁移：只加不改
 

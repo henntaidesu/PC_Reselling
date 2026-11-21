@@ -5,8 +5,9 @@
   <DetailShell :loading="loading" :ready="!!device" @close="emit('close')">
     <template #title>
       <template v-if="device">
+        <!-- 整机不显示状态：状态是逐件的（部件页里每一件各有一个），整台机器上挂一个
+             只会和部件的对不上 -->
         <h2 class="head-name">{{ form.title || t('device.noTitle') }}</h2>
-        <StatusTag :status="form.status" />
       </template>
     </template>
 
@@ -55,9 +56,6 @@
             <!-- 整机名称是自己起的，不像显卡那样能用品牌 + 型号拼出来；顶栏的名字跟着它实时变 -->
             <el-form-item :label="t('device.name')" class="f-name">
               <el-input v-model="form.title" :maxlength="TITLE_MAX" show-word-limit />
-            </el-form-item>
-            <el-form-item :label="t('card.status')" class="f-status">
-              <StatusSelect v-model="form.status" />
             </el-form-item>
             <!-- 整机的归属人，部件没单独填的都跟随它 -->
             <el-form-item :label="t('owner.label')" class="f-owner">
@@ -303,8 +301,6 @@ import OwnerSelect from '@/components/OwnerSelect.vue'
 import SwapDialog from '@/components/SwapDialog.vue'
 import SwapHistory from '@/components/SwapHistory.vue'
 import PoolBreakdown from '@/components/PoolBreakdown.vue'
-import StatusTag from '@/components/StatusTag.vue'
-import StatusSelect from '@/components/StatusSelect.vue'
 import PartTypeTag from '@/components/PartTypeTag.vue'
 import StatusTimeline from '@/components/StatusTimeline.vue'
 
@@ -675,7 +671,6 @@ onMounted(async () => {
 
 /* 基本信息两行的字段宽度：基准宽度 + 上限，摆不下就折行 */
 .f-name { flex: 1 1 240px; max-width: 380px; }
-.f-status { flex: 0 1 140px; }
 .f-owner { flex: 0 1 120px; }
 .f-platform { flex: 0 1 130px; }
 .f-seller { flex: 1 1 130px; max-width: 200px; }

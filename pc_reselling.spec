@@ -105,9 +105,9 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,  # 启动期崩溃仍要弹出堆栈，否则 exe 就是双击没反应
     icon=icon_arg,
-    # 解压到 AppData 而不是默认的 %TEMP%：存储感知 / 磁盘清理会删掉 %TEMP% 里放了 7 天左右的文件，
-    # 程序挂着跑一周就被掏空。占住文件、清强杀留下的残留在 backend/src/meipass_lock.py，理由也在那里。
-    # 环境变量由 Windows 版 bootloader 展开，目录不存在会自己建。最后一级目录名与那个模块的
-    # _RUNTIME_DIR_NAME 一致，改要一起改，否则残留清理会认不出自己的目录而不干活。
-    runtime_tmpdir=r"%LOCALAPPDATA%\PCResellingManager",
+    # 解压到 exe 旁边的 runtime\ 而不是默认的 %TEMP%：存储感知 / 磁盘清理会删掉 %TEMP% 里放了
+    # 7 天左右的文件，程序挂着跑一周就被掏空。_PYI_ARCHIVE_FILE 是引导程序放 exe 路径的内部变量，
+    # 「exe\..」折回 exe 所在目录；为什么不直接写相对路径、它没了会怎样、占住文件与清强杀残留，
+    # 都在 backend/src/meipass_lock.py。最后一级目录名与那个模块的 _RUNTIME_DIR_NAME 一致，改要一起改。
+    runtime_tmpdir=r"%_PYI_ARCHIVE_FILE%\..\runtime",
 )

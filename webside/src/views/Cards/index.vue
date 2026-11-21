@@ -242,7 +242,8 @@
                   </el-tag>
                   <el-tag v-if="row.owner" size="small" effect="dark" type="info" class="owner-tag">{{ row.owner }}</el-tag>
                 </span>
-                <span class="m-corner m-corner--tr"><StatusTag :status="row.status" /></span>
+                <!-- 整机没有状态（只有部件有），右上角空着 -->
+                <span v-if="row.kind !== 'device'" class="m-corner m-corner--tr"><StatusTag :status="row.status" /></span>
                 <!-- 只给购入日：卡片是看图挑货用的，成交日在详情里看 -->
                 <span v-if="row.purchase_date" class="m-corner m-corner--bl m-date pcr-mono">
                   {{ row.purchase_date }}
@@ -268,7 +269,7 @@
                 <el-tag v-else size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
                   {{ t('inv.' + row.kind) }}
                 </el-tag>
-                <StatusTag :status="row.status" />
+                <StatusTag v-if="row.kind !== 'device'" :status="row.status" />
                 <!-- 整机的「已售 / 总件数」：顶层行上最该先看到的就是它还剩几件没出手 -->
                 <el-tag v-if="row.kind === 'device'" size="small" effect="plain" type="info" class="pcr-mono">
                   {{ row.sold_count }} / {{ row.part_count }}
@@ -339,16 +340,49 @@
         :data="rows"
         class="cards-table"
         row-key="row_key"
-        :tree-props="{ children: 'children' }"
-        :row-class-name="rowClass"
+        :tree-props="{ children: '_no_tree' }"
+        :row-expandable="hasParts"
         @row-click="onRowClick"
       >
-        <el-table-column :label="t('card.cover')" width="110">
+        <!-- 整机的部件不再当树形子行塞进这张表，而是展开成一排卡片：部件只有类型 / 名称 /
+             状态 / 归属人 / 售价这几样，硬套十一列的表头，一行里一大半格子是空的。
+             树形因此关掉——el-table 默认就把 children 当子行，上面的 tree-props 指向一个
+             不存在的键，否则它会在封面那一列前面再垫一个缩进占位。
+             展开区里点卡片不会冒泡成 row-click（展开区是另一个 tr），点了就进整机详情并
+             停在那个部件上。 -->
+        <el-table-column type="expand" width="36">
           <template #default="{ row }">
-            <!-- 二级行（部件）没有封面，这一格留空——树形展开的箭头和缩进由 el-table
-                 画在第一列里，所以这一列要比原来宽一点 -->
-            <!-- 单列出来的部件（row.solo）是顶层行，照样给封面，用的是部件自己的图 -->
-            <div v-if="row.kind !== 'part' || row.solo" class="cover">
+            <div class="part-cards">
+              <button v-for="part in row.children" :key="part.row_key" type="button" class="part-card"
+                @click="openPart(part)">
+                <div class="cover part-cover">
+                  <img v-if="cover(part, 120)" :src="cover(part, 120)" alt="" loading="lazy" />
+                  <el-icon v-else class="cover-empty"><Picture /></el-icon>
+                </div>
+                <div class="part-body">
+                  <div class="part-tags">
+                    <PartTypeTag :type="part.part_type" />
+                    <StatusTag v-if="part.status" :status="part.status" />
+                    <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+                  </div>
+                  <div class="part-name" :title="nameOf(part)">
+                    {{ nameOf(part) }}<span v-if="part.quantity > 1" class="pcr-dim pcr-mono"> ×{{ part.quantity }}</span>
+                  </div>
+                  <div class="part-foot">
+                    <!-- 跟随整机的归属人压暗，与单列部件行的归属人列同一个意思 -->
+                    <span class="part-owner" :class="{ 'pcr-dim': !part.owner_own }">{{ part.owner }}</span>
+                    <span class="pcr-mono pcr-dim">{{ part.sale_date }}</span>
+                    <b class="part-price pcr-mono">{{ money(part.sale_cny) }}</b>
+                  </div>
+                </div>
+              </button>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('card.cover')" width="80">
+          <template #default="{ row }">
+            <!-- 单列出来的部件（row.solo）照样给封面，用的是部件自己的图 -->
+            <div class="cover">
               <img v-if="cover(row)" :src="cover(row)" alt="" loading="lazy" />
               <el-icon v-else class="cover-empty">
                 <component :is="row.kind === 'device' ? 'Monitor' : 'Picture'" />
@@ -358,8 +392,8 @@
         </el-table-column>
         <el-table-column :label="t('inv.kind')" width="90">
           <template #default="{ row }">
-            <!-- 顶层行显示显卡 / 整机，二级行显示这个部件是什么（CPU / 内存…）。
-                 部件那一套颜色在 PartTypeTag 里，整机详情的部件表用的是同一个组件 -->
+            <!-- 显卡 / 整机；单列出来的部件显示它是什么（CPU / 内存…）。
+                 部件那一套颜色在 PartTypeTag 里，展开区的部件卡片和整机详情的部件表用的是同一个组件 -->
             <PartTypeTag v-if="row.kind === 'part'" :type="row.part_type" />
             <el-tag v-else size="small" effect="plain" :type="row.kind === 'device' ? 'warning' : 'primary'">
               {{ t('inv.' + row.kind) }}
@@ -382,10 +416,13 @@
         </el-table-column>
         <el-table-column :label="t('card.status')" width="110">
           <template #default="{ row }">
-            <!-- 部件行也照实显示详情页里选的那个状态，不再按「有没有售价」改写成未出售——
+            <!-- 整机这一格空着：状态是逐件的，各部件的状态在展开后的卡片上。
+                 部件照实显示详情页里选的那个状态，不再按「有没有售价」改写成未出售——
                  状态是用户手选的，列表擅自换掉它就和详情页对不上了。只有老数据没存状态时才兜底 -->
-            <StatusTag v-if="row.status" :status="row.status" />
-            <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+            <template v-if="row.kind !== 'device'">
+              <StatusTag v-if="row.status" :status="row.status" />
+              <el-tag v-else size="small" type="info" effect="plain">{{ t('device.unsold') }}</el-tag>
+            </template>
           </template>
         </el-table-column>
         <el-table-column :label="t('owner.label')" width="96">
@@ -403,7 +440,7 @@
           <template #default="{ row }">
             <!-- 整机这一格空着：部件是分批卖的，「最后成交那天」既不是这台机器卖完的
                  日子，也对不上任何一件的成交日，摆在顶层行上只会被当成前者。逐件的
-                 出售日期在展开后的二级行上，那才是实情。 -->
+                 出售日期在展开后的部件卡片上，那才是实情。 -->
             <span v-if="row.kind !== 'device'" class="pcr-mono pcr-dim">{{ row.sale_date }}</span>
           </template>
         </el-table-column>
@@ -446,7 +483,7 @@
           <template #default="{ row }">
             <!-- 这一列一律是**售价**，部件行也一样：国内运费已经算在「总成本」里了，
                  在这儿再标一次扣完运费的净收入，等于同一笔运费在一行里出现两遍，
-                 看的人会去减第二次。二级行的售价加起来正好等于整机那一行。 -->
+                 看的人会去减第二次。展开后各部件卡片上的售价加起来正好等于整机那一行。 -->
             <span class="pcr-mono">{{ money(row.sale_cny) }}</span>
           </template>
         </el-table-column>
@@ -828,9 +865,8 @@ function money(value, fmt = cny) {
 
 
 
-// 二级行（部件）整行淡一档，一眼能看出层级
-// 单列出来的部件是顶层行，不压暗
-const rowClass = ({ row }) => (row.kind === 'part' && !row.solo ? 'part-row' : '')
+// 只有带部件的整机能展开；其余行的展开箭头禁用并藏起来（见样式），不然点开是空的
+const hasParts = (row) => Boolean(row.children?.length)
 
 // 图床按 w 参数出缩略图。卡片模式的头图有 300px 上下宽，再拿 200 的图拉伸会糊
 function cover(row, width = 200) {
@@ -1218,20 +1254,55 @@ onActivated(() => {
 }
 
 .cards-table :deep(.el-table__row) { cursor: pointer; }
-/* 二级行（部件）压暗一档并留出缩进，和顶层行分得开 */
-.cards-table :deep(.part-row) { background: rgba(91, 140, 255, 0.03); }
-.cards-table :deep(.part-row .cell) { color: #b9c4d6; }
-/* 树形展开箭头是 el-table 画在第一列单元格里的行内元素，而封面是个块级盒子——
-   不排成一行的话，箭头会被顶到封面上面去。占位符和箭头统一宽度，让有子行和没子行
-   的封面左边缘对齐。 */
-.cards-table :deep(td.el-table__cell:first-child .cell) {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* 不能展开的行（显卡、没部件的整机）箭头是禁用的，直接藏掉：灰着摆在那儿像是坏了 */
+.cards-table :deep(.el-table__expand-icon.is-disabled) { visibility: hidden; }
+/* 展开区：左边让过箭头那一列，与封面左缘对齐；底色压暗一档，和上面那一行分得开。
+   Element 默认给它 20px 50px 的内边距和悬浮变色，都不要 */
+.cards-table :deep(.el-table__expanded-cell) {
+  padding: 4px 12px 14px 48px !important;
+  background: rgba(91, 140, 255, 0.03);
 }
-.cards-table :deep(td.el-table__cell:first-child .cell > *) { flex: none; }
-.cards-table :deep(td.el-table__cell:first-child .el-table__expand-icon),
-.cards-table :deep(td.el-table__cell:first-child .el-table__placeholder) { width: 22px; }
+.cards-table :deep(.el-table__expanded-cell:hover) { background: rgba(91, 140, 255, 0.03) !important; }
+/* 部件卡片：一台机器七八件，按宽度自动排列。用原生 button——键盘能 Tab 到、回车能按 */
+.part-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+.part-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--pcr-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--pcr-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+.part-card:hover,
+.part-card:focus-visible {
+  border-color: var(--pcr-accent);
+  background: rgba(91, 140, 255, 0.06);
+  outline: none;
+}
+.part-cover { flex: none; }
+.part-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.part-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.part-name {
+  color: #e6edf7;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.part-foot { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.part-owner { max-width: 70px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.part-price { margin-left: auto; color: #e6edf7; }
 .cover {
   width: 54px;
   height: 40px;

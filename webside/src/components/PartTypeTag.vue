@@ -1,5 +1,5 @@
 <template>
-  <!-- 部件类型标签。颜色只有 utils/format.js 那一份，库存列表的二级行与整机详情里的
+  <!-- 部件类型标签。颜色只有 utils/format.js 那一份，库存列表的部件卡片与整机详情里的
        部件一览表共用这一个组件——两处显示同一种东西，颜色对不上比没有颜色更糟。 -->
   <el-tag size="small" effect="plain" :style="tagStyle">{{ t('partType.' + type) }}</el-tag>
 </template>

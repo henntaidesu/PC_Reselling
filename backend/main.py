@@ -32,12 +32,14 @@ else:
 # 清上次的残留必须在占住之后，它靠「活着的实例都占着文件」来分辨死活。
 # 失败也不拦着启动——大不了回到没占住时的样子。
 _bundle_locked = _bundle_swept = 0
+_bundle_in_place = True
 if getattr(sys, "frozen", False) and sys.platform == "win32":
     try:
-        from src.meipass_lock import lock_bundle, sweep_stale
+        from src.meipass_lock import bundle_in_place, lock_bundle, sweep_stale
 
         _bundle_locked = lock_bundle()
         _bundle_swept = sweep_stale()
+        _bundle_in_place = bundle_in_place()
     except Exception:  # noqa: BLE001
         pass
 
@@ -63,6 +65,12 @@ logging.basicConfig(
 log = logging.getLogger("pc_reselling")
 if _bundle_locked:
     log.info("已占住解压目录里的 %d 个文件，系统清理删不掉：%s", _bundle_locked, getattr(sys, "_MEIPASS", ""))
+if not _bundle_in_place:
+    log.warning(
+        "解压目录没落在 exe 旁边的 runtime 里，而是跟着当前工作目录跑了：%s"
+        " —— 多半是升级 PyInstaller 后 _PYI_ARCHIVE_FILE 没了，见 src/meipass_lock.py",
+        getattr(sys, "_MEIPASS", ""),
+    )
 if _bundle_swept:
     log.info("已清掉 %d 份上次没退干净留下的解压目录", _bundle_swept)
 
