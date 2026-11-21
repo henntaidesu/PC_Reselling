@@ -36,7 +36,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from src import cards, db
+from src import cards, db, people
 from src.cards import _iso
 from src.schema import MEDIA_CATEGORIES
 
@@ -85,7 +85,7 @@ def _load_part(part_id: int) -> Dict[str, Any]:
     """部件连同它所属整机的几列一起取：资格判断与归属人回退都要用到整机。"""
     row = db.query_one(
         "SELECT p.*, d.mgmt_no AS device_mgmt_no, d.title AS device_title, "
-        "d.owner AS device_owner, d.is_draft AS device_is_draft "
+        "d.owner_id AS device_owner_id, d.is_draft AS device_is_draft "
         "FROM device_parts p JOIN devices d ON d.id = p.device_id WHERE p.id = %s",
         (part_id,),
     )
@@ -113,7 +113,7 @@ def _check_part(row: Dict[str, Any]) -> None:
 
 # ── 候选清单 ────────────────────────────────────────────────────────────── #
 
-def _card_option(row: Dict[str, Any], media_count: int) -> Dict[str, Any]:
+def _card_option(row: Dict[str, Any], media_count: int, names: Dict[int, str]) -> Dict[str, Any]:
     return {
         "card_id": row["id"],
         "mgmt_no": row["mgmt_no"],
@@ -121,13 +121,13 @@ def _card_option(row: Dict[str, Any], media_count: int) -> Dict[str, Any]:
         "model": row.get("model"),
         "core_no": row.get("core_no"),
         "serial_no": row.get("serial_no"),
-        "owner": row.get("owner"),
+        "owner": people.name_of(row.get("owner_id"), names),
         "status": row["status"],
         "media_count": media_count,
     }
 
 
-def _part_option(row: Dict[str, Any], media_count: int) -> Dict[str, Any]:
+def _part_option(row: Dict[str, Any], media_count: int, names: Dict[int, str]) -> Dict[str, Any]:
     return {
         "part_id": row["id"],
         "device_id": row["device_id"],
@@ -138,7 +138,7 @@ def _part_option(row: Dict[str, Any], media_count: int) -> Dict[str, Any]:
         "core_no": row.get("spec"),
         "serial_no": row.get("serial_no"),
         # 部件没单独指定归属人时就是整机的，候选里要显示「这块卡是谁的」
-        "owner": row.get("owner") or row.get("device_owner"),
+        "owner": people.name_of(row.get("owner_id") or row.get("device_owner_id"), names),
         "status": row["status"],
         "media_count": media_count,
     }
@@ -162,7 +162,7 @@ def candidates_for_card(card_id: int) -> List[Dict[str, Any]]:
     card = _load_card(card_id)
     rows = db.query(
         "SELECT p.*, d.mgmt_no AS device_mgmt_no, d.title AS device_title, "
-        "d.owner AS device_owner, d.is_draft AS device_is_draft "
+        "d.owner_id AS device_owner_id, d.is_draft AS device_is_draft "
         "FROM device_parts p JOIN devices d ON d.id = p.device_id "
         "WHERE p.part_type = %s AND d.is_draft = 0 "
         "AND p.sale_amount IS NULL AND p.status NOT IN ({ph}) "
@@ -171,7 +171,8 @@ def candidates_for_card(card_id: int) -> List[Dict[str, Any]]:
         [SWAPPABLE_PART_TYPE] + sorted(cards.SOLD_STATUSES),
     )
     counts = _media_counts("device_part_media", "part_id", [r["id"] for r in rows])
-    out = [_part_option(r, counts.get(r["id"], 0)) for r in rows]
+    names = people.names()
+    out = [_part_option(r, counts.get(r["id"], 0), names) for r in rows]
     model = card.get("model")
     out.sort(key=lambda x: 0 if model and x["model"] == model else 1)  # sort 是稳定的
     return out
@@ -187,7 +188,8 @@ def candidates_for_part(part_id: int) -> List[Dict[str, Any]]:
         sorted(cards.SOLD_STATUSES),
     )
     counts = _media_counts("card_media", "card_id", [r["id"] for r in rows])
-    out = [_card_option(r, counts.get(r["id"], 0)) for r in rows]
+    names = people.names()
+    out = [_card_option(r, counts.get(r["id"], 0), names) for r in rows]
     model = part.get("model")
     out.sort(key=lambda x: 0 if model and x["model"] == model else 1)
     return out
@@ -196,7 +198,10 @@ def candidates_for_part(part_id: int) -> List[Dict[str, Any]]:
 # ── 执行 ────────────────────────────────────────────────────────────────── #
 
 def _snapshot(values: Dict[str, Any], media_count: int, owner: Optional[str]) -> str:
-    """快照统一用显卡这一侧的字段名（core_no 而不是 spec），两头读起来是同一个形状。"""
+    """快照统一用显卡这一侧的字段名（core_no 而不是 spec），两头读起来是同一个形状。
+
+    归属人记的是**当时的名字**而不是 id：快照是给人看的历史，「换的时候这块卡算谁的」，
+    之后那个人改了名，记录上照旧是当时的叫法。"""
     data = dict(values)
     data["owner"] = owner
     data["media_count"] = media_count
@@ -217,6 +222,7 @@ def perform(card_id: int, part_id: int, swap_date: Optional[dt.date] = None,
 
     card_vals = {c: card.get(c) for c, _ in SWAP_FIELDS}
     part_vals = {c: part.get(p) for c, p in SWAP_FIELDS}
+    names = people.names()
 
     with db.transaction() as cur:
         # 锁住两头再读图，免得互换途中有人往其中一边又传了一张
@@ -273,8 +279,9 @@ def perform(card_id: int, part_id: int, swap_date: Optional[dt.date] = None,
             "INSERT INTO item_swaps (swap_date, card_id, device_id, part_id, "
             "card_before, part_before, note) VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (swap_date or dt.date.today(), card_id, part["device_id"], part_id,
-             _snapshot(card_vals, len(card_media), card.get("owner")),
-             _snapshot(part_vals, len(part_media), part.get("owner") or part.get("device_owner")),
+             _snapshot(card_vals, len(card_media), people.name_of(card.get("owner_id"), names)),
+             _snapshot(part_vals, len(part_media),
+                       people.name_of(part.get("owner_id") or part.get("device_owner_id"), names)),
              (note or "").strip()[:500] or None),
         )
         swap_id = cur.lastrowid

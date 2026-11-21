@@ -720,8 +720,9 @@ function kindLabel(value) {
   if (value.startsWith('part:')) return t('partType.' + value.slice(5))
   return t('inv.' + value)
 }
+// 归属人下拉的取值是用户 id（字符串形式，与查询串一致），名字从用户名单里查
 function ownerLabel(value) {
-  return value === OWNER_NONE ? t('owner.none') : value
+  return value === OWNER_NONE ? t('owner.none') : meta.personName(value)
 }
 
 // 第二排那三个固定取值的下拉，选项同样来自 facets（件数为 0 的不出现）

@@ -73,7 +73,7 @@
               <StatusSelect v-model="form.status" />
             </el-form-item>
             <el-form-item :label="t('owner.label')" class="f-owner">
-              <OwnerSelect v-model="form.owner" />
+              <OwnerSelect v-model="form.owner_id" />
             </el-form-item>
             <!-- 序列号 30 位字母数字，给它最宽的一格才看得全 -->
             <el-form-item :label="t('card.serialNo')" class="f-serial">
@@ -315,7 +315,8 @@ function blankForm() {
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
-    owner: null,
+    // 归属人是用户 id（见 OwnerSelect）；显示用的名字在响应的 card.owner 上
+    owner_id: null,
     status: 'purchased', note: null
     // 汇率一律按日期自动获取，不在这里填
   }
@@ -337,7 +338,7 @@ const poolRowCount = computed(() =>
 // 日元售价还没回流的原因。条件与后端 funds._sale_return 一致：日元、有出售日期、有归属人
 const saleReturnHint = computed(() => {
   if (form.sale_currency !== 'JPY' || !Number(form.sale_amount)) return ''
-  if (!form.owner) return t('card.poolReturnNoOwner')
+  if (!form.owner_id) return t('card.poolReturnNoOwner')
   if (!form.sale_date) return t('card.poolReturnNeedDate')
   return ''
 })
@@ -397,11 +398,6 @@ async function persistDict() {
     if (form.model && !models.value.some((m) => m.name === form.model)) {
       await optionsApi.createModel({ name: form.model })
       meta.reloadModels()
-    }
-    // 归属人不用在这里建：后端存的时候已经顺手把新名字落进字典了，这里只把候选刷新
-    // 一下，否则同一次会话里换一张卡，刚敲的那个名字又不在下拉里了
-    if (form.owner && !meta.contributors.includes(form.owner)) {
-      meta.reloadContributors()
     }
   } catch { /* 字典写入失败不影响卡片本身 */ }
 }

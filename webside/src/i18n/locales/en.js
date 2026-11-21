@@ -387,7 +387,7 @@ export default {
     contributor: 'Contributor',
     contributors: 'By contributor',
 
-    contributorPlaceholder: 'Whose money is this (type a new name to add)',
+    contributorPlaceholder: 'Whose money is this',
     drawContribPlaceholder: 'Deduct from whose funds (empty = whole pool FIFO)',
     flowDirection: 'Fund flow',
     consumed: 'Consumed',
@@ -430,6 +430,7 @@ export default {
     edit: 'Edit user',
     username: 'Username',
     displayName: 'Display name',
+    displayNameHint: 'Name shown as owner / contributor (empty = username)',
     password: 'Password',
     passwordOptional: 'Empty = Portal sign-in only',
     admin: 'Admin',
@@ -448,9 +449,9 @@ export default {
     revoke: 'Sign out everywhere',
     revokeConfirm: 'Invalidate every session of {name} right now?',
     revoked: 'Signed out everywhere',
-    removeConfirm: 'Delete user {name}? Their Portal binding goes too; inventory and accounts are untouched.',
+    removeConfirm: 'Delete user {name}? Their Portal binding goes too. Users who still own items or funds cannot be deleted — disable them instead.',
     usernameRequired: 'Username is required',
-    createHint: 'If the username matches a Portal username, that person is bound to this account on their first Portal sign-in.'
+    createHint: 'Users are also the item owners and pool contributors; an account without a password works as a name-only entry. If the username matches a Portal username, that person is bound to this account on their first Portal sign-in.'
   },
   sso: {
     title: 'Portal single sign-on',

@@ -67,7 +67,7 @@ export const PART_SCHEMA = {
 // 一摆出来就全成了「有内容」，会被原样存进库，部件数从此显示成 0/6。
 // 归属人也算：只给空槽位填了个归属人，说明这一件确实存在，不能因为「没填」被悄悄丢掉
 const CONTENT_KEYS = [
-  'brand', 'model', 'spec', 'serial_no', 'note', 'owner',
+  'brand', 'model', 'spec', 'serial_no', 'note', 'owner_id',
   'sale_date', 'sale_amount', 'domestic_shipping_amount'
 ]
 

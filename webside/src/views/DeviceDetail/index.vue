@@ -59,7 +59,7 @@
             </el-form-item>
             <!-- 整机的归属人，部件没单独填的都跟随它 -->
             <el-form-item :label="t('owner.label')" class="f-owner">
-              <OwnerSelect v-model="form.owner" />
+              <OwnerSelect v-model="form.owner_id" />
             </el-form-item>
             <el-form-item :label="t('card.platform')" class="f-platform">
               <el-select v-model="form.source_platform" clearable>
@@ -186,7 +186,7 @@
                 :part="selectedPart"
                 :net="partNet(selectedPart)"
                 :deletable="canRemovePart(selectedPart)"
-                :device-owner="form.owner"
+                :device-owner="meta.personName(form.owner_id)"
                 @remove="removePart(selectedPart)"
                 @swap="openSwap(selectedPart)"
               />
@@ -392,8 +392,8 @@ function blankPart(partType = 'other') {
     brand: null, model: null, spec: null, serial_no: null,
     sale_date: null, sale_amount: null, sale_currency: 'CNY',
     domestic_shipping_amount: null, domestic_shipping_currency: 'CNY',
-    // null = 跟随整机的归属人
-    owner: null,
+    // 用户 id；null = 跟随整机的归属人
+    owner_id: null,
     status: 'purchased', note: null
   }
 }
@@ -405,7 +405,8 @@ function blankForm() {
     source_platform: null, seller: null, item_url: null, order_no: null,
     purchase_date: null, purchase_amount: null, purchase_currency: 'JPY',
     intl_shipping_amount: null, intl_shipping_currency: 'JPY',
-    owner: null,
+    // 归属人是用户 id（见 OwnerSelect）；显示用的名字在响应的 device.owner 上
+    owner_id: null,
     status: 'purchased', note: null,
     parts: []
   }
@@ -486,12 +487,6 @@ async function doSave() {
   const res = await devicesApi.update(form.id, buildPayload(submitted))
   device.value = res
   await autosave.silently(() => mergePartIds(submitted, res))
-  // 归属人不用在这里建：后端存的时候已经顺手把新名字落进字典了（整机和部件上现敲的
-  // 都算），这里只把候选刷新一下，否则同一次会话里换一台机器，那个名字又不在下拉里了
-  const owners = [form.owner, ...form.parts.map((p) => p.owner)].filter(Boolean)
-  if (owners.some((n) => !meta.contributors.includes(n))) {
-    meta.reloadContributors()
-  }
 }
 
 function normalize(row) {
@@ -601,7 +596,10 @@ const swapPart = ref(null)
 const swapSource = computed(() => {
   const p = swapPart.value
   if (!p) return {}
-  return { brand: p.brand, model: p.model, core_no: p.spec, serial_no: p.serial_no, owner: p.owner || form.owner }
+  return {
+    brand: p.brand, model: p.model, core_no: p.spec, serial_no: p.serial_no,
+    owner: meta.personName(p.owner_id || form.owner_id)
+  }
 })
 
 // 先把没落盘的改动存完再开：置换按库里的值互换，表单里还没存的序列号会被换丢

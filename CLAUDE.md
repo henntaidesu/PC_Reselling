@@ -157,7 +157,7 @@ exe 所在目录必须可写，别放进 Program Files。也不用 onedir，发�
 都由 `funds.rebuild()` 整体重算得出，从不增量维护。**任何会影响池子的写路径都必须触发重算**——
 新增/编辑/删除卡片或设备走 `funds.sync_card_and_rebuild()` / `sync_device_and_rebuild()`，
 注资与扣款的增删改走 `funds.rebuild()`。忘了调用的症状是列表里的成本停在旧值。
-换归属人也是这样一条写路径，但不用另外处理：扣款的 `contributor` 就是归属人，
+换归属人也是这样一条写路径，但不用另外处理：扣款的 `contributor_id` 就是归属人，
 `sync_owner_draws()` 比对得出它变了。
 
 **出售回流**是池子的另一条入口：售价是日元（卡或部件）、填了出售日期、有归属人（部件没填就
@@ -173,11 +173,21 @@ exe 所在目录必须可写，别放进 Program Files。也不用 onedir，发�
 
 ### 归属人：货是谁的，也是钱从谁的池里扣
 
-`owner`（`cards` / `devices` / `device_parts` 三列）有两层含义：货是谁的，以及**买它的钱从谁的
+`owner_id`（`cards` / `devices` / `device_parts` 三列）有两层含义：货是谁的，以及**买它的钱从谁的
 池里扣**——`cards.uses_pool()` 就是「有没有归属人」，设了就扣，没有确认这一步。没设归属人的货
-不进池，按购入日牌价折成本。候选就是注资的出资人名单（`fund_contributors`，写入走
-`funds.ensure_contributor`）。部件的 `owner` 只是标签（NULL 表示跟随整机），扣款只认整机。
-前端三处都用 `components/OwnerSelect.vue`。
+不进池，按购入日牌价折成本。部件的 `owner_id` 只是标签（NULL 表示跟随整机），扣款只认整机。
+
+**归属人 / 出资人就是用户系统里的账号**（`src/people.py` 的 docstring 是权威说明）：五列
+`owner_id` / `fund_injections.contributor_id` / `fund_draws.contributor_id` 都存 `users.id`（外键
+RESTRICT），**不存名字**——用户名和显示名都能改，存名字的话改一次名账就断成两截。显示名 =
+`display_name`，空则用户名（「甘」是 makuro 的显示名）；显示名在用户之间不许重复。接口输出里
+`owner` / `contributor` 是现查的显示名、只给页面看，认人一律用 `*_id`；批量序列化时传
+`people.names()` 免得逐行查。名下有货有钱的人删不掉，只能停用（历史照常显示，下拉不再列出）。
+前端四处（显卡 / 整机 / 部件 / 资金池弹窗）都用 `components/OwnerSelect.vue`，候选是
+`meta.people`（`/options/people`），不能现敲新名字，人要先在「系统配置 → 用户」里建；用户管理
+页改动后 `meta.reloadPeople()`。老的 `owner` / `contributor` 名字列与 `fund_contributors` 字典只留
+不删（迁移 `schema._migrate_owner_to_users` 读过一次）；请求体里再出现这两个老字段会被
+`people.reject_legacy` 以「页面版本过旧」拒掉——放过去会把归属人当成「没填」清空。
 
 每人一个池子：货的扣款只在归属人的注资批次里先进先出。**池子允许为负**：钱不够照扣，欠的
 记在 `fund_draws.shortfall`，按扣款日牌价暂估；这个人之后的注资会先顶上欠款（所以 FIFO

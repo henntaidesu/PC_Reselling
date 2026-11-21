@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Dict, List, Optional, Tuple
 
-from src import db, settings_store
+from src import db, people, settings_store
 
 log = logging.getLogger(__name__)
 
@@ -238,9 +238,11 @@ _TABLES: List[Tuple[str, str]] = [
             pool_intl_cny     DECIMAL(14,2) NULL COMMENT '国际运费按各注资批次汇率折算后的人民币合计',
             pool_fx_rate      DECIMAL(18,8) NULL COMMENT '这张卡实际吃到的加权汇率，仅供展示',
 
-            -- 这件东西是谁的。存名字，取值来自 fund_contributors 字典（与出资人同一份名单）。
-            -- 与出资比例是两回事：比例管「钱谁出、利润怎么分」，归属人只标「货在谁手上」。
-            owner      VARCHAR(64) NULL COMMENT '归属人名字；NULL = 未指定',
+            -- 这件东西是谁的，也是钱从谁的池里扣：指向 users.id（见 src.people）。
+            -- 存 id 不存名字，是因为用户名 / 显示名都能改，存名字的话改一次名账就断成两截。
+            owner_id   INT UNSIGNED NULL COMMENT '归属人（users.id）；NULL = 未指定',
+            -- 已停用：改成 owner_id 之前存的是名字，迁移（_migrate_owner_to_users）读过一次，只留不删
+            owner      VARCHAR(64) NULL COMMENT '已停用，见 owner_id',
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       TEXT NULL,
             -- 草稿卡：点「新增」就先建一张（好让图片能立刻挂上去），存下第一笔改动即转 0。
@@ -255,7 +257,9 @@ _TABLES: List[Tuple[str, str]] = [
             KEY idx_cards_is_draft (is_draft),
             KEY idx_cards_purchase_date (purchase_date),
             KEY idx_cards_sale_date (sale_date),
-            KEY idx_cards_serial (serial_no)
+            KEY idx_cards_serial (serial_no),
+            -- RESTRICT：名下还有货的人不能删（users_api 先拦一道给出人话，这里兜底）
+            CONSTRAINT fk_cards_owner FOREIGN KEY (owner_id) REFERENCES users (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
         """,
     ),
@@ -335,7 +339,8 @@ _TABLES: List[Tuple[str, str]] = [
             pool_intl_cny     DECIMAL(14,2) NULL COMMENT '国际运费按各注资批次汇率折算后的人民币合计',
             pool_fx_rate      DECIMAL(18,8) NULL COMMENT '这台设备实际吃到的加权汇率，仅供展示',
 
-            owner      VARCHAR(64) NULL COMMENT '归属人名字（与 cards.owner 同义）；部件不另填时跟随它',
+            owner_id   INT UNSIGNED NULL COMMENT '归属人（users.id，与 cards.owner_id 同义）；部件不另填时跟随它',
+            owner      VARCHAR(64) NULL COMMENT '已停用，见 owner_id',
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       TEXT NULL,
             -- 与卡片同一套草稿机制：点「新增」就先建一台，存下第一笔改动即转 0。
@@ -347,7 +352,8 @@ _TABLES: List[Tuple[str, str]] = [
             UNIQUE KEY uk_devices_mgmt_no (mgmt_no),
             KEY idx_devices_status (status),
             KEY idx_devices_is_draft (is_draft),
-            KEY idx_devices_purchase_date (purchase_date)
+            KEY idx_devices_purchase_date (purchase_date),
+            CONSTRAINT fk_devices_owner FOREIGN KEY (owner_id) REFERENCES users (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           COMMENT='整机设备：一次购入（一笔总价），拆成多个部件分别出售'
         """,
@@ -380,7 +386,8 @@ _TABLES: List[Tuple[str, str]] = [
             buyer      VARCHAR(128) NULL,
             -- NULL = 跟随整机的归属人。只有这一件确实归别人时才填，否则改整机的归属人
             -- 还得把十来个部件挨个改一遍。
-            owner      VARCHAR(64) NULL COMMENT '部件自己的归属人；NULL = 跟随整机',
+            owner_id   INT UNSIGNED NULL COMMENT '部件自己的归属人（users.id）；NULL = 跟随整机',
+            owner      VARCHAR(64) NULL COMMENT '已停用，见 owner_id',
             status     VARCHAR(24) NOT NULL DEFAULT 'purchased',
             note       VARCHAR(500) NULL,
             sort_order INT NOT NULL DEFAULT 0,
@@ -392,7 +399,8 @@ _TABLES: List[Tuple[str, str]] = [
             KEY idx_device_parts_type (part_type),
             KEY idx_device_parts_sale_date (sale_date),
             CONSTRAINT fk_device_parts_device FOREIGN KEY (device_id)
-                REFERENCES devices (id) ON DELETE CASCADE
+                REFERENCES devices (id) ON DELETE CASCADE,
+            CONSTRAINT fk_device_parts_owner FOREIGN KEY (owner_id) REFERENCES users (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           COMMENT='设备部件明细。一台设备多行，内存/硬盘可重复出现；出售价格在这里'
         """,
@@ -495,7 +503,7 @@ _TABLES: List[Tuple[str, str]] = [
             PRIMARY KEY (id),
             UNIQUE KEY uk_fund_contributors_name (name)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          COMMENT='出资人字典（池子里的钱是谁出的），注资时下拉选，可现场新增'
+          COMMENT='已停用：出资人 / 归属人改由用户系统提供（src.people），这张字典只留不删'
         """,
     ),
     (
@@ -512,10 +520,10 @@ _TABLES: List[Tuple[str, str]] = [
             fx_rate     DECIMAL(18,8) NULL,
             fx_date     DATE NULL COMMENT '实际取到的牌价日（非交易日会回退）',
             fx_manual   TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=汇率手工填写（真实换汇价），不自动覆盖',
-            -- 这批钱是谁出的。存**名字**而不是指向 fund_contributors 的外键，与品牌 / 购买
-            -- 平台同一套路：字典只是候选清单，把某个出资人从清单里删掉不该动到历史账目。
+            -- 这批钱是谁出的：指向 users.id（见 src.people），理由同 cards.owner_id。
             -- 空 = 没指定（旧数据、或自己出的），统计里单列一档「未指定」。
-            contributor VARCHAR(64) NULL COMMENT '出资人名字，取值来自 fund_contributors 字典',
+            contributor_id INT UNSIGNED NULL COMMENT '出资人（users.id）',
+            contributor VARCHAR(64) NULL COMMENT '已停用，见 contributor_id',
             -- 换汇渠道。界面上已经不录了（渠道对算账没有任何影响），列留着不删：
             -- 老数据里还有值，而这个库的迁移规矩是只加不改。
             channel     VARCHAR(64) NULL COMMENT '换汇渠道，已停用，不再写入',
@@ -547,7 +555,9 @@ _TABLES: List[Tuple[str, str]] = [
             CONSTRAINT fk_fund_injections_sale_device FOREIGN KEY (sale_device_id)
                 REFERENCES devices (id) ON DELETE CASCADE,
             CONSTRAINT fk_fund_injections_sale_part FOREIGN KEY (sale_part_id)
-                REFERENCES device_parts (id) ON DELETE SET NULL
+                REFERENCES device_parts (id) ON DELETE SET NULL,
+            CONSTRAINT fk_fund_injections_contributor FOREIGN KEY (contributor_id)
+                REFERENCES users (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           COMMENT='资金池注资批次。每次换汇进池一条，各自带自己那天的汇率；日元售价的回流也在这里'
         """,
@@ -566,6 +576,9 @@ _TABLES: List[Tuple[str, str]] = [
             draw_date  DATE NOT NULL COMMENT '花钱的日期，决定它能吃到哪些批次（只能用已经进池的钱）',
             amount     DECIMAL(16,2) NOT NULL COMMENT '扣掉的日元金额',
             currency   VARCHAR(3) NOT NULL DEFAULT 'JPY',
+            -- 从谁的钱里扣（users.id）。货的扣款就是货的归属人，手工支出是录入时选的；
+            -- NULL = 全池 FIFO（见 funds.allocate）
+            contributor_id INT UNSIGNED NULL COMMENT '出资人（users.id）',
             note       VARCHAR(500) NULL,
             -- 下面三列是 FIFO 分摊的结果，由 funds.rebuild() 回写：
             cny_amount DECIMAL(14,2) NULL COMMENT '折算后的人民币成本合计；NULL=有分段折不出来',
@@ -582,7 +595,9 @@ _TABLES: List[Tuple[str, str]] = [
             CONSTRAINT fk_fund_draws_card FOREIGN KEY (card_id)
                 REFERENCES cards (id) ON DELETE CASCADE,
             CONSTRAINT fk_fund_draws_device FOREIGN KEY (device_id)
-                REFERENCES devices (id) ON DELETE CASCADE
+                REFERENCES devices (id) ON DELETE CASCADE,
+            CONSTRAINT fk_fund_draws_contributor FOREIGN KEY (contributor_id)
+                REFERENCES users (id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
           COMMENT='从资金池扣款。卡片/整机侧的两类跟着各自的金额自动同步，删除时级联清掉'
         """,
@@ -720,6 +735,13 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("fund_injections", "sale_card_id", "sale_card_id INT UNSIGNED NULL"),
     ("fund_injections", "sale_device_id", "sale_device_id INT UNSIGNED NULL"),
     ("fund_injections", "sale_part_id", "sale_part_id INT UNSIGNED NULL"),
+    # 归属人 / 出资人改为关联用户（见 src.people）。外键由 _migrate_owner_fks 补，
+    # 存量名字由 _migrate_owner_to_users 换成 id
+    ("cards", "owner_id", "owner_id INT UNSIGNED NULL"),
+    ("devices", "owner_id", "owner_id INT UNSIGNED NULL"),
+    ("device_parts", "owner_id", "owner_id INT UNSIGNED NULL"),
+    ("fund_injections", "contributor_id", "contributor_id INT UNSIGNED NULL"),
+    ("fund_draws", "contributor_id", "contributor_id INT UNSIGNED NULL"),
 ]
 
 
@@ -1103,6 +1125,101 @@ def _migrate_shares_to_owner() -> None:
         log.warning("迁移后重算资金池失败：%s", exc)
 
 
+def _migrate_owner_fks() -> None:
+    """给 owner_id / contributor_id 补指向 users 的外键（RESTRICT：名下有货有钱的人删不掉）。
+
+    列由 _MIGRATIONS 补上，外键 ALTER 不了已建好的表，只能在这里按需加。
+    """
+    for table, col, _unit in people.REFERENCES:
+        name = f"fk_{table}_{col[:-3]}"   # fk_cards_owner / fk_fund_draws_contributor
+        if not _has_column(table, col):
+            continue
+        has_fk = int(db.query_scalar(
+            "SELECT COUNT(*) AS c FROM information_schema.TABLE_CONSTRAINTS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND CONSTRAINT_NAME = %s",
+            (table, name), default=0) or 0)
+        if not has_fk:
+            log.info("迁移：%s.%s 增加指向 users 的外键", table, col)
+            # 表名、列名、约束名都来自 people.REFERENCES 那张固定的表
+            db.execute(f"ALTER TABLE {table} ADD CONSTRAINT {name} "
+                       f"FOREIGN KEY ({col}) REFERENCES users (id)")
+
+
+# 归属人 / 出资人原来存的是名字（取自 fund_contributors 字典），改成关联用户之后要把存量
+# 名字换成 users.id：每个出现过的名字先按「用户名或显示名相同」找人，找不到就以这个名字
+# 为用户名建一个号（没有本地密码、不是管理员，管理员之后在用户管理里改名、设密码即可）。
+# 想让某个名字落到已有账号上（比如「甘」就是 makuro），迁移前把那个账号的显示名改成它。
+# 改存量数据、跑第二遍会把用户后来主动清空的归属人又从老名字列里填回去，所以照
+# _migrate_fx_rate_direction 的办法记一个做过的标记。只认真正被货或钱引用的名字：
+# 字典里从没用过的（多是 allow-create 时手滑敲出来的）不建号。
+_OWNER_TO_USERS_KEY = "owner_to_users_migrated"
+
+# (表, 老的名字列, 新的 id 列)
+_OWNER_NAME_COLUMNS: List[Tuple[str, str, str]] = [
+    ("cards", "owner", "owner_id"),
+    ("devices", "owner", "owner_id"),
+    ("device_parts", "owner", "owner_id"),
+    ("fund_injections", "contributor", "contributor_id"),
+    ("fund_draws", "contributor", "contributor_id"),
+]
+
+
+def _migrate_owner_to_users() -> None:
+    if settings_store.get(_OWNER_TO_USERS_KEY):
+        return
+    for table, old, new in _OWNER_NAME_COLUMNS:
+        if not _has_column(table, old) or not _has_column(table, new):
+            return  # 列还没补上，等下次启动
+    from src.security import NO_PASSWORD
+
+    with db.transaction() as cur:
+        names: List[str] = []
+        # 表名与列名来自 _OWNER_NAME_COLUMNS 这张固定的表
+        for table, old, _new in _OWNER_NAME_COLUMNS:
+            cur.execute(f"SELECT DISTINCT TRIM({old}) AS n FROM {table} "
+                        f"WHERE {old} IS NOT NULL AND TRIM({old}) <> ''")
+            for row in cur.fetchall():
+                # 列是 _ci 排序规则，「C2」和「c2」在库里本来就是同一个值，这里也按一个算
+                if not any(row["n"].casefold() == n.casefold() for n in names):
+                    names.append(row["n"])
+        for name in names:
+            cur.execute(
+                f"SELECT id, username FROM users WHERE {people.SHOWN_NAME_SQL} = %s OR username = %s "
+                f"ORDER BY ({people.SHOWN_NAME_SQL} = %s) DESC, id LIMIT 1",
+                (name, name, name))
+            user = cur.fetchone()
+            if user:
+                user_id = int(user["id"])
+                log.info("迁移：归属人「%s」→ 已有用户 %s", name, user["username"])
+            else:
+                cur.execute(
+                    "INSERT INTO users (username, password_hash, is_active, is_admin) "
+                    "VALUES (%s, %s, 1, 0)", (name[:64], NO_PASSWORD))
+                user_id = int(cur.lastrowid)
+                log.warning("迁移：归属人「%s」没有对应账号，已新建同名用户（无密码，请在用户管理里设置）", name)
+            for table, old, new in _OWNER_NAME_COLUMNS:
+                cur.execute(
+                    f"UPDATE {table} SET {new} = %s WHERE {new} IS NULL AND TRIM({old}) = %s",
+                    (user_id, name))
+        cur.execute(
+            "INSERT INTO app_settings (`key`, `value`) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE `value` = VALUES(`value`)",
+            (_OWNER_TO_USERS_KEY, "1"),
+        )
+    if not names:
+        return
+    # 扣款与出售回流上的出资人由货的归属人派生，按新列再同步一遍、整体重算——分组键从名字
+    # 换成了 id，一一对应，算出来的成本应与迁移前完全一致。失败了下次保存或点「重算」能补回来。
+    try:
+        from src import funds  # 避开 funds → schema 的循环依赖
+
+        result = funds.resync_all()
+        for w in result.get("warnings", []):
+            log.warning("迁移后重算资金池：%s", w)
+    except Exception as exc:  # noqa: BLE001  重算失败不该拖垮启动
+        log.warning("迁移后重算资金池失败：%s", exc)
+
+
 def init() -> None:
     """建库 → 建表 → 补列 → 结构迁移 → 数据迁移 → 灌入首次运行的种子数据。可重复执行。"""
     db.ensure_database()
@@ -1120,7 +1237,11 @@ def init() -> None:
     _cleanup_stale_drafts()
     _migrate_injection_earmark_fk()
     _migrate_injection_sale_links()
+    _migrate_owner_fks()
     _migrate_shares_to_owner()
+    # 必须在 _migrate_shares_to_owner（它写的还是名字）之后、_sync_sale_returns 之前：
+    # 回流同步按 owner_id 找人，id 还没填的话会把全部回流当成「没有归属人」删掉
+    _migrate_owner_to_users()
     _sync_sale_returns()
     _seed()
 

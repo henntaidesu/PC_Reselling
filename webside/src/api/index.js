@@ -148,7 +148,8 @@ export const optionsApi = {
   createBrand: (payload) => http.post('/options/brands', payload),
   removeBrand: (id) => http.delete(`/options/brands/${id}`),
   platforms: () => http.get('/options/platforms'),
-  fundContributors: () => http.get('/options/fund-contributors'),
+  // 归属人 / 出资人的候选：用户系统里的全部账号（含停用的，见 stores/meta 的 people）
+  people: () => http.get('/options/people'),
   createPlatform: (payload) => http.post('/options/platforms', payload),
   removePlatform: (id) => http.delete(`/options/platforms/${id}`),
   models: () => http.get('/options/models'),

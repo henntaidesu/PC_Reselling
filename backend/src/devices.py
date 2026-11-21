@@ -38,7 +38,7 @@ import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
-from src import db
+from src import db, people
 from src.fx import FxError, get_rate
 # 金额换算与序列化的口径必须和显卡完全一致，共用同一份实现而不是再抄一遍：
 # 抄一份的下场是某天只改了其中一处，两个页面的合计从此对不上。
@@ -250,8 +250,10 @@ def compute_money(device: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[s
 
 # ── 序列化 ──────────────────────────────────────────────────────────────── #
 
-def serialize_part(row: Dict[str, Any]) -> Dict[str, Any]:
+def serialize_part(row: Dict[str, Any], names: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
     out: Dict[str, Any] = dict(row)
+    # 部件自己的归属人（None = 跟随整机，不在这里回退），名字现查，理由见 cards.serialize
+    out["owner"] = people.name_of(row.get("owner_id"), names)
     for key in ("sale_date", "sale_fx_date", "created_at", "updated_at"):
         out[key] = _iso(row.get(key))
     for key in ("sale_amount", "domestic_shipping_amount", "sale_fx_rate"):
@@ -262,9 +264,12 @@ def serialize_part(row: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def serialize(row: Dict[str, Any], parts: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
-    """数据库行 → API 响应。Decimal / date 都不是 JSON 原生类型，必须显式转。"""
+def serialize(row: Dict[str, Any], parts: Optional[List[Dict[str, Any]]] = None,
+              names: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
+    """数据库行 → API 响应。Decimal / date 都不是 JSON 原生类型，必须显式转。
+    ``owner`` 换成归属人现在的显示名，``names`` 的用法同 cards.serialize。"""
     parts = parts or []
+    names = people.names() if names is None else names
     out: Dict[str, Any] = dict(row)
     for key in ("purchase_date", "purchase_fx_date", "created_at", "updated_at"):
         out[key] = _iso(row.get(key))
@@ -275,8 +280,9 @@ def serialize(row: Dict[str, Any], parts: Optional[List[Dict[str, Any]]] = None)
     # 两列已停用（资金池改由归属人决定，见 cards.uses_pool），不再下发
     out.pop("fund_source", None)
     out.pop("pool_confirmed_at", None)
+    out["owner"] = people.name_of(row.get("owner_id"), names)
     out["money"] = compute_money(row, parts)
-    out["parts"] = [serialize_part(p) for p in parts]
+    out["parts"] = [serialize_part(p, names) for p in parts]
     return out
 
 

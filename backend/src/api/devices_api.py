@@ -12,9 +12,9 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src import db, devices, funds, swaps
+from src import db, devices, funds, people, swaps
 from src.auth import require_auth
 from src.cards import uses_pool
 from src.schema import (
@@ -33,7 +33,7 @@ _WRITABLE = [
     "source_platform", "seller", "item_url", "order_no",
     "purchase_date", "purchase_amount", "purchase_currency",
     "intl_shipping_amount", "intl_shipping_currency",
-    "owner", "status", "note",
+    "owner_id", "status", "note",
 ]
 
 # 允许写入 device_parts 的列，顺序即 INSERT / UPDATE 里的顺序。
@@ -43,7 +43,7 @@ _PART_COLUMNS = [
     "part_type", "brand", "model", "spec", "serial_no",
     "sale_date", "sale_amount", "sale_currency",
     "domestic_shipping_amount", "domestic_shipping_currency",
-    "owner", "status", "note", "sort_order",
+    "owner_id", "status", "note", "sort_order",
 ]
 
 
@@ -65,11 +65,16 @@ class PartPayload(BaseModel):
     domestic_shipping_amount: Optional[float] = Field(default=None, ge=0)
     domestic_shipping_currency: str = "CNY"
 
-    # 这一件归谁。空 = 跟随整机的归属人，只有确实归别人时才填。
-    owner: Optional[str] = Field(default=None, max_length=64)
+    # 这一件归谁（users.id）。空 = 跟随整机的归属人，只有确实归别人时才填。
+    owner_id: Optional[int] = Field(default=None, gt=0)
     status: str = "purchased"
     note: Optional[str] = Field(default=None, max_length=500)
     sort_order: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy(cls, data):
+        return people.reject_legacy(data, "owner")
 
     @field_validator("part_type")
     @classmethod
@@ -119,15 +124,20 @@ class DevicePayload(BaseModel):
     intl_shipping_currency: str = "JPY"
 
 
-    # 这台机器是谁的，也是钱从谁的池里扣（与 cards.owner 同义）。部件不另填时跟随它；
-    # 部件的归属人只是标签，整机是一口价买的，扣款只认整机这一个。
-    owner: Optional[str] = Field(default=None, max_length=64)
+    # 这台机器是谁的，也是钱从谁的池里扣（users.id，与 cards.owner_id 同义）。部件不另填时
+    # 跟随它；部件的归属人只是标签，整机是一口价买的，扣款只认整机这一个。
+    owner_id: Optional[int] = Field(default=None, gt=0)
 
     status: str = "purchased"
     note: Optional[str] = None
 
     # 部件明细。提交即是这台设备**当前的全部部件**（见 _write_parts 的说明）。
     parts: List[PartPayload] = Field(default_factory=list, max_length=200)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy(cls, data):
+        return people.reject_legacy(data, "owner")
 
     @field_validator("purchase_currency", "intl_shipping_currency")
     @classmethod
@@ -186,6 +196,13 @@ def _apply_fx(payload: DevicePayload) -> Dict[str, Any]:
     }
 
 
+def _check_owners(payload: DevicePayload) -> None:
+    """整机与各部件的归属人在**写任何东西之前**一起校验：整机行是单独先存的，部件才在
+    事务里写，半路因为某个部件的归属人不存在而失败，会留下一台只存了一半的机器。"""
+    for user_id in {payload.owner_id, *(p.owner_id for p in payload.parts)}:
+        people.check(user_id)
+
+
 def _write_parts(device_id: int, payload: DevicePayload, fx: Dict[str, Any]) -> None:
     """按 id 增量写入这台设备的部件：带 id 的原地更新，没 id 的新插，这次没提交的删掉。
 
@@ -211,7 +228,6 @@ def _write_parts(device_id: int, payload: DevicePayload, fx: Dict[str, Any]) -> 
     with db.transaction() as cur:
         for index, part in enumerate(payload.parts):
             values = {name: _clean(getattr(part, name)) for name in _PART_COLUMNS}
-            values["owner"] = funds.ensure_contributor(values["owner"])
             # 排序按提交顺序重排，前端拖动 / 插入后不必自己维护 sort_order
             values["sort_order"] = index
             rate, rate_date = fx["part_rates"][index]
@@ -305,9 +321,9 @@ def create_draft():
 
 @router.post("")
 def create_device(payload: DevicePayload):
+    _check_owners(payload)
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
-    values["owner"] = funds.ensure_contributor(values["owner"])
     values["mgmt_no"] = devices.next_mgmt_no()
     values["purchase_fx_rate"] = fx["purchase_fx_rate"]
     values["purchase_fx_date"] = fx["purchase_fx_date"]
@@ -333,10 +349,9 @@ def update_device(device_id: int, payload: DevicePayload):
     if not existing:
         raise HTTPException(status_code=404, detail="设备不存在")
 
+    _check_owners(payload)
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
-    # 归属人落进字典并取字典里的写法，理由同出资人
-    values["owner"] = funds.ensure_contributor(values["owner"])
     values["purchase_fx_rate"] = fx["purchase_fx_rate"]
     values["purchase_fx_date"] = fx["purchase_fx_date"]
     # 一旦保存就转正：草稿变正式设备，从此进列表与统计

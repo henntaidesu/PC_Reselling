@@ -24,7 +24,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from src import cards, db, devices
+from src import cards, db, devices, people
 from src.auth import require_auth
 from src.schema import CARD_STATUSES, DEVICE_PART_TYPES
 
@@ -47,8 +47,9 @@ _SORT_KEYS = {
 
 # ── 规范化：两种货 → 同一种行 ───────────────────────────────────────────── #
 
-def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, Any]:
-    data = cards.serialize(row, media)
+def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
+               names: Dict[int, str]) -> Dict[str, Any]:
+    data = cards.serialize(row, media, names)
     money = data["money"]
     return {
         # 行标识。卡片与整机的 id 各自从 1 开始，二级行还要和它们混在一张表里，
@@ -84,14 +85,17 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]]) -> Dict[str, An
         "incomplete": money["incomplete"],
         # 成本按资金池算的（有归属人），「池内扣除」筛选用它
         "from_pool": money["from_pool"],
-        "owner": row.get("owner"),
-        # 按归属人筛选看的是这一份（整机要把部件的也算上，见 _device_item）
-        "owners": [row["owner"]] if row.get("owner") else [],
+        # 显示用名字、认人用 id（见 src.people）
+        "owner": data["owner"],
+        "owner_id": row.get("owner_id"),
+        # 按归属人筛选看的是这一份 id（整机要把部件的也算上，见 _device_item）
+        "owners": [row["owner_id"]] if row.get("owner_id") else [],
         "media": data["media"],
     }
 
 
-def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str]) -> Dict[str, Any]:
+def _part_row(part: Dict[str, Any], device_id: int, device_owner_id: Optional[int],
+              names: Dict[int, str]) -> Dict[str, Any]:
     """把一个部件规范化成**和顶层行同样的形状**，作为整机的二级行。
 
     不适用的列一律给 None，前端统一显示成「—」：部件没有购入日（整机是一口价买的），
@@ -101,7 +105,7 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str])
     money = part["money"]
     title = " ".join(x for x in (part.get("brand"), part.get("model"), part.get("spec")) if x)
     # 部件没单独指定归属人就是整机的
-    owner = part.get("owner") or device_owner
+    owner_id = part.get("owner_id") or device_owner_id
     return {
         "row_key": f"{KIND_PART}-{part['id']}",
         "kind": KIND_PART,
@@ -133,29 +137,30 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner: Optional[str])
         "incomplete": money["incomplete"],
         # 部件不单独出钱：整机是一口价买的，资金来源在整机那一行上
         "from_pool": False,
-        "owner": owner,
+        "owner": people.name_of(owner_id, names),
+        "owner_id": owner_id,
         # 归属人是部件自己填的，而不是跟随整机——列表上据此区分显示
-        "owner_own": bool(part.get("owner")),
-        "owners": [owner] if owner else [],
+        "owner_own": bool(part.get("owner_id")),
+        "owners": [owner_id] if owner_id else [],
         "media": [],
     }
 
 
 def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
-                 media: List[Dict[str, Any]]) -> Dict[str, Any]:
-    data = devices.serialize(row, parts)
+                 media: List[Dict[str, Any]], names: Dict[int, str]) -> Dict[str, Any]:
+    data = devices.serialize(row, parts, names)
     money = data["money"]
     # 整机没有单一的「出售日期」——部件是分批卖的，这里取最后成交的那天。
     # **列表的顶层行不显示它**（逐件的出售日期在展开的二级行上，那才是实情），
     # 这个值留着是给按出售日期排序用的：整机得有个可比的位置，不然排序时全落到末尾。
     sale_dates = [p["sale_date"] for p in data["parts"] if p["sale_date"]]
-    children = [_part_row(p, row["id"], row.get("owner")) for p in data["parts"]]
+    children = [_part_row(p, row["id"], row.get("owner_id"), names) for p in data["parts"]]
     # 一台机器牵涉到的归属人：整机自己的，加上单独归别人的部件。按「单」筛选时，
     # 一台甘的整机里装着单的那块卡，这台机器也该出现
-    owners: List[str] = []
-    for name in [row.get("owner")] + [c["owner"] for c in children]:
-        if name and name not in owners:
-            owners.append(name)
+    owners: List[int] = []
+    for owner_id in [row.get("owner_id")] + [c["owner_id"] for c in children]:
+        if owner_id and owner_id not in owners:
+            owners.append(owner_id)
     item = {
         "row_key": f"{KIND_DEVICE}-{row['id']}",
         "kind": KIND_DEVICE,
@@ -186,7 +191,8 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "profit_cny": money["profit_cny"],
         "incomplete": money["incomplete"],
         "from_pool": money["from_pool"],
-        "owner": row.get("owner"),
+        "owner": data["owner"],
+        "owner_id": row.get("owner_id"),
         "owners": owners,
         # 整机自己的图（外观 / 铭牌…），列表里取第一张当封面，与显卡同一套
         "media": media,
@@ -245,11 +251,12 @@ def _load_universe() -> Dict[str, List[tuple]]:
     几百行的量级一遍不到一毫秒。顺带的好处是列表、统计、下拉选项三者走的是同一个
     _select()，口径不可能各算各的。
     """
+    names = people.names()
     card_rows = db.query("SELECT * FROM cards WHERE is_draft = 0")
     cids = [r["id"] for r in card_rows]
     media_map = cards.load_media(cids)
     card_list = [
-        (_card_item(r, media_map.get(r["id"], [])), r)
+        (_card_item(r, media_map.get(r["id"], []), names), r)
         for r in card_rows
     ]
 
@@ -260,7 +267,7 @@ def _load_universe() -> Dict[str, List[tuple]]:
     device_list = []
     for r in dev_rows:
         parts = parts_map.get(r["id"], [])
-        item = _device_item(r, parts, dmedia_map.get(r["id"], []))
+        item = _device_item(r, parts, dmedia_map.get(r["id"], []), names)
         device_list.append((item, r, {p["id"]: p for p in parts}))
     return {"cards": card_list, "devices": device_list}
 
@@ -334,7 +341,7 @@ def _part_ok(part: Dict[str, Any], device: Dict[str, Any], f: Dict[str, Any],
     return _kw_hit(f["keyword"], values)
 
 
-# 归属人筛选里「未指定」的取值。用一个不可能是人名的记号，而不是空串——
+# 归属人筛选里「未指定」的取值。用一个不可能是用户 id 的记号，而不是空串——
 # 空串在查询串里会被当成「没传」。
 OWNER_NONE = "__none__"
 
@@ -353,7 +360,7 @@ def _inventory_filters(
     source_platform: Optional[str] = Query(default=None),
     purchase_from: Optional[dt.date] = Query(default=None),
     purchase_to: Optional[dt.date] = Query(default=None),
-    owner: Optional[str] = Query(default=None, description=f"逗号分隔的归属人，{OWNER_NONE} 表示未指定"),
+    owner: Optional[str] = Query(default=None, description=f"逗号分隔的归属人 id，{OWNER_NONE} 表示未指定"),
     sale_from: Optional[dt.date] = Query(default=None),
     sale_to: Optional[dt.date] = Query(default=None),
     stock: Optional[str] = Query(default=None, description="in_stock / settled"),
@@ -373,13 +380,26 @@ def _inventory_filters(
         model=(model or "").strip() or None,
         source_platform=(source_platform or "").strip() or None,
         purchase_from=purchase_from, purchase_to=purchase_to,
-        owners=[c.strip() for c in (owner or "").split(",") if c.strip()],
+        owners=_owner_values(owner),
         sale_from=sale_from, sale_to=sale_to,
         stock=stock if stock in _STOCK_STATES else None,
         profit=profit if profit in _PROFIT_STATES else None,
         pool=pool if pool in _POOL_STATES else None,
         cost_min=cost_min, cost_max=cost_max,
     )
+
+
+def _owner_values(raw: Optional[str]) -> List[Any]:
+    """「5,7,__none__」→ [5, 7, "__none__"]。认不出来的值直接丢掉：按一个不存在的人筛，
+    结果本来就该是空的，没必要报错。"""
+    out: List[Any] = []
+    for c in (raw or "").split(","):
+        c = c.strip()
+        if c == OWNER_NONE:
+            out.append(c)
+        elif c.isdigit():
+            out.append(int(c))
+    return out
 
 
 def _sold_in_range(item: Dict[str, Any], start: Optional[dt.date], end: Optional[dt.date]) -> bool:
@@ -406,9 +426,9 @@ def _match_derived(item: Dict[str, Any], f: Dict[str, Any]) -> bool:
     """
     if f["owners"]:
         # 命中任一人即可，「未指定」= 这件货上一个归属人都没有
-        names = item["owners"]
+        owners = item["owners"]
         want_none = OWNER_NONE in f["owners"]
-        if not (any(n in names for n in f["owners"]) or (want_none and not names)):
+        if not (any(o in owners for o in f["owners"]) or (want_none and not owners)):
             return False
     if (f["sale_from"] or f["sale_to"]) and not _sold_in_range(item, f["sale_from"], f["sale_to"]):
         return False
@@ -529,8 +549,15 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
     card_rows = [row for _, row in universe["cards"]]
     device_rows = [row for _, row, _ in universe["devices"]]
     all_parts = [p for _, _, parts in universe["devices"] for p in parts.values()]
-    owners = distinct(
-        n for entry in universe["cards"] + universe["devices"] for n in entry[0]["owners"])
+    # 归属人按 id 筛、按名字排；下拉显示的名字由前端从 /options/people 里查。
+    # 取值转成字符串，与查询串里传回来的写法一致（前端多选拿它当 key）
+    names = {}
+    for entry in universe["cards"] + universe["devices"]:
+        item = entry[0]
+        for c in [item] + item.get("children", []):
+            if c.get("owner_id"):
+                names[c["owner_id"]] = c["owner"] or ""
+    owners = sorted(names, key=lambda i: (names[i], i))
 
     kinds = [(k, {"kind": k, "part_type": None}) for k in (KIND_CARD, KIND_DEVICE, KIND_PART)]
     kinds += [(f"{KIND_PART}:{t}", {"kind": KIND_PART, "part_type": t}) for t in DEVICE_PART_TYPES]
@@ -543,7 +570,7 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
             [r.get("model") for r in card_rows] + [p.get("model") for p in all_parts])],
         "source_platform": [(v, {"source_platform": v}) for v in distinct(
             r.get("source_platform") for r in card_rows + device_rows)],
-        "owner": [(v, {"owners": [v]}) for v in owners + [OWNER_NONE]],
+        "owner": [(str(v), {"owners": [v]}) for v in owners] + [(OWNER_NONE, {"owners": [OWNER_NONE]})],
         "stock": [(v, {"stock": v}) for v in sorted(_STOCK_STATES)],
         "profit": [(v, {"profit": v}) for v in ("gain", "loss", "incomplete")],
         "pool": [(v, {"pool": v}) for v in ("drawn", "undrawn")],

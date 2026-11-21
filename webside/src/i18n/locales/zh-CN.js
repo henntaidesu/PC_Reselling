@@ -387,7 +387,7 @@ export default {
     contributor: '出资人',
     contributors: '按出资人',
 
-    contributorPlaceholder: '这笔钱是谁出的（可直接输入新名字）',
+    contributorPlaceholder: '这笔钱是谁出的',
     drawContribPlaceholder: '从谁的资金中扣除（留空则全池 FIFO）',
     flowDirection: '资金去向',
     consumed: '消耗金额',
@@ -430,6 +430,7 @@ export default {
     edit: '编辑用户',
     username: '用户名',
     displayName: '显示名',
+    displayNameHint: '归属人、出资人等处显示的名字，留空 = 用户名',
     password: '密码',
     passwordOptional: '留空 = 只能从门户登录',
     admin: '管理员',
@@ -448,9 +449,9 @@ export default {
     revoke: '强制下线',
     revokeConfirm: '让 {name} 在所有设备上的登录立即失效？',
     revoked: '已强制下线',
-    removeConfirm: '删除用户 {name}？他的门户绑定一并删除，货和账不受影响。',
+    removeConfirm: '删除用户 {name}？他的门户绑定一并删除。名下还有货或资金的人删不掉，不再使用请停用。',
     usernameRequired: '请填写用户名',
-    createHint: '用户名与门户用户名一致时，这个人第一次从门户登录会自动绑到这个账号上。'
+    createHint: '用户就是货的归属人与资金池的出资人。不设密码也可以，只当名单用；用户名与门户用户名一致时，这个人第一次从门户登录会自动绑到这个账号上。'
   },
   sso: {
     title: '门户单点登录',

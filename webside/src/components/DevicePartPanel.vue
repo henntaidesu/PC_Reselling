@@ -52,7 +52,7 @@
       </el-form-item>
       <!-- 空着 = 跟随整机。只有这一件确实归了别人（比如置换进来的那块卡还算单的）才填 -->
       <el-form-item :label="t('owner.label')">
-        <OwnerSelect v-model="part.owner"
+        <OwnerSelect v-model="part.owner_id"
           :placeholder="deviceOwner ? t('owner.followDeviceOf', { name: deviceOwner }) : t('owner.followDevice')" />
       </el-form-item>
       <el-form-item :label="t('card.saleAmount')">
@@ -94,7 +94,7 @@ const props = defineProps({
   net: { type: Number, default: null },
   // 能不能删。同类只剩一件的必有槽位传 false
   deletable: { type: Boolean, default: true },
-  // 整机的归属人：部件自己没填时就是它，用作下拉的占位提示
+  // 整机归属人的显示名：部件自己没填时就是他，用作下拉的占位提示
   deviceOwner: { type: String, default: null }
 })
 const emit = defineEmits(['remove', 'swap'])
@@ -137,7 +137,7 @@ const title = computed(() =>
 // 日期、有归属人（部件自己的，没填跟随整机）
 const saleReturnHint = computed(() => {
   if (props.part.sale_currency !== 'JPY' || !Number(props.part.sale_amount)) return ''
-  const owner = props.part.owner || props.deviceOwner
+  const owner = props.part.owner_id ? meta.personName(props.part.owner_id) : props.deviceOwner
   if (!owner) return t('card.poolReturnNoOwner')
   if (!props.part.sale_date) return t('card.poolReturnNeedDate')
   return t('card.poolReturnTo', { name: owner })

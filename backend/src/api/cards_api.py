@@ -8,9 +8,9 @@ import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
-from src import cards, db, funds, swaps
+from src import cards, db, funds, people, swaps
 from src.auth import require_auth
 from src.schema import CARD_STATUSES, CURRENCIES
 
@@ -26,7 +26,7 @@ _WRITABLE = [
     "intl_shipping_amount", "intl_shipping_currency",
     "domestic_shipping_amount", "domestic_shipping_currency",
     "sale_date", "sale_amount", "sale_currency",
-    "owner", "status", "note",
+    "owner_id", "status", "note",
 ]
 
 
@@ -57,10 +57,10 @@ class CardPayload(BaseModel):
     sale_currency: str = "CNY"
 
 
-    # 这张卡是谁的，**也是钱从谁的资金池里扣**（见 cards.uses_pool）。取值与注资的
-    # 出资人同一份名单，现敲的新名字由 funds.ensure_contributor 顺手落进字典。
+    # 这张卡是谁的，**也是钱从谁的资金池里扣**（见 cards.uses_pool）。是用户系统里的
+    # 一个人（users.id，见 src.people），不能现敲新名字——人要先在用户管理里建好。
     # 空 = 未指定，不进资金池，按购入日牌价折成本。
-    owner: Optional[str] = Field(default=None, max_length=64)
+    owner_id: Optional[int] = Field(default=None, gt=0)
 
     status: str = "purchased"
     note: Optional[str] = None
@@ -69,6 +69,11 @@ class CardPayload(BaseModel):
     # 口径是「100 日元 = ? 人民币」（约 4.32），上下界是防呆，理由见 funds_api.InjectionPayload。
     purchase_fx_rate: Optional[float] = Field(default=None, gt=0.5, lt=20)
     sale_fx_rate: Optional[float] = Field(default=None, gt=0.5, lt=20)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy(cls, data):
+        return people.reject_legacy(data, "owner")
 
     @field_validator("purchase_currency", "intl_shipping_currency",
                      "domestic_shipping_currency", "sale_currency")
@@ -255,7 +260,8 @@ def list_cards(
         params + [page_size, (page - 1) * page_size],
     )
     media_map = cards.load_media([r["id"] for r in rows])
-    items = [cards.serialize(r, media_map.get(r["id"], [])) for r in rows]
+    names = people.names()
+    items = [cards.serialize(r, media_map.get(r["id"], []), names) for r in rows]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -326,7 +332,7 @@ def create_draft():
 def create_card(payload: CardPayload):
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
-    values["owner"] = funds.ensure_contributor(values["owner"])
+    values["owner_id"] = people.check(values["owner_id"])
     values["mgmt_no"] = cards.next_mgmt_no()
     values.update({k: fx[k] for k in
                    ("purchase_fx_rate", "purchase_fx_date", "sale_fx_rate", "sale_fx_date", "fx_manual")})
@@ -353,8 +359,7 @@ def update_card(card_id: int, payload: CardPayload):
 
     fx = _apply_fx(payload)
     values = {name: _clean(getattr(payload, name)) for name in _WRITABLE}
-    # 归属人落进字典并取字典里的写法，理由同出资人（"小王 " 与 "小王" 得是同一个人）
-    values["owner"] = funds.ensure_contributor(values["owner"])
+    values["owner_id"] = people.check(values["owner_id"])
     values.update({k: fx[k] for k in
                    ("purchase_fx_rate", "purchase_fx_date", "sale_fx_rate", "sale_fx_date", "fx_manual")})
     # 一旦保存就转正：草稿变正式卡，从此进列表与统计

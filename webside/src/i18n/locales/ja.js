@@ -387,7 +387,7 @@ export default {
     contributor: '出資者',
     contributors: '出資者別',
 
-    contributorPlaceholder: '誰のお金か（新しい名前も直接入力できます）',
+    contributorPlaceholder: '誰のお金か',
     drawContribPlaceholder: '誰の資金から引き落とすか（空欄＝全体FIFO）',
     flowDirection: '資金の流れ',
     consumed: '消費額',
@@ -430,6 +430,7 @@ export default {
     edit: 'ユーザーを編集',
     username: 'ユーザー名',
     displayName: '表示名',
+    displayNameHint: '所有者・出資者として表示される名前（空欄＝ユーザー名）',
     password: 'パスワード',
     passwordOptional: '空欄 = ポータルからのみログイン可',
     admin: '管理者',
@@ -448,9 +449,9 @@ export default {
     revoke: '強制ログアウト',
     revokeConfirm: '{name} のすべての端末のログインを無効にしますか？',
     revoked: '強制ログアウトしました',
-    removeConfirm: 'ユーザー {name} を削除しますか？ポータル連携も削除されます。商品と帳簿には影響しません。',
+    removeConfirm: 'ユーザー {name} を削除しますか？ポータル連携も削除されます。商品や資金が残っているユーザーは削除できません（無効化してください）。',
     usernameRequired: 'ユーザー名を入力してください',
-    createHint: 'ポータルのユーザー名と同じにしておくと、初回のポータルログイン時に自動でこのアカウントに紐付きます。'
+    createHint: 'ユーザーは商品の所有者・資金プールの出資者でもあります。パスワードなしで名簿としてだけ使うこともできます。ポータルのユーザー名と同じにしておくと、初回のポータルログイン時に自動でこのアカウントに紐付きます。'
   },
   sso: {
     title: 'ポータル シングルサインオン',

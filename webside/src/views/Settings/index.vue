@@ -261,7 +261,7 @@
             <el-input v-model="userForm.username" maxlength="64" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" />
           </el-form-item>
           <el-form-item :label="t('users.displayName')">
-            <el-input v-model="userForm.display_name" maxlength="64" />
+            <el-input v-model="userForm.display_name" maxlength="64" :placeholder="t('users.displayNameHint')" />
           </el-form-item>
           <el-form-item v-if="!userForm.id" :label="t('users.password')">
             <el-input v-model="userForm.password" type="password" show-password autocomplete="new-password"
@@ -600,6 +600,8 @@ function putUser(u) {
   if (i >= 0) users.value.splice(i, 1, u)
   else users.value.push(u)
   if (u.id === auth.user?.id) auth.refresh()
+  // 用户就是归属人 / 出资人的名单：加人、改名、停用之后，各处下拉和显示的名字要跟着变
+  meta.reloadPeople().catch(() => {})
 }
 function openUserDialog(row) {
   Object.assign(userForm, {
@@ -669,6 +671,7 @@ async function removeUser(row) {
     await usersApi.remove(row.id)
     users.value = users.value.filter((x) => x.id !== row.id)
     ssoBindings.value = ssoBindings.value.filter((b) => b.user_id !== row.id)
+    meta.reloadPeople().catch(() => {})
   } catch { /* 拦截器已提示 */ }
 }
 

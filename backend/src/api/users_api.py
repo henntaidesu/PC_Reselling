@@ -2,8 +2,15 @@
 """用户管理（系统配置 → 用户，仅管理员）。
 
 本系统的权限只有两档：管理员（系统配置里那些会改全局的东西）和普通用户（其余全部）。
-货、资金池不按用户隔离——归属人（owner）是出资人名单，不是登录账号，两者刻意不挂钩：
-出资人可以从来不登录，一个人也可以既用密码又从门户登进来。
+货、资金池不按用户隔离（谁都能看、能改），但**用户就是归属人 / 出资人的名单**：货是谁的、
+钱从谁的池里扣，选的都是这里的账号，库里存的是用户 id（见 src.people）。所以：
+
+- **改用户名、改显示名随便改**，账不受影响——认人认的是 id，各处显示的名字现查。
+- **显示名（没填就是用户名）在用户之间不许重复**：列表上的归属人标签、资金池的按人汇总
+  只显示这个名字，两个同名的人在那些地方分不开。
+- **名下还有货或钱的人删不掉**（库里的外键也是 RESTRICT），不再用了就停用：历史货照旧
+  显示他的名字，只是下拉里不再出现。
+- 出资人可以从来不登录：建号时不给密码（也不绑门户）就是只当名单用的人。
 
 三条护栏，少一条都会把人锁在门外：
 
@@ -23,7 +30,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src import db
+from src import db, people
 from src.auth import USER_COLUMNS, public_user, require_admin
 from src.portal_sso import identity
 from src.security import NO_PASSWORD, hash_password
@@ -89,6 +96,18 @@ def _name_taken(name: str, exclude_id: int = 0) -> bool:
                         (name, exclude_id)) is not None
 
 
+def _check_shown_name(username: str, display_name: Optional[str], exclude_id: int = 0) -> None:
+    """显示出来的名字不能和别人撞（理由见模块文档）。与 people.shown_name 同一个口径。"""
+    shown = (display_name or "").strip() or username
+    other = db.query_one(
+        f"SELECT username FROM users WHERE {people.SHOWN_NAME_SQL} = %s AND id <> %s LIMIT 1",
+        (shown, exclude_id))
+    if other:
+        raise HTTPException(
+            status_code=400,
+            detail=f"「{shown}」已经是用户 {other['username']} 显示的名字，归属人里会分不清是谁，请换一个显示名")
+
+
 def _other_admins(user_id: int) -> int:
     return int(db.query_scalar(
         "SELECT COUNT(*) AS c FROM users WHERE is_admin = 1 AND is_active = 1 AND id <> %s",
@@ -115,6 +134,7 @@ def create_user(payload: UserCreatePayload):
     name = _clean_name(payload.username)
     if _name_taken(name):
         raise HTTPException(status_code=400, detail=f"用户名 {name} 已存在")
+    _check_shown_name(name, payload.display_name)
     user_id = db.insert(
         "INSERT INTO users (username, password_hash, display_name, is_active, is_admin) "
         "VALUES (%s, %s, %s, 1, %s)",
@@ -130,12 +150,19 @@ def update_user(user_id: int, payload: UserUpdatePayload, claims: dict = Depends
     me = int(claims["user_id"])
     sets, params = [], []
 
+    if payload.username is not None or payload.display_name is not None:
+        # 改哪一个都可能让显示出来的名字变掉，按改完之后的样子比
+        _check_shown_name(
+            _clean_name(payload.username) if payload.username is not None else row["username"],
+            payload.display_name if payload.display_name is not None else row["display_name"],
+            user_id)
     if payload.username is not None:
         name = _clean_name(payload.username)
         if name != row["username"]:
             if _name_taken(name, user_id):
                 raise HTTPException(status_code=400, detail=f"用户名 {name} 已存在")
-            # 改名不作废令牌：令牌里的 username 只是展示用，认人认的是 sub（用户 id）
+            # 改名不作废令牌：令牌里的 username 只是展示用，认人认的是 sub（用户 id）。
+            # 名下的货和钱也不用动——它们挂的同样是 id
             sets.append("username = %s")
             params.append(name)
     if payload.display_name is not None:
@@ -182,6 +209,13 @@ def revoke_sessions(user_id: int):
 def delete_user(user_id: int, claims: dict = Depends(require_admin)):
     row = _get(user_id)
     _guard_admin_loss(row, int(claims["user_id"]), "删除")
-    # 门户绑定随外键级联删掉；业务数据不挂用户，删账号不动任何货和账
+    # 名下有货有钱的人删了，那些货就没了主人、扣款没了池子——账会整个变样。外键也会拦，
+    # 这里先拦一道，说清楚挂着什么、该怎么办
+    held = people.reference_counts(user_id)
+    if held:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{people.shown_name(row)} 名下还有 {'、'.join(held)}，不能删除。不再使用的话停用即可，历史账目照常显示他的名字")
+    # 门户绑定随外键级联删掉
     db.execute("DELETE FROM users WHERE id = %s", (user_id,))
     return {"ok": True}

@@ -11,9 +11,10 @@ export const useMetaStore = defineStore('meta', () => {
   // 型号字典不分品牌，全站一份：显卡详情页的「型号」下拉和整机部件里显卡那一行
   // 用的是同一份候选，各自拉一遍只会拉出两份不同步的清单
   const models = ref([])
-  // 出资人：资金池的注资和显卡 / 整机的出资比例共用这一份候选清单。
-  // 只读——新名字是在用到的地方现敲的，由后端顺手落进字典（funds.ensure_contributor）
-  const contributors = ref([])
+  // 归属人 / 出资人：就是用户系统里的账号，[{ id, name, username, is_active }]。
+  // 货和钱上存的是 id，页面显示的名字从这里查；停用的人也在里面——历史货上的归属人
+  // 要靠它显示名字，只是下拉里不再列出（见 OwnerSelect）。加人、改名在「系统配置 → 用户」
+  const people = ref([])
   const loaded = ref(false)
 
   async function ensure() {
@@ -22,15 +23,15 @@ export const useMetaStore = defineStore('meta', () => {
   }
 
   async function reload() {
-    const [e, b, m, p, c] = await Promise.all([
+    const [e, b, m, p, u] = await Promise.all([
       optionsApi.enums(), optionsApi.brands(), optionsApi.models(), optionsApi.platforms(),
-      optionsApi.fundContributors()
+      optionsApi.people()
     ])
     enums.value = e
     brands.value = b.items || []
     models.value = m.items || []
     platforms.value = p.items || []
-    contributors.value = (c.items || []).map((x) => x.name)
+    people.value = u.items || []
     loaded.value = true
   }
 
@@ -49,15 +50,21 @@ export const useMetaStore = defineStore('meta', () => {
     platforms.value = p.items || []
   }
 
-  // 详情页里现敲了一个新出资人之后调它：不刷新的话，那个名字在同一次会话里
-  // 换一张卡就又不在候选里了
-  async function reloadContributors() {
-    const c = await optionsApi.fundContributors()
-    contributors.value = (c.items || []).map((x) => x.name)
+  // 用户管理里加人、改名、停用之后调它，各处下拉和显示的名字才跟着变
+  async function reloadPeople() {
+    const u = await optionsApi.people()
+    people.value = u.items || []
+  }
+
+  // id → 显示名。查询串里带回来的是字符串，按数字比；查不到（刚被删、还没刷新）就原样显示
+  function personName(id) {
+    if (id === null || id === undefined || id === '') return ''
+    const hit = people.value.find((x) => x.id === Number(id))
+    return hit ? hit.name : String(id)
   }
 
   return {
-    enums, brands, models, platforms, contributors, loaded,
-    ensure, reload, reloadBrands, reloadModels, reloadPlatforms, reloadContributors
+    enums, brands, models, platforms, people, loaded,
+    ensure, reload, reloadBrands, reloadModels, reloadPlatforms, reloadPeople, personName
   }
 })

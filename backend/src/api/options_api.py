@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""枚举与字典：状态、分类、币种、品牌、型号、购买平台。
+"""枚举与字典：状态、分类、币种、品牌、型号、购买平台，以及归属人 / 出资人的候选。
 
 枚举的中日英三套文案在**前端** i18n 里，后端只发 key。理由：加一门语言不该需要
 改后端并重启；而后端发中文、前端再翻译，等于同一份文案维护两遍。
@@ -12,7 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from src import db, funds
+from src import db, people
 from src.auth import require_auth
 from src.schema import (
     CARD_STATUSES,
@@ -161,14 +161,15 @@ def delete_platform(platform_id: int):
     return {"ok": True}
 
 
-@router.get("/fund-contributors")
-def list_fund_contributors():
-    """出资人字典。和品牌一样是用户自己维护的清单。
+@router.get("/people")
+def list_people():
+    """归属人 / 出资人的候选：用户系统里的全部账号（见 src.people）。
 
-    这里只读不写：新出资人是在**用到的地方**现敲出来的（注资弹窗、显卡 / 整机的出资
-    比例），由 funds.ensure_contributor 顺手落进字典，没有「先去建人」这一步。
+    所有登录的人都能读（各处下拉都要用），只给 id / 显示名 / 用户名 / 是否启用，不含任何
+    登录相关的字段。停用的人也在里面：历史货上的归属人要靠它显示名字，挑不挑由前端决定。
+    加人、改名在「系统配置 → 用户」，那里是管理员才能进的。
     """
-    return {"items": [{"name": n} for n in funds.contributor_names()]}
+    return {"items": people.candidates()}
 
 
 @router.get("/used-brands")

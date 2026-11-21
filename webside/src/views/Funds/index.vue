@@ -41,8 +41,8 @@
            「谁出了多少、还剩多少」分在两屏。换成一人一张卡：同一份 contributors、同一个
            筛选状态（contributorFilter 兼作「展开的是哪一个」），点卡片的效果与点表格行一样。 -->
       <div v-if="isCompact" class="f-list">
-        <div v-for="row in contributors" :key="row.name ?? '__none__'" class="f-item is-link"
-          :class="{ 'is-active': contributorFilter === (row.name || '') }" @click="toggleContributor(row)">
+        <div v-for="row in contributors" :key="row.id ?? '__none__'" class="f-item is-link"
+          :class="{ 'is-active': contributorFilter === ckey(row.id) }" @click="toggleContributor(row)">
           <div class="f-head">
             <el-tag size="small" :type="row.name ? 'primary' : 'info'" effect="plain">
               {{ row.name || t('funds.noContributor') }}
@@ -50,7 +50,7 @@
             <span v-if="row.incomplete" class="pcr-dim sub">{{ t('funds.rateMissingTag') }}</span>
             <span class="f-share pcr-mono">{{ percent(row.share) }}</span>
             <el-icon class="f-chevron">
-              <ArrowUp v-if="contributorFilter === (row.name || '')" /><ArrowDown v-else />
+              <ArrowUp v-if="contributorFilter === ckey(row.id)" /><ArrowDown v-else />
             </el-icon>
           </div>
           <div class="f-metrics">
@@ -62,9 +62,9 @@
           </div>
           <!-- 展开：资金去向。注资批次不在这里重复——下面「注资批次」那张卡已经按这个人
                筛好了，同一份清单摆两遍只会让页面长一倍 -->
-          <div v-if="contributorFilter === (row.name || '')" class="f-sub" @click.stop>
+          <div v-if="contributorFilter === ckey(row.id)" class="f-sub" @click.stop>
             <div class="detail-title">{{ t('funds.flowDirection') }}</div>
-            <div v-for="f in (contributorFlows[row.name || ''] || [])" :key="f.id" class="f-subrow">
+            <div v-for="f in (contributorFlows[ckey(row.id)] || [])" :key="f.id" class="f-subrow">
               <div class="f-subrow-main">
                 <router-link v-if="f.card_id" :to="`/cards/${f.card_id}`" class="link">{{ f.owner_name || f.mgmt_no }}</router-link>
                 <router-link v-else-if="f.device_id" :to="`/devices/${f.device_id}`" class="link">{{ f.owner_name || f.mgmt_no }}</router-link>
@@ -77,12 +77,12 @@
                 <span class="pcr-mono">{{ cny(f.contrib_cny) }}</span>
               </div>
             </div>
-            <div v-if="!(contributorFlows[row.name || ''] || []).length" class="pcr-dim flow-empty">{{ t('funds.noDraws') }}</div>
+            <div v-if="!(contributorFlows[ckey(row.id)] || []).length" class="pcr-dim flow-empty">{{ t('funds.noDraws') }}</div>
           </div>
         </div>
       </div>
       <el-table v-else ref="contribTableRef" :data="contributors" class="pcr-table contrib-table" size="small"
-        empty-text=" " :row-key="r => r.name ?? '__none__'" :row-class-name="contributorRowClass"
+        empty-text=" " :row-key="r => r.id ?? '__none__'" :row-class-name="contributorRowClass"
         @row-click="toggleContributorExpand" @expand-change="onContribExpandChange">
         <!-- 展开行：该出资人的注资批次 + 资金去向 -->
         <el-table-column type="expand">
@@ -133,8 +133,8 @@
               <!-- 资金去向 -->
               <div class="detail-section">
                 <div class="detail-title">{{ t('funds.flowDirection') }}</div>
-                <el-table v-if="(contributorFlows[row.name || ''] || []).length"
-                  :data="contributorFlows[row.name || '']"
+                <el-table v-if="(contributorFlows[ckey(row.id)] || []).length"
+                  :data="contributorFlows[ckey(row.id)]"
                   class="pcr-table inner-table" size="small" empty-text=" " :show-header="true">
                   <el-table-column :label="t('funds.drawDate')" width="104">
                     <template #default="{ row: f }">
@@ -435,10 +435,8 @@
           </el-col>
           <el-col :xs="24" :sm="12">
             <el-form-item :label="t('funds.contributor')" required>
-              <el-select v-model="injectionForm.contributor" filterable allow-create default-first-option
-                clearable class="full" :placeholder="t('funds.contributorPlaceholder')">
-                <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
-              </el-select>
+              <OwnerSelect v-model="injectionForm.contributor_id" class="full"
+                :placeholder="t('funds.contributorPlaceholder')" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -472,7 +470,7 @@
       </el-form>
       <template #footer>
         <el-button @click="injectionVisible = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="saving" :disabled="!injectionContributor" @click="saveInjection">{{ t('common.save') }}</el-button>
+        <el-button type="primary" :loading="saving" :disabled="!injectionForm.contributor_id" @click="saveInjection">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
 
@@ -486,10 +484,8 @@
           <el-input-number v-model="drawForm.amount" :min="1" :step="1000" :precision="0" :controls="false" inputmode="numeric" class="full" />
         </el-form-item>
         <el-form-item :label="t('funds.contributor')">
-          <el-select v-model="drawForm.contributor" filterable allow-create default-first-option
-            clearable class="full" :placeholder="t('funds.drawContribPlaceholder')">
-            <el-option v-for="name in contributorNames" :key="name" :label="name" :value="name" />
-          </el-select>
+          <OwnerSelect v-model="drawForm.contributor_id" class="full"
+            :placeholder="t('funds.drawContribPlaceholder')" />
         </el-form-item>
         <el-form-item :label="t('card.note')">
           <el-input v-model="drawForm.note" type="textarea" :rows="2" />
@@ -510,6 +506,8 @@ import { ArrowDown, ArrowUp, EditPen, Lock, Minus, Plus, Refresh } from '@elemen
 import { fundsApi, fxApi } from '@/api'
 import { ElMessage } from '@/utils/notify'
 import { RATE_UNIT, cny, formatMoney, formatRate, inverseRate } from '@/utils/format'
+import { useMetaStore } from '@/stores/meta'
+import OwnerSelect from '@/components/OwnerSelect.vue'
 import StatCard from '@/components/StatCard.vue'
 import { useIsCompact, useIsTouch } from '@/composables/useIsMobile'
 
@@ -523,26 +521,28 @@ const rebuilding = ref(false)
 const summary = ref({})
 const injections = ref([])
 const draws = ref([])
-// 按人汇总（派生自注资与分摊）与字典里的候选名字是两份：一个刚建好还没注过资的人
-// 只在候选里，只看汇总的话他在下拉中就不见了。
+// 按人汇总（派生自注资与分摊）。下拉里的候选是用户名单（meta.people，见 OwnerSelect）：
+// 一个刚建好还没注过资的人不在汇总里，却得能选到。
+const meta = useMetaStore()
 const contributors = ref([])
-const contributorNames = ref([])
 // 点「按出资人」里的一行，右边的注资批次只看那个人的。null = 不筛。
 // 注意 null 和 '' 不是一回事：'' 是「未指定出资人」那一档，它也能被筛。
+// 按用户 id 分组而不是按名字：名字只是显示用的，改了名也还是同一个人。
 const contributorFilter = ref(null)
+const ckey = (id) => id ?? ''
 
 const jpy = (v) => formatMoney(v, 'JPY')
 const percent = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%')
 
 const shownInjections = computed(() => {
   if (contributorFilter.value === null) return injections.value
-  return injections.value.filter((r) => (r.contributor || '') === contributorFilter.value)
+  return injections.value.filter((r) => ckey(r.contributor_id) === contributorFilter.value)
 })
 
 // 点击出资人行：展开 / 折叠资金走向明细，同时筛选注资批次
 const contribTableRef = ref(null)
 function toggleContributorExpand(row) {
-  const key = row.name || ''
+  const key = ckey(row.id)
   if (contributorFilter.value === key) {
     contributorFilter.value = null
   } else {
@@ -552,7 +552,7 @@ function toggleContributorExpand(row) {
 }
 // 点展开箭头时同步筛选状态
 function onContribExpandChange(row, expandedRows) {
-  const key = row.name || ''
+  const key = ckey(row.id)
   const isExpanded = expandedRows.includes(row)
   if (isExpanded && contributorFilter.value !== key) {
     contributorFilter.value = key
@@ -564,7 +564,7 @@ function onContribExpandChange(row, expandedRows) {
 // 卡片列表（紧凑宽度）里点一个出资人：没有表格行可展开，contributorFilter 本身就是
 // 「展开的是谁」。同一个人再点一下收起。
 function toggleContributor(row) {
-  const key = row.name || ''
+  const key = ckey(row.id)
   contributorFilter.value = contributorFilter.value === key ? null : key
 }
 
@@ -580,14 +580,14 @@ function toggleDraw(id) {
 // 「显示全部」按钮：清筛选 + 收起展开的行
 function clearContributorExpand() {
   if (contributorFilter.value !== null) {
-    const row = contributors.value.find(c => (c.name || '') === contributorFilter.value)
+    const row = contributors.value.find(c => ckey(c.id) === contributorFilter.value)
     if (row) contribTableRef.value?.toggleRowExpansion(row, false)
   }
   contributorFilter.value = null
 }
 
 function contributorRowClass({ row }) {
-  return contributorFilter.value === (row.name || '') ? 'row-active' : ''
+  return contributorFilter.value === ckey(row.id) ? 'row-active' : ''
 }
 
 // 出资人的资金去向：从每笔扣款的分摊明细里，按出资人（注资方）分组汇总。
@@ -596,9 +596,9 @@ const contributorFlows = computed(() => {
   const map = {}
   for (const d of draws.value) {
     for (const a of (d.allocations || [])) {
-      const name = a.contributor || ''
-      if (!map[name]) map[name] = []
-      let entry = map[name].find(e => e.id === d.id)
+      const key = ckey(a.contributor_id)
+      if (!map[key]) map[key] = []
+      let entry = map[key].find(e => e.id === d.id)
       if (!entry) {
         entry = {
           id: d.id, draw_date: d.draw_date,
@@ -607,7 +607,7 @@ const contributorFlows = computed(() => {
           category: d.category, note: d.note,
           contrib_amount: 0, contrib_cny: 0, _broken: false,
         }
-        map[name].push(entry)
+        map[key].push(entry)
       }
       entry.contrib_amount += a.amount || 0
       if (a.cny_amount == null) entry._broken = true
@@ -633,8 +633,8 @@ function saleLink(src) {
 
 // 某个出资人名下的注资批次（从已有的 injections 列表中过滤）
 function contribInjections(row) {
-  const name = row.name || ''
-  return injections.value.filter(r => (r.contributor || '') === name)
+  const key = ckey(row.id)
+  return injections.value.filter(r => ckey(r.contributor_id) === key)
 }
 
 const statCards = computed(() => {
@@ -656,7 +656,6 @@ function apply(data, warnings) {
   injections.value = data.injections || []
   draws.value = data.draws || []
   contributors.value = data.contributors || []
-  contributorNames.value = data.contributor_names || []
   ;(warnings || data.warnings || []).forEach((w) => ElMessage.warning(w))
 }
 
@@ -682,11 +681,9 @@ async function rebuild() {
 // ── 注资 ────────────────────────────────────────────────────────────────
 const injectionVisible = ref(false)
 const ratePreview = ref(null)
-const injectionForm = reactive({ id: null, inject_type: 'forex', inject_date: null, amount: null, cny_cost: null, contributor: null, note: null })
+const injectionForm = reactive({ id: null, inject_type: 'forex', inject_date: null, amount: null, cny_cost: null, contributor_id: null, note: null })
 
 // 出资人必选（后端同样校验）：没写出资人的批次在按人分摊里找不到主人，只能被全池 FIFO 吃掉。
-// allow-create 能敲进一串空格，所以按 trim 后判断。
-const injectionContributor = computed(() => (injectionForm.contributor || '').trim())
 
 // 现金注资按牌价记，先让人看到「这笔钱折多少人民币」——注资的意义就在这个数上。
 // 外汇注资的这个数就是上面填的实付，不用再显示一遍。
@@ -713,7 +710,7 @@ function openInjection(row = null) {
     // 外汇注资必须填实付人民币。编辑旧数据时带上它现在折出来的人民币：手填过的就是原值，
     // 早年按牌价自动取的那种也有个起点可改，不至于一打开就是空的、保存不了。
     cny_cost: row && row.inject_type !== 'cash' ? row.cny_cost : null,
-    contributor: row?.contributor ?? null,
+    contributor_id: row?.contributor_id ?? null,
     note: row?.note ?? null
   })
   ratePreview.value = null
@@ -745,7 +742,7 @@ async function saveInjection() {
     amount: injectionForm.amount,
     inject_type: injectionForm.inject_type,
     cny_cost: isCash ? null : injectionForm.cny_cost,
-    contributor: injectionContributor.value,
+    contributor_id: injectionForm.contributor_id,
     note: injectionForm.note
   }
   saving.value = true
@@ -763,14 +760,14 @@ async function saveInjection() {
 
 // ── 手工支出 ────────────────────────────────────────────────────────────
 const drawVisible = ref(false)
-const drawForm = reactive({ id: null, draw_date: null, amount: null, contributor: null, note: null })
+const drawForm = reactive({ id: null, draw_date: null, amount: null, contributor_id: null, note: null })
 
 function openDraw(row = null) {
   Object.assign(drawForm, {
     id: row?.id ?? null,
     draw_date: row?.draw_date ?? new Date().toISOString().slice(0, 10),
     amount: row?.amount ?? null,
-    contributor: row?.contributor ?? null,
+    contributor_id: row?.contributor_id ?? null,
     note: row?.note ?? null
   })
   drawVisible.value = true
@@ -783,7 +780,7 @@ async function saveDraw() {
   }
   const payload = {
     draw_date: drawForm.draw_date, amount: drawForm.amount,
-    contributor: drawForm.contributor || null, note: drawForm.note,
+    contributor_id: drawForm.contributor_id || null, note: drawForm.note,
   }
   saving.value = true
   try {
@@ -798,7 +795,10 @@ async function saveDraw() {
   }
 }
 
-onMounted(reload)
+onMounted(() => {
+  meta.ensure()
+  reload()
+})
 </script>
 
 <style scoped>

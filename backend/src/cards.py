@@ -14,7 +14,7 @@
 不快照的话，同一张卡今天算出来的利润和昨天不一样——汇率每天都在动，而已经发生的
 交易的盈亏是不会变的。要改只能显式改（fx_manual=1，自动刷新会跳过它）。
 
-**资金池例外**（设了归属人 ``owner``）：这张卡的日元是从归属人的资金池里出的，那它的人民币成本
+**资金池例外**（设了归属人 ``owner_id``）：这张卡的日元是从归属人的资金池里出的，那它的人民币成本
 就不是「金额按买卡那天的牌价折」，而是「被吃掉的那几批注资，各按各自的换汇价折算再
 相加」——钱早就换好了，买卡那天的市场价与真实成本无关。分摊结果由 src.funds 算好后
 回写在 pool_purchase_cny / pool_intl_cny 上，这里直接取用。出售侧的收入口径不受影响，
@@ -29,7 +29,7 @@ import logging
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
-from src import db
+from src import db, people
 from src.fx import RATE_UNIT, FxError, get_rate
 from src.schema import CARD_STATUSES
 
@@ -175,9 +175,9 @@ def uses_pool(row: Dict[str, Any]) -> bool:
     「购入价刚敲两位数就扣走一笔」，可扣款本来就跟着金额同步，敲完自然就对了；
     反倒是闸门让「设了归属人却没扣钱」成了常态，池子余额和实际对不上。
 
-    没有归属人的货不进池，照旧按购入日牌价折算。
+    没有归属人的货不进池，照旧按购入日牌价折算。归属人是用户系统里的人（见 src.people）。
     """
-    return bool((row.get("owner") or "").strip())
+    return bool(row.get("owner_id"))
 
 
 def _purchase_side(
@@ -291,11 +291,16 @@ def _iso(value: Any) -> Optional[str]:
     return str(value)
 
 
-def serialize(row: Dict[str, Any], media: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+def serialize(row: Dict[str, Any], media: Optional[List[Dict[str, Any]]] = None,
+              names: Optional[Dict[int, str]] = None) -> Dict[str, Any]:
     """把数据库行转成 API 响应。
 
     Decimal 和 date 都不是 JSON 原生类型，必须显式转——直接丢给 FastAPI 会在序列化
     阶段报错，而那个错的堆栈完全指不到是哪个字段的问题。
+
+    ``owner`` 换成归属人现在的显示名（``owner_id`` 才是认人的那一列）：库里同名的老列
+    存的是迁移前的名字，原样下发的话改过名的人在页面上还是旧名字。列表一次序列化几百行，
+    由调用方传入 ``people.names()``，免得逐行查用户表。
     """
     out: Dict[str, Any] = dict(row)
     for key in ("purchase_date", "sale_date", "purchase_fx_date", "sale_fx_date"):
@@ -311,6 +316,7 @@ def serialize(row: Dict[str, Any], media: Optional[List[Dict[str, Any]]] = None)
         value = row.get(key)
         out[key] = float(value) if value is not None else None
     out["fx_manual"] = bool(row.get("fx_manual"))
+    out["owner"] = people.name_of(row.get("owner_id"), names)
     # 两列已停用（资金池改由归属人决定，见 uses_pool），不再下发
     out.pop("fund_source", None)
     out.pop("pool_confirmed_at", None)
