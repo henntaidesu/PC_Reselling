@@ -253,6 +253,8 @@ def _result(device_id: int, warnings: List[str]) -> Dict[str, Any]:
     for item in out["parts"]:
         item["media_count"] = counts.get(item["id"], 0)
     out["fund_draws"] = funds.device_draws(device_id) if uses_pool(row) else []
+    # 以日元卖掉的部件，各自那笔日元按出售日汇率回到了谁的池里（见 funds.sync_sale_returns）
+    out["fund_returns"] = funds.list_injections(sale_of=("device", device_id))
     out["status_logs"] = [
         {
             "from_status": log_row["from_status"],
@@ -391,18 +393,20 @@ def refresh_fx(device_id: int):
             "UPDATE device_parts SET sale_fx_rate = %s, sale_fx_date = %s WHERE id = %s",
             (rate, rate_date, part["id"]),
         )
+    # 日元售价的回流用的就是部件的出售汇率，刚补上的汇率要同步过去
+    funds.sync_device_and_rebuild(device_id)
     return _result(device_id, resolved["warnings"])
 
 
 @router.delete("/{device_id}")
 def delete_device(device_id: int):
-    """删设备。部件行与它的池内扣款都由外键 ON DELETE CASCADE 一起清掉。"""
+    """删设备。部件行与它的池内扣款、出售回流都由外键 ON DELETE CASCADE 一起清掉。"""
     if not _load(device_id):
         raise HTTPException(status_code=404, detail="设备不存在")
-    had_draws = bool(db.query_one("SELECT id FROM fund_draws WHERE device_id = %s", (device_id,)))
+    had_pool = funds.touches_pool("device", device_id)
     db.execute("DELETE FROM devices WHERE id = %s", (device_id,))
-    # 扣款刚被级联删掉了：池子余额和后面那些扣款的分摊都得跟着重算
-    if had_draws:
+    # 扣款与回流刚被级联删掉了：池子余额和后面那些扣款的分摊都得跟着重算
+    if had_pool:
         try:
             funds.rebuild()
         except Exception as exc:  # noqa: BLE001  重算失败不该让删除本身失败

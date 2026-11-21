@@ -145,7 +145,10 @@ export default {
     poolSource: "资金来源",
     poolFrom: "从「{name}」的资金池扣除",
     poolNoOwner: "未设归属人，不走资金池，成本按购入日牌价折算。设了归属人就自动从他的资金池扣。",
-    poolOwed: "资金池不够，这件还欠 {amount}，暂按购入日牌价估算；补充注资后自动重算。"
+    poolOwed: "资金池不够，这件还欠 {amount}，暂按购入日牌价估算；补充注资后自动重算。",
+    poolReturnTo: "以日元出售：售价按出售日汇率回流到「{name}」的资金池。",
+    poolReturnNoOwner: "以日元出售，但没有归属人，售价不回流资金池。",
+    poolReturnNeedDate: "以日元出售：填写出售日期后，售价按当天汇率回流资金池。"
   },
   inv: {
     kind: '类型',
@@ -354,6 +357,8 @@ export default {
     injectType: '注资方式',
     typeForex: '外汇注资',
     typeCash: '现金注资',
+    typeSale: '出售回流',
+    saleLocked: '这笔注资由日元售价自动回流，请到对应的显卡 / 整机上修改售价或出售日期',
     addDraw: '记一笔支出',
     editDraw: '编辑支出',
     injectDate: '注资日期',

@@ -108,6 +108,7 @@
                       <!-- 现金注资也有汇率（注资日牌价），标签只说明它是怎么来的 -->
                       <span class="pcr-mono">{{ inj.fx_rate ? formatRate(inj.fx_rate) : '—' }}</span>
                       <el-tag v-if="inj.inject_type === 'cash'" size="small" type="success" effect="plain" class="tag">{{ t('funds.typeCash') }}</el-tag>
+                      <el-tag v-else-if="inj.sale_source" size="small" type="success" effect="dark" class="tag">{{ t('funds.typeSale') }}</el-tag>
                       <el-tag v-else-if="inj.fx_manual" size="small" type="warning" effect="plain" class="tag">{{ t('funds.manualTag') }}</el-tag>
                     </template>
                   </el-table-column>
@@ -223,9 +224,13 @@
                 <span class="pcr-mono pcr-dim">{{ row.inject_date }}</span>
                 <el-tag v-if="row.contributor" size="small" type="primary" effect="plain">{{ row.contributor }}</el-tag>
                 <el-tag v-if="row.earmark" size="small" type="warning" effect="dark">{{ t('funds.earmark') }} {{ row.earmark.mgmt_no }}</el-tag>
-                <el-tag v-if="row.inject_type === 'cash'" size="small" type="success" effect="plain">{{ t('funds.typeCash') }}</el-tag>
+                <router-link v-if="row.sale_source" :to="saleLink(row.sale_source)" class="link">
+                  <el-tag size="small" type="success" effect="dark">{{ t('funds.typeSale') }} {{ row.sale_source.mgmt_no }}</el-tag>
+                </router-link>
+                <el-tag v-else-if="row.inject_type === 'cash'" size="small" type="success" effect="plain">{{ t('funds.typeCash') }}</el-tag>
                 <el-tag v-else-if="row.fx_manual" size="small" type="warning" effect="plain">{{ t('funds.manualTag') }}</el-tag>
-                <el-button class="f-edit" :icon="EditPen" circle @click="openInjection(row)" />
+                <el-icon v-if="row.sale_source" class="f-edit pcr-dim"><Lock /></el-icon>
+                <el-button v-else class="f-edit" :icon="EditPen" circle @click="openInjection(row)" />
               </div>
               <div class="f-metrics">
                 <div><span>{{ t('funds.amount') }}</span><b class="pcr-mono">{{ jpy(row.amount) }}</b></div>
@@ -249,6 +254,12 @@
                 <el-tag v-if="row.earmark" size="small" type="warning" effect="dark" class="earmark-tag">
                   {{ t('funds.earmark') }} {{ row.earmark.mgmt_no }}
                 </el-tag>
+                <!-- 出售回流：这笔日元是哪件货卖出去收回来的，点进那件货 -->
+                <router-link v-if="row.sale_source" :to="saleLink(row.sale_source)" class="link">
+                  <el-tag size="small" type="success" effect="dark" class="earmark-tag">
+                    {{ t('funds.typeSale') }} {{ row.sale_source.mgmt_no }}
+                  </el-tag>
+                </router-link>
               </template>
             </el-table-column>
             <el-table-column :label="t('funds.amount')" align="right" min-width="110">
@@ -273,7 +284,11 @@
             </el-table-column>
             <el-table-column :label="t('common.actions')" width="62" align="center">
               <template #default="{ row }">
-                <el-button link :icon="EditPen" @click="openInjection(row)" />
+                <!-- 出售回流跟着货上的售价自动同步，在这里改了下次存货就被改回去 -->
+                <el-tooltip v-if="row.sale_source" :content="t('funds.saleLocked')">
+                  <el-icon class="pcr-dim"><Lock /></el-icon>
+                </el-tooltip>
+                <el-button v-else link :icon="EditPen" @click="openInjection(row)" />
               </template>
             </el-table-column>
           </el-table>
@@ -609,6 +624,12 @@ const contributorFlows = computed(() => {
   }
   return map
 })
+
+// 出售回流来自哪件货。整机带上部件类型，打开详情就停在卖掉的那一件上
+function saleLink(src) {
+  if (src.kind === 'card') return `/cards/${src.id}`
+  return { path: `/devices/${src.id}`, query: src.part_type ? { tab: src.part_type } : {} }
+}
 
 // 某个出资人名下的注资批次（从已有的 injections 列表中过滤）
 function contribInjections(row) {

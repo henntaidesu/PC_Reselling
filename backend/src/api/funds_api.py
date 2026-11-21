@@ -170,11 +170,24 @@ def create_injection(payload: InjectionPayload):
     return _state(fx["warnings"])
 
 
-@router.put("/injections/{injection_id}")
-def update_injection(injection_id: int, payload: InjectionPayload):
-    existing = db.query_one("SELECT id FROM fund_injections WHERE id = %s", (injection_id,))
+def _editable_injection(injection_id: int) -> None:
+    """手工能改 / 能删的注资才放行。出售回流跟着货上的售价自动同步（funds.sync_sale_returns），
+    在这里改了，下次存那件货就被改回去；删了，下次存又会长出来。"""
+    existing = db.query_one(
+        "SELECT id, sale_card_id, sale_device_id FROM fund_injections WHERE id = %s",
+        (injection_id,))
     if not existing:
         raise HTTPException(status_code=404, detail="注资记录不存在")
+    if existing["sale_card_id"] or existing["sale_device_id"]:
+        raise HTTPException(
+            status_code=400,
+            detail="这笔注资是日元售价自动回流的，请到对应的显卡 / 整机上修改售价或出售日期。",
+        )
+
+
+@router.put("/injections/{injection_id}")
+def update_injection(injection_id: int, payload: InjectionPayload):
+    _editable_injection(injection_id)
     # 现金注资的 cny_cost 已在校验里置空，这里自然落到「按注资日取牌价」那条路
     fx = funds.resolve_injection_fx(payload.inject_date, payload.amount, payload.cny_cost)
     db.execute(
@@ -196,9 +209,7 @@ def delete_injection(injection_id: int):
     的扣款会转而去吃别的批次，吃不到的部分变成「余额不足」并给出警告。这比禁止删除
     更实用：录错一笔注资是常事，而它往往已经被后面的扣款「用掉」了。
     """
-    existing = db.query_one("SELECT id FROM fund_injections WHERE id = %s", (injection_id,))
-    if not existing:
-        raise HTTPException(status_code=404, detail="注资记录不存在")
+    _editable_injection(injection_id)
     db.execute("DELETE FROM fund_injections WHERE id = %s", (injection_id,))
     return _state()
 

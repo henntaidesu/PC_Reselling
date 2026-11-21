@@ -111,6 +111,21 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 `PyInstallerOnefileHiddenWindow`，真正跑 Python、持有运行窗口与托盘图标的是它的子进程。
 按启动时拿到的那个 PID 去找窗口会一无所获，看着就像「窗口没起来」。
 
+### 解压目录不能在 %TEMP%
+
+onefile 每次启动把 DLL、前端 dist、certifi 的 `cacert.pem` 等解压到 `_MEIxxxx` 再跑。默认在 `%TEMP%`，
+而存储感知 / 磁盘清理会删掉 `%TEMP%` 里放了约 7 天的文件，exe 挂着跑一周就被掏空：页面 500
+（`index.html` 不存在）、HTTPS 全挂（找不到 CA 证书包）、晚加载的模块 import 失败，进程却还活着。
+
+现在是三层，理由都在 `meipass_lock.py` 的 docstring：spec 的 `runtime_tmpdir` 解压到
+`%LOCALAPPDATA%\PCResellingManager`；`main.py` 第一件事 `lock_bundle()` 给每个文件开只读句柄持有到退出
+（别的进程删不掉）；紧接着 `sweep_stale()` 清掉强杀 / 断电留下的 `_MEI*`（AppData 没人替你清）。
+**顺序别换**：清残留靠「改名失败 = 有实例占着文件」分辨死活，得先占住自己的。spec 里那个目录名和
+`meipass_lock._RUNTIME_DIR_NAME` 要一致，对不上时清理会直接不干活（故意的：免得去删 `%TEMP%` 里
+别的程序的 `_MEI`）。
+不放 exe 旁边，是因为 `runtime_tmpdir` 的相对路径按的是**当前工作目录**而不是 exe 所在目录（实测），
+开机自启或快捷方式改了起始位置就解到别处去了；也不用 onedir，发布物要求是单个 exe。
+
 ### 配置分两处，别搞混
 
 - `conf.ini`：**只有** MySQL 连接与监听端口。每项都能被 `PC_RESELLING_*` 环境变量覆盖（见 `conf.py:_SPEC`）。
@@ -142,6 +157,13 @@ DLL 找到了，但缺少 `_ssl.pyd` 要的导出符号）。
 注资与扣款的增删改走 `funds.rebuild()`。忘了调用的症状是列表里的成本停在旧值。
 换归属人也是这样一条写路径，但不用另外处理：扣款的 `contributor` 就是归属人，
 `sync_owner_draws()` 比对得出它变了。
+
+**出售回流**是池子的另一条入口：售价是日元（卡或部件）、填了出售日期、有归属人（部件没填就
+跟随整机）时，那笔日元按出售日汇率（行上的 `sale_fx_rate`）自动成为归属人的一笔注资
+（`inject_type='sale'`，来源记在 `fund_injections.sale_card_id / sale_device_id / sale_part_id`，
+和专款那两列不是一回事）。它由 `funds.sync_sale_returns()` 跟扣款一起在 `sync_*_and_rebuild()`
+里同步，资金池页上锁定不给手改；改出售汇率的路径（`refresh-fx`）因此也要走同步。启动时
+`schema._sync_sale_returns()` 全量同步一遍，补上规则出现之前就以日元卖掉的货。
 
 `fund_draws` 上的 `card_id` / `device_id` 两列互斥，两张归属表的 `pool_*` 三列同名同义，
 所以 `funds.py` 里的同步与回写是按 `_OWNERS` 参数化的一套代码，别为整机再复制一份。

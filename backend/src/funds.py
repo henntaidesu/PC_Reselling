@@ -33,6 +33,15 @@
 「当初没走池子、后来才补上归属人」的老货补录资金（见 schema._migrate_shares_to_owner）：
 补的那笔按普通 FIFO 排的话，老货会先吃掉更早的批次，把后面的货挤成欠款。
 
+**出售回流**：货以**日元**卖掉时，收到的日元就躺在日本的账户里——它就是池子里的钱，
+下一件货可以直接拿它买。所以日元售价会自动变成归属人名下的一笔注资（``inject_type =
+'sale'``），汇率取出售日的牌价快照（卡 / 部件上的 ``sale_fx_rate``）。用出售日汇率是和
+收入口径对齐：这笔售价折人民币算收入用的就是它，日元按同一个价进池，之后花它买的货
+成本也按这个价算，前后不凭空多出或少掉一笔汇差。
+回流行与货上的售价自动同步（``sync_sale_returns``），和购入侧的扣款同一个思路；条件是
+日元、填了出售日期（没有日期就没有汇率）、有归属人（没有归属人的货不进池，卖出的钱
+也就无池可回）。部件的钱归部件自己的归属人，没填才跟随整机。人民币售价与池子无关。
+
 谁出了多少、被用掉多少、还剩（或欠）多少，全部由分摊结果反算（``contributor_totals()``）。
 
 **分摊是全量派生数据**：任何注资或扣款变动后都整体重算（``rebuild()``），而不是增量
@@ -504,15 +513,127 @@ def sync_owner_draws(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = N
     return changed
 
 
+def _owner_name(row: Dict[str, Any]) -> Optional[str]:
+    return (row.get("owner") or "").strip() or None
+
+
+def _sale_return(row: Dict[str, Any], owner: Optional[str]) -> Optional[Dict[str, Any]]:
+    """一张卡 / 一个部件的售价该回流成什么样，不该回流就是 None。
+
+    出售日期必须有：回流的汇率就是出售日的牌价快照，没有日期就没有汇率，而注资的
+    日期也是 FIFO 的排序依据，拿「今天」顶上会让它排错位置。汇率取不到（接口抽风）
+    时照样回流、汇率留空——和注资缺汇率同一个处理，吃到它的货显示「缺汇率」，
+    等「刷新汇率」补上。
+    """
+    amount = _dec(row.get("sale_amount"))
+    if (not amount or amount <= 0
+            or (row.get("sale_currency") or "").upper() != POOL_CURRENCY
+            or not owner or not row.get("sale_date")):
+        return None
+    return {
+        "inject_date": row["sale_date"],
+        "amount": amount,
+        "fx_rate": _dec(row.get("sale_fx_rate")),
+        "fx_date": row.get("sale_fx_date"),
+        "contributor": owner,
+    }
+
+
+_SALE_FIELDS = ("inject_date", "amount", "fx_rate", "fx_date", "contributor")
+
+
+def sync_sale_returns(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = None) -> bool:
+    """让一张卡 / 一台整机各部件的出售回流与它们的售价保持一致，返回是否发生了改动。
+
+    与 ``sync_owner_draws`` 同一个做法：按来源 upsert 而不是先删后插（注资的 id 被
+    分摊明细引用着）。整机一个部件一笔，键是部件 id；部件被删时外键把 ``sale_part_id``
+    置空，这里查的是整机名下的全部回流，置空的那行对不上任何部件，就在这一步删掉——
+    只有经过这里，删部件才会被算作「池子变了」而触发重算。
+    """
+    col, table = _OWNERS[kind]
+    row = row or db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
+    if not row:
+        return False
+    owner = _owner_name(row)
+    wanted: Dict[int, Dict[str, Any]] = {}
+    if kind == "card":
+        want = _sale_return(row, owner)
+        if want:
+            wanted[owner_id] = want
+        key_col, links = "sale_card_id", lambda key: {"sale_card_id": key}
+    else:
+        for part in db.query("SELECT * FROM device_parts WHERE device_id = %s", (owner_id,)):
+            # 部件的钱归部件自己的归属人，没填才跟随整机
+            want = _sale_return(part, _owner_name(part) or owner)
+            if want:
+                wanted[int(part["id"])] = want
+        key_col = "sale_part_id"
+        links = lambda key: {"sale_device_id": owner_id, "sale_part_id": key}
+
+    # 列名都来自上面写死的常量（sale_card_id / sale_device_id / sale_part_id）
+    existing = db.query(
+        f"SELECT id, {key_col} AS source_id, {', '.join(_SALE_FIELDS)} "
+        f"FROM fund_injections WHERE sale_{col} = %s",
+        (owner_id,),
+    )
+    changed = False
+    for inj in existing:
+        want = wanted.pop(int(inj["source_id"]), None) if inj["source_id"] else None
+        if want is None:
+            db.execute("DELETE FROM fund_injections WHERE id = %s", (inj["id"],))
+            changed = True
+        elif any(inj[f] != want[f] for f in _SALE_FIELDS):
+            db.execute(
+                "UPDATE fund_injections SET inject_date = %s, amount = %s, fx_rate = %s, "
+                "fx_date = %s, contributor = %s WHERE id = %s",
+                [want[f] for f in _SALE_FIELDS] + [inj["id"]],
+            )
+            changed = True
+    for key, want in wanted.items():
+        values = {**want, **links(key)}
+        db.insert(
+            "INSERT INTO fund_injections ({cols}, currency, fx_manual, inject_type) "
+            "VALUES ({ph}, %s, 0, 'sale')".format(
+                cols=", ".join(values), ph=", ".join(["%s"] * len(values))),
+            list(values.values()) + [POOL_CURRENCY],
+        )
+        changed = True
+    return changed
+
+
+def sync_all_sale_returns() -> bool:
+    """全部卡片与整机的出售回流同步一遍，返回是否有改动（调用方据此决定要不要重算）。"""
+    changed = False
+    for kind, (_col, table) in _OWNERS.items():
+        for row in db.query(f"SELECT * FROM {table} WHERE is_draft = 0"):
+            changed = sync_sale_returns(kind, int(row["id"]), row) or changed
+    return changed
+
+
+def touches_pool(kind: str, owner_id: int) -> bool:
+    """这件货在池子里有没有账（扣款或出售回流）。删货前问一句：删完它们就被外键级联
+    带走了，那时再查已经不知道要不要重算。"""
+    col, _table = _OWNERS[kind]
+    return bool(
+        db.query_one(f"SELECT id FROM fund_draws WHERE {col} = %s LIMIT 1", (owner_id,))
+        or db.query_one(f"SELECT id FROM fund_injections WHERE sale_{col} = %s LIMIT 1", (owner_id,))
+    )
+
+
 def sync_and_rebuild(kind: str, owner_id: int, row: Optional[Dict[str, Any]] = None) -> None:
-    """存卡 / 存整机后调用：同步扣款，真的有变化时才重算。
+    """存卡 / 存整机后调用：同步扣款与出售回流，真的有变化时才重算。
 
     「有变化才重算」不只是省事——保存是防抖自动触发的（改一个字段就是一次 PUT），
     每次都全量重算会把大量无谓的写打到库上。换归属人也是「有变化」（扣款的
     contributor 变了），不需要另外强制重算。
     """
     try:
-        if sync_owner_draws(kind, owner_id, row):
+        _col, table = _OWNERS[kind]
+        row = row or db.query_one(f"SELECT * FROM {table} WHERE id = %s", (owner_id,))
+        # 两样都得同步，别写成 a or b：前一个有变化时后一个会被短路掉
+        changed = sync_owner_draws(kind, owner_id, row)
+        changed = sync_sale_returns(kind, owner_id, row) or changed
+        if changed:
             rebuild()
     except Exception as exc:  # noqa: BLE001  资金池算不动不该让保存失败
         log.warning("同步%s %s 的资金池扣款失败：%s", kind, owner_id, exc)
@@ -540,22 +661,58 @@ def resync_all() -> Dict[str, Any]:
     for kind, (_col, table) in _OWNERS.items():
         for row in db.query(f"SELECT * FROM {table} WHERE is_draft = 0"):
             sync_owner_draws(kind, int(row["id"]), row)
+    sync_all_sale_returns()
     return rebuild()
 
 
 # ── 查询 ────────────────────────────────────────────────────────────────── #
 
-def list_injections() -> List[Dict[str, Any]]:
-    """注资列表，带每批的已用 / 剩余。已用量从分摊明细汇总，池子的账永远自洽。"""
+def _sale_source(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """出售回流是哪件货卖的：{kind, id, mgmt_no, name, part_id, part_type}，普通注资为 None。
+    整机的 id 是整机的（详情页按它打开），part_id 指明是其中哪一件。"""
+    if row.get("sale_card_id"):
+        return {
+            "kind": "card", "id": row["sale_card_id"], "mgmt_no": row["sale_card_no"],
+            "name": " ".join(x for x in (row["sale_card_brand"], row["sale_card_model"]) if x) or None,
+            "part_id": None, "part_type": None,
+        }
+    if row.get("sale_device_id"):
+        return {
+            "kind": "device", "id": row["sale_device_id"], "mgmt_no": row["sale_device_no"],
+            "name": " ".join(x for x in (row["sale_part_brand"], row["sale_part_model"]) if x) or None,
+            "part_id": row.get("sale_part_id"), "part_type": row["sale_part_type"],
+        }
+    return None
+
+
+def list_injections(sale_of: Optional[Tuple[str, int]] = None) -> List[Dict[str, Any]]:
+    """注资列表，带每批的已用 / 剩余。已用量从分摊明细汇总，池子的账永远自洽。
+
+    ``sale_of=(card|device, id)`` 只取那件货卖出去回流的几笔——详情页要看「卖的钱回到了
+    谁的池里、按什么汇率、已经被用掉多少」，与资金池页同一个形状。
+    """
+    where, params = "", []
+    if sale_of:
+        # 列名由 _OWNERS 这张固定的表推出，不是外部输入
+        where = f" WHERE i.sale_{_OWNERS[sale_of[0]][0]} = %s"
+        params.append(sale_of[1])
     rows = db.query(
         "SELECT i.*, COALESCE(SUM(a.amount), 0) AS used_amount, "
         "       COALESCE(SUM(a.cny_amount), 0) AS used_cny, "
-        # 专款对象的编号。包一层 MAX：一批注资只对应一张卡 / 一台整机，但 GROUP BY 下
-        # MySQL 推不出这一点，ONLY_FULL_GROUP_BY 会拒绝裸列
-        "       MAX(c.mgmt_no) AS earmark_card_no, MAX(v.mgmt_no) AS earmark_device_no "
+        # 专款对象与回流来源的编号。包一层 MAX：一批注资只对应一张卡 / 一台整机，但
+        # GROUP BY 下 MySQL 推不出这一点，ONLY_FULL_GROUP_BY 会拒绝裸列
+        "       MAX(c.mgmt_no) AS earmark_card_no, MAX(v.mgmt_no) AS earmark_device_no, "
+        "       MAX(sc.mgmt_no) AS sale_card_no, MAX(sc.brand) AS sale_card_brand, "
+        "       MAX(sc.model) AS sale_card_model, MAX(sv.mgmt_no) AS sale_device_no, "
+        "       MAX(sp.part_type) AS sale_part_type, MAX(sp.brand) AS sale_part_brand, "
+        "       MAX(sp.model) AS sale_part_model "
         "FROM fund_injections i LEFT JOIN fund_allocations a ON a.injection_id = i.id "
         "LEFT JOIN cards c ON c.id = i.card_id LEFT JOIN devices v ON v.id = i.device_id "
-        "GROUP BY i.id ORDER BY i.inject_date DESC, i.id DESC"
+        "LEFT JOIN cards sc ON sc.id = i.sale_card_id "
+        "LEFT JOIN devices sv ON sv.id = i.sale_device_id "
+        "LEFT JOIN device_parts sp ON sp.id = i.sale_part_id"
+        f"{where} GROUP BY i.id ORDER BY i.inject_date DESC, i.id DESC",
+        params,
     )
     out = []
     for row in rows:
@@ -581,6 +738,8 @@ def list_injections() -> List[Dict[str, Any]]:
                 {"kind": "device", "id": row["device_id"], "mgmt_no": row["earmark_device_no"]}
                 if row.get("device_id") else None
             ),
+            # 出售回流：这笔钱是哪件货卖出去收回来的（inject_type = 'sale'），只读
+            "sale_source": _sale_source(row),
             "note": row["note"],
             "cny_cost": _float(cny_cost),
             "used_amount": _float(used),
@@ -773,7 +932,9 @@ def summary() -> Dict[str, Any]:
     injections = list_injections()
     total_in = sum(i["amount"] or 0 for i in injections)
     total_in_cny = sum(i["cny_cost"] or 0 for i in injections)
-    forex = [i for i in injections if i.get("inject_type") != "cash"]
+    # 平均换汇汇率只看真换过汇的批次：现金注资与出售回流用的都是当天牌价，算进来就
+    # 不再是「换汇花了什么价」
+    forex = [i for i in injections if i.get("inject_type") == "forex"]
     forex_in = sum(i["amount"] or 0 for i in forex)
     forex_in_cny = sum(i["cny_cost"] or 0 for i in forex)
     incomplete_injections = sum(

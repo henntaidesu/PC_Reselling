@@ -172,7 +172,7 @@
         <el-tabs v-model="active" class="pd-tabbar">
           <el-tab-pane name="fund">
             <template #label>
-              {{ t('detail.tabFundSettle') }}<span v-if="card.fund_draws?.length" class="pd-count pcr-mono">{{ card.fund_draws.length }}</span>
+              {{ t('detail.tabFundSettle') }}<span v-if="poolRowCount" class="pd-count pcr-mono">{{ poolRowCount }}</span>
             </template>
           </el-tab-pane>
           <el-tab-pane name="log">
@@ -196,8 +196,12 @@
                 <span v-if="poolCurrencyMismatch" class="pool-warn">{{ t('card.poolCurrencyWarn') }}</span>
               </div>
               <div v-if="owed" class="pool-warn sub-gap">{{ t('card.poolOwed', { amount: jpy(owed) }) }}</div>
+              <!-- 以日元卖掉的钱按出售日汇率回流归属人的池（funds.sync_sale_returns）。回流了就在
+                   下面的分摊卡里列出来；这里只说「为什么还没回流」 -->
+              <div v-if="saleReturnHint" class="pd-note sub-gap">{{ saleReturnHint }}</div>
 
-              <PoolBreakdown v-if="card.fund_draws?.length" class="sub-gap" :draws="card.fund_draws" />
+              <PoolBreakdown v-if="poolRowCount" class="sub-gap" :draws="card.fund_draws"
+                :returns="card.fund_returns" />
             </div>
 
             <!-- 结算：成本拆成三项摊开，确认运费确实算进去了，而不是只看到一个总数 -->
@@ -327,6 +331,16 @@ const poolRateLabel = computed(() =>
 // 这件货还欠着池子多少日元（归属人的钱不够时照扣，欠的部分记在扣款的 shortfall 上）
 const owed = computed(() =>
   (card.value?.fund_draws || []).reduce((sum, d) => sum + (Number(d.shortfall) || 0), 0))
+// 资金池里与这张卡有关的行：扣款 + 出售回流
+const poolRowCount = computed(() =>
+  (card.value?.fund_draws?.length || 0) + (card.value?.fund_returns?.length || 0))
+// 日元售价还没回流的原因。条件与后端 funds._sale_return 一致：日元、有出售日期、有归属人
+const saleReturnHint = computed(() => {
+  if (form.sale_currency !== 'JPY' || !Number(form.sale_amount)) return ''
+  if (!form.owner) return t('card.poolReturnNoOwner')
+  if (!form.sale_date) return t('card.poolReturnNeedDate')
+  return ''
+})
 // 走资金池时格子里摆的是池子汇率，当日牌价收进悬浮提示：半宽的格子摆不下三段字
 const purchaseFxTip = computed(() => {
   const c = card.value

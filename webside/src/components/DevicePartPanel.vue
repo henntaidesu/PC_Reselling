@@ -62,6 +62,8 @@
         <MoneyInput v-model:amount="part.domestic_shipping_amount"
           v-model:currency="part.domestic_shipping_currency" />
       </el-form-item>
+      <!-- 以日元卖掉的部件，售价按出售日汇率回流归属人的资金池（funds.sync_sale_returns） -->
+      <div v-if="saleReturnHint" class="pcr-span-2 pd-note pe-hint">{{ saleReturnHint }}</div>
       <el-form-item :label="t('card.note')" class="pcr-span-2">
         <el-input v-model="part.note" type="textarea" :rows="2" resize="none" />
       </el-form-item>
@@ -131,6 +133,15 @@ const swappable = computed(() =>
 const title = computed(() =>
   [props.part.brand, props.part.model, props.part.spec].filter(Boolean).join(' ') || '—'
 )
+// 日元售价回不回流资金池、回到谁那里。条件与后端 funds._sale_return 一致：日元、有出售
+// 日期、有归属人（部件自己的，没填跟随整机）
+const saleReturnHint = computed(() => {
+  if (props.part.sale_currency !== 'JPY' || !Number(props.part.sale_amount)) return ''
+  const owner = props.part.owner || props.deviceOwner
+  if (!owner) return t('card.poolReturnNoOwner')
+  if (!props.part.sale_date) return t('card.poolReturnNeedDate')
+  return t('card.poolReturnTo', { name: owner })
+})
 </script>
 
 <style scoped>
@@ -140,6 +151,8 @@ const title = computed(() =>
 .pe-swap { margin-left: auto; }
 .pe-del { margin-left: auto; }
 .pe-swap + .pe-del { margin-left: 0; }
+/* 回流提示紧贴在售价那一行下面，与下一个字段拉开同样的间距 */
+.pe-hint { margin: -6px 0 14px; }
 /* 「删除部件」是 small 文字按钮，24px 高——触屏上撑到能按准 */
 @media (hover: none) {
   .pe-del, .pe-swap { min-height: 34px; padding: 8px 10px; }

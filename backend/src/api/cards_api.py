@@ -277,6 +277,8 @@ def _result(card_id: int, warnings: List[str]) -> Dict[str, Any]:
     data = cards.serialize(row, media)
     # 走资金池的卡要能看到「这笔钱是从哪几批注资里出的、各按什么汇率折的、欠了多少」
     data["fund_draws"] = funds.card_draws(card_id) if cards.uses_pool(row) else []
+    # 以日元卖掉时，那笔日元按出售日汇率回到了谁的池里（见 funds.sync_sale_returns）
+    data["fund_returns"] = funds.list_injections(sale_of=("card", card_id))
     data["status_logs"] = [
         {
             "from_status": log_row["from_status"],
@@ -406,6 +408,8 @@ def refresh_fx(card_id: int):
         (resolved["purchase_fx_rate"], resolved["purchase_fx_date"],
          resolved["sale_fx_rate"], resolved["sale_fx_date"], card_id),
     )
+    # 日元售价的回流用的就是出售汇率，刚补上的汇率要同步过去
+    funds.sync_card_and_rebuild(card_id)
     return _result(card_id, resolved["warnings"])
 
 
@@ -441,10 +445,10 @@ def delete_card(card_id: int, purge_media: bool = Query(default=False)):
                     log.warning("删除图床文件 %s 失败：%s", name, exc)
                     failed += 1
 
-    had_draws = bool(db.query_one("SELECT id FROM fund_draws WHERE card_id = %s", (card_id,)))
+    had_pool = funds.touches_pool("card", card_id)
     db.execute("DELETE FROM cards WHERE id = %s", (card_id,))
-    # 卡上的扣款由外键级联删掉了，池子余额和其余扣款的分摊都得跟着重算
-    if had_draws:
+    # 卡上的扣款与出售回流由外键级联删掉了，池子余额和其余扣款的分摊都得跟着重算
+    if had_pool:
         try:
             funds.rebuild()
         except Exception as exc:  # noqa: BLE001  重算失败不该让删除本身失败

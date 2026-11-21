@@ -28,6 +28,19 @@ else:
 # 点 X 可以选「收入任务栏」（见 src/log_window.py + src/tray.py）。
 # 位置很关键：必须赶在下面的 logging.basicConfig() 之前，那一句会把当时的 sys.stderr 绑进
 # StreamHandler，晚一步接管的话窗口里一行日志都不会有。仅 Windows 冻结态生效。
+# onefile 的解压目录挂久了会被清理掏空（见 src/meipass_lock.py），所以占住它排在一切之前；
+# 清上次的残留必须在占住之后，它靠「活着的实例都占着文件」来分辨死活。
+# 失败也不拦着启动——大不了回到没占住时的样子。
+_bundle_locked = _bundle_swept = 0
+if getattr(sys, "frozen", False) and sys.platform == "win32":
+    try:
+        from src.meipass_lock import lock_bundle, sweep_stale
+
+        _bundle_locked = lock_bundle()
+        _bundle_swept = sweep_stale()
+    except Exception:  # noqa: BLE001
+        pass
+
 if getattr(sys, "frozen", False) and sys.platform == "win32":
     try:
         from src.console_win import setup_hidden_console
@@ -48,6 +61,10 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("pc_reselling")
+if _bundle_locked:
+    log.info("已占住解压目录里的 %d 个文件，系统清理删不掉：%s", _bundle_locked, getattr(sys, "_MEIPASS", ""))
+if _bundle_swept:
+    log.info("已清掉 %d 份上次没退干净留下的解压目录", _bundle_swept)
 
 
 @asynccontextmanager

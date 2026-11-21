@@ -145,7 +145,10 @@ export default {
     poolSource: "資金元",
     poolFrom: "「{name}」の資金プールから引き落とし",
     poolNoOwner: "所有者が未設定のため資金プールを使いません。原価は購入日のレートで換算します。所有者を設定すると自動でその人のプールから引き落とします。",
-    poolOwed: "プール残高が不足し、{amount} が未払いです。購入日のレートで仮計算しています。入金後に自動で再計算されます。"
+    poolOwed: "プール残高が不足し、{amount} が未払いです。購入日のレートで仮計算しています。入金後に自動で再計算されます。",
+    poolReturnTo: "日本円で売却：売却日のレートで「{name}」の資金プールに還流します。",
+    poolReturnNoOwner: "日本円で売却しましたが、所有者が未設定のため資金プールには還流しません。",
+    poolReturnNeedDate: "日本円で売却：売却日を入力すると、その日のレートで資金プールに還流します。"
   },
   inv: {
     kind: '種別',
@@ -354,6 +357,8 @@ export default {
     injectType: '入金方法',
     typeForex: '外貨両替',
     typeCash: '現金入金',
+    typeSale: '売却還流',
+    saleLocked: '日本円の売却代金から自動で還流した入金です。該当する GPU / 本体側で売却価格や売却日を修正してください',
     addDraw: '支出を記録',
     editDraw: '支出を編集',
     injectDate: '入金日',

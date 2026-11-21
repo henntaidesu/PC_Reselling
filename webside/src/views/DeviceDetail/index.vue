@@ -140,7 +140,7 @@
           </el-tab-pane>
           <el-tab-pane name="fund">
             <template #label>
-              {{ t('detail.tabFundSettle') }}<span v-if="device.fund_draws?.length" class="pd-count pcr-mono">{{ device.fund_draws.length }}</span>
+              {{ t('detail.tabFundSettle') }}<span v-if="poolRowCount" class="pd-count pcr-mono">{{ poolRowCount }}</span>
             </template>
           </el-tab-pane>
           <el-tab-pane name="log">
@@ -210,7 +210,9 @@
               </div>
               <div v-if="owed" class="pool-warn sub-gap">{{ t('card.poolOwed', { amount: formatMoney(owed, 'JPY') }) }}</div>
 
-              <PoolBreakdown v-if="device.fund_draws?.length" class="sub-gap" :draws="device.fund_draws" />
+              <!-- 以日元卖掉的部件各回流一笔（为什么某件没回流，在部件编辑区里说） -->
+              <PoolBreakdown v-if="poolRowCount" class="sub-gap" :draws="device.fund_draws"
+                :returns="device.fund_returns" />
             </div>
 
             <!-- 结算：国内运费是各部件发货时付的，汇总在这里；成本三项摊开，
@@ -366,6 +368,9 @@ const poolRateLabel = computed(() =>
 // 这件货还欠着池子多少日元（归属人的钱不够时照扣，欠的部分记在扣款的 shortfall 上）
 const owed = computed(() =>
   (device.value?.fund_draws || []).reduce((sum, d) => sum + (Number(d.shortfall) || 0), 0))
+// 资金池里与这台机器有关的行：扣款 + 各部件的出售回流
+const poolRowCount = computed(() =>
+  (device.value?.fund_draws?.length || 0) + (device.value?.fund_returns?.length || 0))
 // 走资金池时格子里摆的是池子汇率，当日牌价收进悬浮提示：四分之一宽的格子摆不下三段字
 const purchaseFxTip = computed(() => {
   const d = device.value

@@ -17,8 +17,9 @@
 **资金池例外**（设了归属人 ``owner``）：这张卡的日元是从归属人的资金池里出的，那它的人民币成本
 就不是「金额按买卡那天的牌价折」，而是「被吃掉的那几批注资，各按各自的换汇价折算再
 相加」——钱早就换好了，买卡那天的市场价与真实成本无关。分摊结果由 src.funds 算好后
-回写在 pool_purchase_cny / pool_intl_cny 上，这里直接取用。出售侧不受影响：卖卡收的是
-人民币，仍走 sale_fx_rate。
+回写在 pool_purchase_cny / pool_intl_cny 上，这里直接取用。出售侧的收入口径不受影响，
+一律走 sale_fx_rate；只是以**日元**卖掉时，那笔日元会按同一个 sale_fx_rate 回流到归属人
+的池里（见 src.funds 的「出售回流」），收入与回流的钱用的是同一个价。
 """
 
 from __future__ import annotations

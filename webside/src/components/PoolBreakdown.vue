@@ -1,6 +1,6 @@
 <template>
-  <!-- 「这笔钱是从哪几批注资里出的、各按什么汇率折的」。显卡和整机同一个形状的数据，
-       所以同一个组件，别在两个详情页里各画一遍。 -->
+  <!-- 「这笔钱是从哪几批注资里出的、各按什么汇率折的」，以及以日元卖掉时那笔钱回到了谁的池里。
+       显卡和整机同一个形状的数据，所以同一个组件，别在两个详情页里各画一遍。 -->
   <el-card shadow="never" class="pool-card">
     <template #header>
       <div class="pool-head">
@@ -27,6 +27,30 @@
         <span class="pcr-dim">{{ t('funds.shortfallHint') }}</span>
       </div>
     </div>
+    <!-- 出售回流：日元售价按出售日汇率进了归属人的池（整机一个部件一笔）。它是一批注资，
+         所以给的是「进了多少、按什么价、已经被后面的货用掉多少」 -->
+    <div v-for="r in returns" :key="'r' + r.id" class="pool-draw">
+      <div class="pool-draw-head">
+        <span>
+          {{ t('funds.typeSale') }}
+          <template v-if="r.sale_source?.part_type">
+            · {{ t('partType.' + r.sale_source.part_type) }}{{ r.sale_source.name ? ' ' + r.sale_source.name : '' }}
+          </template>
+        </span>
+        <b class="pcr-mono">{{ jpy(r.amount) }} → {{ cny(r.cny_cost) }}</b>
+      </div>
+      <div class="pool-alloc">
+        <span class="pcr-dim pcr-mono">{{ r.inject_date }}</span>
+        <el-tag v-if="r.contributor" size="small" type="primary" effect="plain">{{ r.contributor }}</el-tag>
+        <span class="pcr-mono">{{ jpy(r.amount) }}</span>
+        <span class="pcr-dim">× {{ r.fx_rate ? formatRate(r.fx_rate) : '—' }}/{{ RATE_UNIT }} =</span>
+        <span class="pcr-mono">{{ cny(r.cny_cost) }}</span>
+      </div>
+      <div v-if="r.used_amount" class="pool-alloc pcr-dim">
+        <span>{{ t('funds.used') }} <span class="pcr-mono">{{ jpy(r.used_amount) }}</span></span>
+        <span>{{ t('funds.remaining') }} <span class="pcr-mono">{{ jpy(r.remaining_amount) }}</span></span>
+      </div>
+    </div>
   </el-card>
 </template>
 
@@ -34,7 +58,11 @@
 import { useI18n } from 'vue-i18n'
 import { RATE_UNIT, cny, formatMoney, formatRate } from '@/utils/format'
 
-defineProps({ draws: { type: Array, default: () => [] } })
+defineProps({
+  draws: { type: Array, default: () => [] },
+  // 出售回流（详情响应的 fund_returns），与资金池页的注资行同一个形状
+  returns: { type: Array, default: () => [] }
+})
 const { t } = useI18n()
 const jpy = (v) => formatMoney(v, 'JPY')
 </script>

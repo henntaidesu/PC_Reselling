@@ -524,14 +524,32 @@ _TABLES: List[Tuple[str, str]] = [
             -- 按普通 FIFO 它会先去吃更早的批次，把后面那些货的钱占掉（见 funds.allocate）。
             card_id     INT UNSIGNED NULL COMMENT '专款给哪张卡；NULL = 普通注资',
             device_id   INT UNSIGNED NULL COMMENT '专款给哪台整机；NULL = 普通注资',
+            -- 出售回流（inject_type = 'sale'）：以日元卖掉的货，那笔日元按出售日汇率回到
+            -- 归属人的池里（见 funds.sync_sale_returns）。这三列记它是哪张卡 / 哪台整机的
+            -- 哪个部件卖的，行由同步自动增删改，不给手工编辑。与上面的专款两列是两回事：
+            -- 专款是「这笔钱只给谁花」，这里是「这笔钱从哪儿来」。
+            -- 部件被删时 sale_part_id 置空而不是连带删行：留下的孤儿行由紧接着的同步删掉，
+            -- 同步才知道池子变了、要重算。
+            sale_card_id   INT UNSIGNED NULL COMMENT '出售回流：哪张卡卖的',
+            sale_device_id INT UNSIGNED NULL COMMENT '出售回流：哪台整机的部件卖的',
+            sale_part_id   INT UNSIGNED NULL COMMENT '出售回流：哪个部件卖的',
             note        VARCHAR(500) NULL,
             created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
                             ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY idx_fund_injections_date (inject_date, id)
+            KEY idx_fund_injections_date (inject_date, id),
+            -- 一卡一笔 / 一个部件一笔回流。含 NULL 的行不受唯一键约束
+            UNIQUE KEY uk_fund_injections_sale_card (sale_card_id),
+            UNIQUE KEY uk_fund_injections_sale_part (sale_part_id),
+            CONSTRAINT fk_fund_injections_sale_card FOREIGN KEY (sale_card_id)
+                REFERENCES cards (id) ON DELETE CASCADE,
+            CONSTRAINT fk_fund_injections_sale_device FOREIGN KEY (sale_device_id)
+                REFERENCES devices (id) ON DELETE CASCADE,
+            CONSTRAINT fk_fund_injections_sale_part FOREIGN KEY (sale_part_id)
+                REFERENCES device_parts (id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          COMMENT='资金池注资批次。每次换汇进池一条，各自带自己那天的汇率'
+          COMMENT='资金池注资批次。每次换汇进池一条，各自带自己那天的汇率；日元售价的回流也在这里'
         """,
     ),
     (
@@ -687,6 +705,7 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     # 手工支出可指定出资人，从该出资人的注资批次中扣除（FIFO 只在那个人名下跑）
     ("fund_draws", "contributor", "contributor VARCHAR(64) NULL"),
     # 注资类型：forex（外汇注资，按实付人民币算汇率）/ cash（现金注资，按注资日牌价记人民币成本）
+    # / sale（出售回流，日元售价按出售日汇率自动进池，见 funds.sync_sale_returns）
     ("fund_injections", "inject_type", "inject_type VARCHAR(16) NOT NULL DEFAULT 'forex'"),
     # 专款注资：只给某一件货扣（见 fund_injections 表定义）
     ("fund_injections", "card_id", "card_id INT UNSIGNED NULL"),
@@ -697,6 +716,10 @@ _MIGRATIONS: List[Tuple[str, str, str]] = [
     ("device_parts", "owner", "owner VARCHAR(64) NULL"),
     # 置换时从显卡搬来的图记住原分类，换回去时能归位
     ("device_part_media", "category", "category VARCHAR(24) NULL"),
+    # 出售回流的来源（见 fund_injections 表定义）
+    ("fund_injections", "sale_card_id", "sale_card_id INT UNSIGNED NULL"),
+    ("fund_injections", "sale_device_id", "sale_device_id INT UNSIGNED NULL"),
+    ("fund_injections", "sale_part_id", "sale_part_id INT UNSIGNED NULL"),
 ]
 
 
@@ -952,6 +975,57 @@ def _migrate_injection_earmark_fk() -> None:
             )
 
 
+def _migrate_injection_sale_links() -> None:
+    """给 fund_injections 的出售回流三列补唯一键与外键。
+
+    列由 _MIGRATIONS 补上，键 ALTER 不了已建好的表，只能在这里按需加。删法照表定义：
+    卡 / 整机删了，它卖出的那笔回流跟着没（与扣款的级联一致）；部件删了只置空，
+    让同步看见孤儿行再删，池子才会重算（理由见表定义的注释）。
+    """
+    for col, ref, on_delete, fk, uk in (
+        ("sale_card_id", "cards", "CASCADE",
+         "fk_fund_injections_sale_card", "uk_fund_injections_sale_card"),
+        ("sale_device_id", "devices", "CASCADE", "fk_fund_injections_sale_device", None),
+        ("sale_part_id", "device_parts", "SET NULL",
+         "fk_fund_injections_sale_part", "uk_fund_injections_sale_part"),
+    ):
+        if not _has_column("fund_injections", col):
+            continue
+        # 列名、表名、键名都来自上面这个固定的元组
+        if uk and not _has_index("fund_injections", uk):
+            log.info("迁移：fund_injections.%s 增加唯一键", col)
+            db.execute(f"ALTER TABLE fund_injections ADD UNIQUE KEY {uk} ({col})")
+        has_fk = int(db.query_scalar(
+            "SELECT COUNT(*) AS c FROM information_schema.TABLE_CONSTRAINTS "
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'fund_injections' "
+            "AND CONSTRAINT_NAME = %s", (fk,), default=0) or 0)
+        if not has_fk:
+            log.info("迁移：fund_injections.%s 增加外键", col)
+            db.execute(
+                f"ALTER TABLE fund_injections ADD CONSTRAINT {fk} "
+                f"FOREIGN KEY ({col}) REFERENCES {ref} (id) ON DELETE {on_delete}"
+            )
+
+
+def _sync_sale_returns() -> None:
+    """把日元售价的回流按当前数据同步一遍，有变化就重算资金池。
+
+    回流是后加的规则：在它之前就以日元卖掉的货，没有哪一次保存会替它们补上。同步只按
+    当前数据比对、结果幂等，所以每次启动都跑，不用像改存量数据的迁移那样记标记——
+    顺带也兜住了「某次保存同步到一半失败」的情形。
+    """
+    try:
+        # 在函数里 import 是为了避开 funds → schema 的循环依赖
+        from src import funds
+
+        if funds.sync_all_sale_returns():
+            result = funds.rebuild()
+            for w in result.get("warnings", []):
+                log.warning("同步出售回流后重算资金池：%s", w)
+    except Exception as exc:  # noqa: BLE001  同步失败不该拖垮启动
+        log.warning("同步出售回流失败：%s", exc)
+
+
 def _migrate_shares_to_owner() -> None:
     if settings_store.get(_SHARES_TO_OWNER_KEY):
         return
@@ -1045,7 +1119,9 @@ def init() -> None:
     _migrate_backfill_pool_confirmed()
     _cleanup_stale_drafts()
     _migrate_injection_earmark_fk()
+    _migrate_injection_sale_links()
     _migrate_shares_to_owner()
+    _sync_sale_returns()
     _seed()
 
 

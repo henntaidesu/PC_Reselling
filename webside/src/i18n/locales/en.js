@@ -145,7 +145,10 @@ export default {
     poolSource: "Funding",
     poolFrom: "Drawn from {name}'s pool",
     poolNoOwner: "No owner set, so this is not paid from the pool; cost uses the purchase-date rate. Setting an owner draws from their pool automatically.",
-    poolOwed: "The pool is short; {amount} is still owed and estimated at the purchase-date rate. It is recalculated once funds are added."
+    poolOwed: "The pool is short; {amount} is still owed and estimated at the purchase-date rate. It is recalculated once funds are added.",
+    poolReturnTo: "Sold in JPY: the proceeds return to {name}'s pool at the sale-date rate.",
+    poolReturnNoOwner: "Sold in JPY, but no owner is set, so the proceeds do not return to the pool.",
+    poolReturnNeedDate: "Sold in JPY: once the sale date is filled in, the proceeds return to the pool at that day's rate."
   },
   inv: {
     kind: 'Type',
@@ -354,6 +357,8 @@ export default {
     injectType: 'Injection type',
     typeForex: 'Forex',
     typeCash: 'Cash',
+    typeSale: 'Sale return',
+    saleLocked: 'This injection comes from a JPY sale — change the sale price or date on that GPU / system',
     addDraw: 'Add expense',
     editDraw: 'Edit expense',
     injectDate: 'Date',
