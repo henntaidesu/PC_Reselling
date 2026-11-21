@@ -41,6 +41,9 @@
 
     <template #actions>
       <AutoSaveBadge v-if="card" :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
+      <!-- 草稿不给删：关掉弹窗它自己就没了 -->
+      <el-button v-if="card && !card.is_draft" type="danger" plain size="small" :icon="Delete"
+        :loading="del.removing.value" @click="del.run">{{ t('common.delete') }}</el-button>
     </template>
 
     <template v-if="card">
@@ -246,11 +249,12 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Picture, Switch, WarningFilled } from '@element-plus/icons-vue'
+import { Delete, Picture, Switch, WarningFilled } from '@element-plus/icons-vue'
 import { cardsApi, optionsApi, systemApi } from '@/api'
 import { cny, firstImage, formatRate, jpy, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { useItemDelete } from '@/composables/useItemDelete'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useIsTouch } from '@/composables/useIsMobile'
 import { useMetaStore } from '@/stores/meta'
@@ -438,10 +442,23 @@ async function onSwapped() {
   mediaKey.value++
 }
 
+// ── 删除 ──────────────────────────────────────────────────────────────
+// 图床上的文件不跟着删（purge_media 默认关），理由见后端 cards_api.delete_card
+const del = useItemDelete({
+  autosave,
+  snapshot: () => card.value,
+  label: () => [[form.brand, form.model].filter(Boolean).join(' '), card.value?.mgmt_no]
+    .filter(Boolean).join(' · '),
+  remove: () => cardsApi.remove(card.value.id),
+  onRemoved: () => emit('close')
+})
+
 // 关闭前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这张空卡删掉。
 // 由持有弹窗的列表页在路由守卫里 await 它——关弹窗的路径有好几条（关闭按钮、点遮罩、
 // 浏览器后退、直接点侧栏去别的页），守卫是它们唯一的汇合点。
+// 刚在这里删掉的就什么都不做：行已经没了，再存只会 404。
 async function beforeClose() {
+  if (del.removed.value) return
   autosave.pause()
   if (autosave.pending.value) await autosave.flush()
   if (card.value?.is_draft) {

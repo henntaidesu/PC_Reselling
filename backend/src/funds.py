@@ -580,12 +580,16 @@ def sync_all_sale_returns() -> bool:
 
 
 def touches_pool(kind: str, owner_id: int) -> bool:
-    """这件货在池子里有没有账（扣款或出售回流）。删货前问一句：删完它们就被外键级联
-    带走了，那时再查已经不知道要不要重算。"""
+    """这件货在池子里有没有账（扣款、出售回流或给它的专款）。删货前问一句：删完它们就被
+    外键级联带走了，那时再查已经不知道要不要重算。
+
+    专款也得算上：它的外键是 SET NULL，货一删就变成归属人的普通注资，别的扣款从此
+    吃得到它——不重算的话那批钱在分摊里仍是「谁都碰不到」，余额对、成本却停在旧值。"""
     col, _table = _OWNERS[kind]
     return bool(
         db.query_one(f"SELECT id FROM fund_draws WHERE {col} = %s LIMIT 1", (owner_id,))
         or db.query_one(f"SELECT id FROM fund_injections WHERE sale_{col} = %s LIMIT 1", (owner_id,))
+        or db.query_one(f"SELECT id FROM fund_injections WHERE {col} = %s LIMIT 1", (owner_id,))
     )
 
 

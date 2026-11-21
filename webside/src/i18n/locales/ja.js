@@ -260,6 +260,9 @@ export default {
     pickPart: '左のリストからパーツを選択してください',
     partInfo: 'パーツ情報',
     partMedia: 'パーツ画像',
+    deleteConfirm: '「{name}」を削除しますか？元に戻せません。',
+    deletePoolBack: '「{name}」の資金プールから差し引いた {amount} はプールに戻り、ほかの在庫の資金配分も再計算されます。',
+    deleteSaleBack: '円で売却して資金プールに戻した {amount} も取り消されます。',
   },
   media: {
     upload: 'アップロード',

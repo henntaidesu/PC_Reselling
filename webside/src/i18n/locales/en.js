@@ -260,6 +260,9 @@ export default {
     pickPart: 'Pick a part on the left',
     partInfo: 'Part details',
     partMedia: 'Part photos',
+    deleteConfirm: 'Delete "{name}"? This cannot be undone.',
+    deletePoolBack: 'The {amount} drawn from {name}\'s fund pool goes back into the pool, and the other items\' allocations are recalculated.',
+    deleteSaleBack: 'The {amount} that flowed back into the pool from its JPY sale is withdrawn as well.',
   },
   media: {
     upload: 'Upload',

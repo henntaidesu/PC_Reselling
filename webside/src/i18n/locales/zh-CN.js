@@ -260,6 +260,9 @@ export default {
     pickPart: '从左边选一个部件',
     partInfo: '部件信息',
     partMedia: '部件图片',
+    deleteConfirm: '删除「{name}」？删除后无法恢复。',
+    deletePoolBack: '它从「{name}」的资金池扣除的 {amount} 会退回池里，其余货的资金分摊随之重算。',
+    deleteSaleBack: '它以日元卖出后回流进资金池的 {amount} 会一并撤回。',
   },
   media: {
     upload: '上传',

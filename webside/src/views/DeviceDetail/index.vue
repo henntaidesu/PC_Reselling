@@ -41,6 +41,9 @@
 
     <template #actions>
       <AutoSaveBadge v-if="device" :saving="autosave.saving.value" :saved-once="autosave.savedOnce.value" />
+      <!-- 草稿不给删：关掉弹窗它自己就没了 -->
+      <el-button v-if="device && !device.is_draft" type="danger" plain size="small" :icon="Delete"
+        :loading="del.removing.value" @click="del.run">{{ t('common.delete') }}</el-button>
     </template>
 
     <template v-if="device">
@@ -283,12 +286,13 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
-import { Back, Picture, Plus, WarningFilled } from '@element-plus/icons-vue'
+import { Back, Delete, Picture, Plus, WarningFilled } from '@element-plus/icons-vue'
 import { devicesApi, systemApi } from '@/api'
 import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
+import { useItemDelete } from '@/composables/useItemDelete'
 import { useIsTouch } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
 import { useMetaStore } from '@/stores/meta'
@@ -643,9 +647,20 @@ async function load() {
   await autosave.begin()
 }
 
+// ── 删除 ──────────────────────────────────────────────────────────────
+// 整台连同全部部件、部件的出售回流一起删（外键级联），做法与显卡详情相同
+const del = useItemDelete({
+  autosave,
+  snapshot: () => device.value,
+  label: () => [form.title, device.value?.mgmt_no].filter(Boolean).join(' · '),
+  remove: () => devicesApi.remove(device.value.id),
+  onRemoved: () => emit('close')
+})
+
 // 关闭前把没落盘的改动存完；仍是草稿（从「新增」进来又什么都没填）就把这台空设备删掉。
-// 调用方与理由同显卡详情（views/Cards 的路由守卫里 await 它）
+// 调用方与理由同显卡详情（views/Cards 的路由守卫里 await 它）；刚删掉的就什么都不做
 async function beforeClose() {
+  if (del.removed.value) return
   autosave.pause()
   if (autosave.pending.value) await autosave.flush()
   if (device.value?.is_draft) {
