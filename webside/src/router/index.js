@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+import { getToken } from '@/utils/authStorage'
 
 const routes = [
   {
@@ -32,7 +33,7 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const isPublic = Boolean(to.meta?.public)
-  const token = localStorage.getItem('auth_token')
+  const token = getToken()
   if (!isPublic && !token) return next('/login')
   // 从门户跳回来带着一次性票时，哪怕本机已经登着（别的账号）也要让登录页把票换掉——
   // 否则票被这里吞了，点门户卡片永远进的是上一个人的账号

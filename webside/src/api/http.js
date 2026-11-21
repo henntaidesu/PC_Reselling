@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElLoading } from 'element-plus'
 import { ElMessage } from '@/utils/notify'
+import { clearAuth, getToken } from '@/utils/authStorage'
 
 // 后端所有端点都在 /api/v1 下；各 api 模块用 '/cards' 这样的相对路径拼接。
 const http = axios.create({
@@ -73,7 +74,7 @@ function hideOfflineOverlay() {
 }
 
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem('auth_token')
+  const token = getToken()
   if (token) {
     config.headers = config.headers || {}
     config.headers.Authorization = `Bearer ${token}`
@@ -96,8 +97,7 @@ http.interceptors.response.use(
       return Promise.reject(err)
     }
     if (err.response?.status === 401) {
-      localStorage.removeItem('auth_token')
-      localStorage.removeItem('auth_user')
+      clearAuth()
       // 并发请求会同时收到 401，只提示一次并跳登录页
       if (!authExpiredHandled) {
         authExpiredHandled = true

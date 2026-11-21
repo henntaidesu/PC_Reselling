@@ -1,28 +1,21 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { authApi } from '@/api'
+import * as authStorage from '@/utils/authStorage'
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref(safeParse(localStorage.getItem('auth_user')))
+  const user = ref(authStorage.getUser())
   const isAdmin = computed(() => Boolean(user.value?.is_admin))
   const displayName = computed(() => user.value?.display_name || user.value?.username || '')
 
-  function safeParse(raw) {
-    try {
-      return raw ? JSON.parse(raw) : null
-    } catch {
-      return null
-    }
-  }
-
   function setUser(u) {
-    localStorage.setItem('auth_user', JSON.stringify(u))
+    authStorage.setUser(u)
     user.value = u
   }
 
   // 账号密码登录与门户单点登录的唯一入口：后端两条路回的都是 { token, user }（auth.issue_login）
   function enter(res) {
-    localStorage.setItem('auth_token', res.token)
+    authStorage.setToken(res.token)
     setUser(res.user)
     return res.user
   }
@@ -40,8 +33,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function logout() {
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
+    authStorage.clearAuth()
     user.value = null
     window.location.hash = '#/login'
   }
