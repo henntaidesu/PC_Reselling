@@ -66,7 +66,8 @@ export default {
     returned: 'Arrived home',
     forwarding: 'Forwarding',
     received: 'Received',
-    paid: 'Paid'
+    paid: 'Paid',
+    self_use: 'Personal use'
   },
   category: {
     appearance: 'Appearance',
@@ -195,7 +196,8 @@ export default {
     poolDrawn: 'Drawn',
     poolUndrawn: 'Not drawn',
     costMin: 'Cost ≥',
-    costMax: 'Cost ≤'
+    costMax: 'Cost ≤',
+    showIncomplete: 'Show them'
   },
   partSpec: {
     cpu: 'Cores / clock',

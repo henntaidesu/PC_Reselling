@@ -66,7 +66,8 @@ export default {
     returned: '已回国',
     forwarding: '转寄中',
     received: '已签收',
-    paid: '已打款'
+    paid: '已打款',
+    self_use: '自用'
   },
   category: {
     appearance: '显卡外观',
@@ -195,7 +196,8 @@ export default {
     poolDrawn: '已扣除',
     poolUndrawn: '未扣除',
     costMin: '成本 ≥',
-    costMax: '成本 ≤'
+    costMax: '成本 ≤',
+    showIncomplete: '查看是哪几件'
   },
   partSpec: {
     cpu: '核心 / 频率',

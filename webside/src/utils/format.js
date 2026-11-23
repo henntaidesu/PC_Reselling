@@ -11,6 +11,8 @@
 //      （测试通过蓝 / 回国中紫 / 已回国粉 / 已签收青）。
 //   3. 「意向购入」东西还不是自己的，用中性灰，并且标签画成描边（见 StatusTag.vue），
 //      跟所有「已经花了钱」的状态在视觉上隔开。
+//   4. 「自用」退出了转卖流程，既不等人也不在路上，用低饱和的棕：和转寄中的橙同一色系
+//      却暗得多，扫一眼不会当成还要处理的那几样。
 export const STATUS_COLOR = {
   intent: '#8892a4',
   purchased: '#5a6a88',
@@ -21,7 +23,8 @@ export const STATUS_COLOR = {
   returned: '#d55181',
   forwarding: '#d95926',
   received: '#0e94a8',
-  paid: '#008300'
+  paid: '#008300',
+  self_use: '#8d6e4c'
 }
 
 // 画成描边而不是实心的状态：东西还没买下来，不该和已经花了钱的那些长得一样重。
@@ -59,8 +62,16 @@ export function partTypeColor(type) {
 // 状态在流程里的先后，用于按流程排序而不是字母序
 export const STATUS_ORDER = [
   'intent', 'purchased', 'pending_test', 'test_passed', 'test_failed',
-  'returning', 'returned', 'forwarding', 'received', 'paid'
+  'returning', 'returned', 'forwarding', 'received', 'paid', 'self_use'
 ]
+
+// 今天的日期（YYYY-MM-DD），按**本地**时区。别用 toISOString().slice(0, 10)：那是 UTC，
+// 东八区 / 东九区早上八九点之前会拿到昨天
+export function todayIso() {
+  const d = new Date()
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
 
 export function currencySymbol(code) {
   return code === 'JPY' ? '¥' : '￥'

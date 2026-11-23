@@ -66,7 +66,8 @@ export default {
     returned: '帰国済み',
     forwarding: '転送中',
     received: '受取済み',
-    paid: '入金済み'
+    paid: '入金済み',
+    self_use: '自分用'
   },
   category: {
     appearance: '外観',
@@ -195,7 +196,8 @@ export default {
     poolDrawn: '引落済',
     poolUndrawn: '未引落',
     costMin: '原価 ≥',
-    costMax: '原価 ≤'
+    costMax: '原価 ≤',
+    showIncomplete: '該当の在庫を表示'
   },
   partSpec: {
     cpu: 'コア / クロック',

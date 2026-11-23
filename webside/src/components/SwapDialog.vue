@@ -57,6 +57,7 @@ import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { swapsApi } from '@/api'
+import { todayIso } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsTouch } from '@/composables/useIsMobile'
 import StatusTag from './StatusTag.vue'
@@ -89,17 +90,11 @@ function describe(x) {
   return [name, ...ids.filter(Boolean)].join(' · ') + (x.owner ? `（${x.owner}）` : '')
 }
 
-function today() {
-  const d = new Date()
-  const pad = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
-}
-
 // 每次打开都重拉候选：上一次打开之后别的卡可能已经卖掉或换过了
 async function onOpen() {
   picked.value = null
   note.value = ''
-  swapDate.value = today()
+  swapDate.value = todayIso()
   candidates.value = []
   loading.value = true
   try {

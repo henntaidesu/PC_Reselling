@@ -166,7 +166,7 @@
                   <el-icon><Picture /></el-icon>{{ row._media_count }}
                 </span>
                 <span class="pl-money pcr-mono" :class="{ 'pl-unsold': !isSold(row) && hasPartContent(row) }">
-                  {{ isSold(row) ? formatMoney(row.sale_amount, row.sale_currency) : (hasPartContent(row) ? t('device.unsold') : '') }}
+                  {{ isSold(row) ? partSale(row) : (hasPartContent(row) ? t('device.unsold') : '') }}
                 </span>
               </button>
               <!-- 加部件：先选类型。类型只在添加时定一次，之后不给改——类型换掉，品牌、规格、
@@ -539,6 +539,19 @@ function normalize(row) {
 function partNet(part) {
   if (!part?.id) return null
   return device.value?.parts?.find((p) => p.id === part.id)?.money?.net_cny ?? null
+}
+
+// 部件一览上的售价一律折成人民币，和库存列表、顶栏的「已收回」同一口径——日元售价原样
+// 摆出来，¥50,000 一眼看上去就是卖了五万块。折算只有后端算得准，取上次保存的返回值；
+// 但表单里的金额 / 币种还没存进去时那份是旧的，这时先原样显示表单里的值，存完自己就换过来。
+// 存完仍折不出来（缺汇率）也是原样显示：比摆一个「—」多给了点信息，又不会被当成人民币
+function partSale(part) {
+  if (part.sale_currency === 'CNY') return cny(part.sale_amount)
+  const saved = part.id ? device.value?.parts?.find((p) => p.id === part.id) : null
+  const synced = saved && saved.sale_currency === part.sale_currency
+    && Number(saved.sale_amount) === Number(part.sale_amount)
+  if (synced && saved.money?.sale_cny != null) return cny(saved.money.sale_cny)
+  return formatMoney(part.sale_amount, part.sale_currency)
 }
 
 // 图片增删只改显示用的角标，不该触发一次整机保存

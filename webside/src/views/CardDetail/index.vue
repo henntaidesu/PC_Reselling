@@ -157,7 +157,8 @@
               </div>
             </el-form-item>
             <el-form-item :label="t('card.saleAmount')">
-              <MoneyInput v-model:amount="form.sale_amount" v-model:currency="form.sale_currency" />
+              <MoneyInput :amount="form.sale_amount" v-model:currency="form.sale_currency"
+                @update:amount="setSaleAmount" />
             </el-form-item>
             <el-form-item :label="t('card.domesticShipping')">
               <MoneyInput v-model:amount="form.domestic_shipping_amount" v-model:currency="form.domestic_shipping_currency" />
@@ -251,7 +252,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete, Picture, Switch, WarningFilled } from '@element-plus/icons-vue'
 import { cardsApi, optionsApi, systemApi } from '@/api'
-import { cny, firstImage, formatRate, jpy, profitClass } from '@/utils/format'
+import { cny, firstImage, formatRate, jpy, profitClass, todayIso } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useItemDelete } from '@/composables/useItemDelete'
@@ -356,6 +357,16 @@ const purchaseFxTip = computed(() => {
 
 const autosave = useAutoSave(doSave)
 watch(form, autosave.schedule, { deep: true })
+
+// 填了出售价格、出售日期还空着，就补上今天。出售日期是取出售汇率的依据：空着的话售价
+// 折不出人民币（整行算「缺汇率」、不进合计），日元售价也回流不了资金池。绝大多数是卖完
+// 当天录的，不是当天的改一下日期即可。
+// 挂在输入事件上而不是 watch 售价：watch 在载入时也会触发，打开一件「有价没日期」的老货
+// 就会被悄悄写上今天——那个日期是错的，还没人察觉。整机部件那份见 DevicePartPanel。
+function setSaleAmount(v) {
+  form.sale_amount = v
+  if (v !== null && v !== undefined && v !== '' && !form.sale_date) form.sale_date = todayIso()
+}
 
 async function doSave() {
   const payload = { ...form }

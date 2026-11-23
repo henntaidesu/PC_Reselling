@@ -56,7 +56,8 @@
           :placeholder="deviceOwner ? t('owner.followDeviceOf', { name: deviceOwner }) : t('owner.followDevice')" />
       </el-form-item>
       <el-form-item :label="t('card.saleAmount')">
-        <MoneyInput v-model:amount="part.sale_amount" v-model:currency="part.sale_currency" />
+        <MoneyInput :amount="part.sale_amount" v-model:currency="part.sale_currency"
+          @update:amount="setSaleAmount" />
       </el-form-item>
       <el-form-item :label="t('card.domesticShipping')">
         <MoneyInput v-model:amount="part.domestic_shipping_amount"
@@ -76,7 +77,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete, Switch } from '@element-plus/icons-vue'
-import { cny } from '@/utils/format'
+import { cny, todayIso } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
 import { useIsTouch } from '@/composables/useIsMobile'
@@ -133,6 +134,12 @@ const swappable = computed(() =>
 const title = computed(() =>
   [props.part.brand, props.part.model, props.part.spec].filter(Boolean).join(' ') || '—'
 )
+
+// 填了售价、出售日期还空着就补上今天；为什么、以及为什么挂在输入事件上，见显卡详情的同名函数
+function setSaleAmount(v) {
+  props.part.sale_amount = v
+  if (v !== null && v !== undefined && v !== '' && !props.part.sale_date) props.part.sale_date = todayIso()
+}
 // 日元售价回不回流资金池、回到谁那里。条件与后端 funds._sale_return 一致：日元、有出售
 // 日期、有归属人（部件自己的，没填跟随整机）
 const saleReturnHint = computed(() => {

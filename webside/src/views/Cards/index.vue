@@ -23,6 +23,9 @@
         <div v-if="stats.incomplete" class="stats-warn">
           <el-icon><WarningFilled /></el-icon>
           <span>{{ t('dashboard.incompleteWarn', { n: stats.incomplete }) }}</span>
+          <!-- 只说「有几件」不说是哪几件，人就得一页页翻着找那个小警告图标 -->
+          <button v-if="filters.profit !== 'incomplete'" type="button" class="stats-warn-link"
+            @click="showIncomplete">{{ t('inv.showIncomplete') }} →</button>
         </div>
       </div>
     </el-card>
@@ -1024,6 +1027,13 @@ function reload() {
   page.value = 1
   fetch()
 }
+// 统计下面那句「有 N 件缺汇率」点过来：直接筛出这几件。盈亏筛选在「更多筛选」那一排，
+// 顺手展开——收着的话列表变短了却看不出是被哪个条件筛的
+function showIncomplete() {
+  filters.profit = 'incomplete'
+  moreOpen.value = true
+  reload()
+}
 function resetFilters() {
   Object.assign(filters, blankFilters())
   dateRange.value = null
@@ -1220,6 +1230,16 @@ onActivated(() => {
   font-size: 12px;
   color: #f5a623;
 }
+.stats-warn-link {
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: #8fb8ff;
+  cursor: pointer;
+}
+.stats-warn-link:hover { text-decoration: underline; }
 
 .filter-card { margin-bottom: 16px; }
 .filter-card :deep(.el-card__body) { padding: 14px 16px; }
