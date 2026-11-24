@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src import cards, db, devices, people
 from src.auth import require_auth
-from src.schema import CARD_STATUSES, DEVICE_PART_TYPES
+from src.schema import CARD_STATUSES, DEVICE_PART_TYPES, REQUIRED_PART_TYPES
 
 log = logging.getLogger(__name__)
 
@@ -70,8 +70,8 @@ def _card_item(row: Dict[str, Any], media: List[Dict[str, Any]],
         "part_count": 1,
         "sold_count": 1 if row.get("sale_amount") is not None else 0,
         "sold": row["status"] in cards.SOLD_STATUSES or row.get("sale_amount") is not None,
-        # 一张卡卖掉就没有后续了，所以「卖了 = 已结清」
-        "settled": row.get("sale_amount") is not None,
+        # 一张卡卖掉就没有后续了，所以「卖了 = 已结清」；留着自用的也一样，不再算在库
+        "settled": cards.is_settled(row),
         "cost_total_cny": money["cost_total_cny"],
         # 同一笔成本的日元口径。货是在日本买的，对着日站的成交价复核时看日元才顺手
         "cost_total_jpy": money["cost_total_jpy"],
@@ -126,7 +126,7 @@ def _part_row(part: Dict[str, Any], device_id: int, device_owner_id: Optional[in
         "part_count": None,
         "sold_count": None,
         "sold": money["sold"],
-        "settled": money["sold"],
+        "settled": cards.is_settled(part),
         "cost_total_cny": None,
         "cost_total_jpy": None,
         "purchase_cny": None,
@@ -155,6 +155,8 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
     # 这个值留着是给按出售日期排序用的：整机得有个可比的位置，不然排序时全落到末尾。
     sale_dates = [p["sale_date"] for p in data["parts"] if p["sale_date"]]
     children = [_part_row(p, row["id"], row.get("owner_id"), names) for p in data["parts"]]
+    present = {p["part_type"] for p in parts}
+    missing = [t for t in REQUIRED_PART_TYPES if t not in present]
     # 一台机器牵涉到的归属人：整机自己的，加上单独归别人的部件。按「单」筛选时，
     # 一台甘的整机里装着单的那块卡，这台机器也该出现
     owners: List[int] = []
@@ -178,6 +180,11 @@ def _device_item(row: Dict[str, Any], parts: List[Dict[str, Any]],
         "updated_at": data["updated_at"],
         "part_count": money["part_count"],
         "sold_count": money["sold_count"],
+        # 七类必有部件录了几类、还缺哪几类（「录入 x/7」与「缺件」筛选，见 _slot_hit）。
+        # 按类数而不是行数：四条内存算一类，多录几条内存补不上没录的主板
+        "slots_filled": len(REQUIRED_PART_TYPES) - len(missing),
+        "slots_total": len(REQUIRED_PART_TYPES),
+        "missing_types": missing,
         "sold": money["sold_count"] > 0,
         "settled": money["settled"],
         "cost_total_cny": money["cost_total_cny"],
@@ -227,6 +234,10 @@ def _solo_part(part_item: Dict[str, Any], device_item: Dict[str, Any],
         "purchase_date": device_item["purchase_date"],
         "source_platform": device_item["source_platform"],
         "from_pool": device_item["from_pool"],
+        # 所属整机录齐没有：「缺件」筛选与状态 / 部件类型叠加时，单列的部件跟着整机走
+        "slots_filled": device_item["slots_filled"],
+        "slots_total": device_item["slots_total"],
+        "missing_types": device_item["missing_types"],
         # 部件的图由 _attach_part_media 只给当前页补
         "media": media or [],
     }
@@ -318,6 +329,9 @@ def _device_ok(row: Dict[str, Any], parts: Dict[int, Dict[str, Any]], f: Dict[st
         return False
     values = [row.get(k) for k in _DEVICE_KW_FIELDS]
     values += [p.get(k) for p in parts.values() for k in _PART_KW_FIELDS]
+    # 列表上显示的「5/7」也能直接搜：照着屏幕上看到的敲，不用先去翻筛选下拉
+    filled = len({p.get("part_type") for p in parts.values()} & set(REQUIRED_PART_TYPES))
+    values.append(f"{filled}/{len(REQUIRED_PART_TYPES)}")
     return _kw_hit(f["keyword"], values)
 
 
@@ -348,6 +362,8 @@ OWNER_NONE = "__none__"
 _STOCK_STATES = {"in_stock", "settled"}
 _PROFIT_STATES = {"gain", "loss", "incomplete"}
 _POOL_STATES = {"drawn", "undrawn"}
+# 部件录入：complete = 七类录齐，missing = 缺任意一类，missing:<类型> = 缺这一类
+_SLOT_STATES = {"complete", "missing"} | {f"missing:{t}" for t in REQUIRED_PART_TYPES}
 
 
 def _inventory_filters(
@@ -366,6 +382,7 @@ def _inventory_filters(
     stock: Optional[str] = Query(default=None, description="in_stock / settled"),
     profit: Optional[str] = Query(default=None, description="gain / loss / incomplete"),
     pool: Optional[str] = Query(default=None, description="drawn / undrawn"),
+    slots: Optional[str] = Query(default=None, description="complete / missing / missing:<部件类型>"),
     cost_min: Optional[float] = Query(default=None, description="总成本下限（人民币）"),
     cost_max: Optional[float] = Query(default=None, description="总成本上限（人民币）"),
 ) -> Dict[str, Any]:
@@ -385,6 +402,7 @@ def _inventory_filters(
         stock=stock if stock in _STOCK_STATES else None,
         profit=profit if profit in _PROFIT_STATES else None,
         pool=pool if pool in _POOL_STATES else None,
+        slots=slots if slots in _SLOT_STATES else None,
         cost_min=cost_min, cost_max=cost_max,
     )
 
@@ -418,8 +436,20 @@ def _sold_in_range(item: Dict[str, Any], start: Optional[dt.date], end: Optional
     return any((lo is None or d >= lo) and (hi is None or d <= hi) for d in dates)
 
 
+def _slot_hit(item: Dict[str, Any], slots: str) -> bool:
+    """整机的七类必有部件录齐没有。显卡单品没有这回事，筛它时一律不出现。"""
+    missing = item.get("missing_types")
+    if missing is None:
+        return False
+    if slots == "complete":
+        return not missing
+    if slots == "missing":
+        return bool(missing)
+    return slots.split(":", 1)[1] in missing
+
+
 def _match_derived(item: Dict[str, Any], f: Dict[str, Any]) -> bool:
-    """按**算出来的**字段筛：归属人、结清、盈亏、池内扣除、成本。
+    """按**算出来的**字段筛：归属人、结清、盈亏、池内扣除、部件录入、成本。
 
     这些都不是数据库列（成本 / 利润按汇率快照现算，归属人要把整机的部件合起来看），所以和排序
     一样放在规范化之后、在内存里做，口径与列表上显示的那个数天然一致。
@@ -452,6 +482,8 @@ def _match_derived(item: Dict[str, Any], f: Dict[str, Any]) -> bool:
     if f["pool"] == "drawn" and not item["from_pool"]:
         return False
     if f["pool"] == "undrawn" and item["from_pool"]:
+        return False
+    if f["slots"] and not _slot_hit(item, f["slots"]):
         return False
     if f["cost_min"] is not None or f["cost_max"] is not None:
         # 成本算不出来的行在成本区间里无从判断，宁可不出现，也不当 0 落进「低成本」那头
@@ -574,6 +606,8 @@ def _facet_candidates(universe: Dict[str, List[tuple]]) -> Dict[str, List[tuple]
         "stock": [(v, {"stock": v}) for v in sorted(_STOCK_STATES)],
         "profit": [(v, {"profit": v}) for v in ("gain", "loss", "incomplete")],
         "pool": [(v, {"pool": v}) for v in ("drawn", "undrawn")],
+        "slots": [(v, {"slots": v}) for v in
+                  ["complete", "missing"] + [f"missing:{t}" for t in REQUIRED_PART_TYPES]],
     }
 
 

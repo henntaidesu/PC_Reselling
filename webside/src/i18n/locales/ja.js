@@ -149,7 +149,8 @@ export default {
     poolOwed: "プール残高が不足し、{amount} が未払いです。購入日のレートで仮計算しています。入金後に自動で再計算されます。",
     poolReturnTo: "日本円で売却：売却日のレートで「{name}」の資金プールに還流します。",
     poolReturnNoOwner: "日本円で売却しましたが、所有者が未設定のため資金プールには還流しません。",
-    poolReturnNeedDate: "日本円で売却：売却日を入力すると、その日のレートで資金プールに還流します。"
+    poolReturnNeedDate: "日本円で売却：売却日を入力すると、その日のレートで資金プールに還流します。",
+    selfUseNoSale: "自分用のため売却情報は不要です。売ることにしたら、状態を変えれば入力できます。"
   },
   inv: {
     kind: '種別',
@@ -195,6 +196,10 @@ export default {
     incomplete: 'レート欠落',
     poolDrawn: '引落済',
     poolUndrawn: '未引落',
+    slots: '登録',
+    slotsComplete: '7種すべて登録済',
+    slotsMissing: '未登録あり',
+    slotsMissingType: '{type}未登録',
     costMin: '原価 ≥',
     costMax: '原価 ≤',
     showIncomplete: '該当の在庫を表示'
@@ -242,7 +247,7 @@ export default {
     revenue: '回収済',
     profit: '損益',
     recovery: '回収率',
-    settledHint: '全パーツが売れました。これがこの機器の最終損益です。',
+    settledHint: '全パーツが売却済みか自分用です。これがこの機器の最終損益です。',
     addPart: 'パーツを追加',
     addPartOfType: '{name}を追加'
   },

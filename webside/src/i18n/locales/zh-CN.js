@@ -149,7 +149,8 @@ export default {
     poolOwed: "资金池不够，这件还欠 {amount}，暂按购入日牌价估算；补充注资后自动重算。",
     poolReturnTo: "以日元出售：售价按出售日汇率回流到「{name}」的资金池。",
     poolReturnNoOwner: "以日元出售，但没有归属人，售价不回流资金池。",
-    poolReturnNeedDate: "以日元出售：填写出售日期后，售价按当天汇率回流资金池。"
+    poolReturnNeedDate: "以日元出售：填写出售日期后，售价按当天汇率回流资金池。",
+    selfUseNoSale: "自用，不出售，出售信息不用填。之后真要卖，把状态改掉就能填。"
   },
   inv: {
     kind: '类型',
@@ -195,6 +196,10 @@ export default {
     incomplete: '缺汇率',
     poolDrawn: '已扣除',
     poolUndrawn: '未扣除',
+    slots: '录入',
+    slotsComplete: '七类录齐',
+    slotsMissing: '有缺件',
+    slotsMissingType: '缺{type}',
     costMin: '成本 ≥',
     costMax: '成本 ≤',
     showIncomplete: '查看是哪几件'
@@ -242,7 +247,7 @@ export default {
     revenue: '已收回',
     profit: '盈亏',
     recovery: '回本率',
-    settledHint: '部件已全部售出，这就是这台设备的最终盈亏。',
+    settledHint: '部件都已售出或自用，这就是这台设备的最终盈亏。',
     addPart: '添加部件',
     addPartOfType: '添加{name}'
   },

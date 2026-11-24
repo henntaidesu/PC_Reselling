@@ -43,7 +43,7 @@ from src.fx import FxError, get_rate
 # 金额换算与序列化的口径必须和显卡完全一致，共用同一份实现而不是再抄一遍：
 # 抄一份的下场是某天只改了其中一处，两个页面的合计从此对不上。
 from src.cards import (
-    _dec, _iso, _purchase_side, _round_jpy, _round_rate, _to_cny, _to_jpy, uses_pool
+    _dec, _iso, _purchase_side, _round_jpy, _round_rate, _to_cny, _to_jpy, is_settled, uses_pool
 )
 from src.schema import CARD_STATUSES, DEVICE_PART_TYPES
 
@@ -192,10 +192,13 @@ def compute_money(device: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[s
     revenue_incomplete = False
     domestic_total = _ZERO
     sold_count = 0
+    done_count = 0
     for part in parts:
         money = part_money(part)
         if money["sold"]:
             sold_count += 1
+        if is_settled(part):
+            done_count += 1
         sale_value, sale_missing = _part_of(part.get("sale_amount"), _dec(money["sale_cny"]))
         dom_value, dom_missing = _part_of(
             part.get("domestic_shipping_amount"), _dec(money["domestic_shipping_cny"])
@@ -239,8 +242,9 @@ def compute_money(device: Dict[str, Any], parts: List[Dict[str, Any]]) -> Dict[s
         "recovery": recovery,
         "part_count": part_count,
         "sold_count": sold_count,
-        # 部件全部卖出，利润才是最终数字；否则它只是「目前收回了多少」
-        "settled": part_count > 0 and sold_count == part_count,
+        # 部件全部处理完（卖掉，或留着自用——见 cards.is_settled），利润才是最终数字；
+        # 否则它只是「目前收回了多少」。自用的那几件没有收入，已售件数里不算它们
+        "settled": part_count > 0 and done_count == part_count,
         "incomplete": cost_incomplete or revenue_incomplete,
         # 采购成本是按资金池的注资汇率算的（前端据此标注，别让人以为用的是当日牌价）
         "from_pool": uses_pool(device),

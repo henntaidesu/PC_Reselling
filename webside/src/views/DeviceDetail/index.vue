@@ -165,9 +165,7 @@
                 <span v-if="row._media_count" class="pl-media pcr-mono pcr-dim">
                   <el-icon><Picture /></el-icon>{{ row._media_count }}
                 </span>
-                <span class="pl-money pcr-mono" :class="{ 'pl-unsold': !isSold(row) && hasPartContent(row) }">
-                  {{ isSold(row) ? partSale(row) : (hasPartContent(row) ? t('device.unsold') : '') }}
-                </span>
+                <span class="pl-money pcr-mono" :class="partState(row).cls">{{ partState(row).text }}</span>
               </button>
               <!-- 加部件：先选类型。类型只在添加时定一次，之后不给改——类型换掉，品牌、规格、
                    售价全都对不上，不如删掉重加一件 -->
@@ -288,7 +286,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessageBox } from 'element-plus'
 import { Back, Delete, Picture, Plus, WarningFilled } from '@element-plus/icons-vue'
 import { devicesApi, systemApi } from '@/api'
-import { cny, formatMoney, formatRate, profitClass } from '@/utils/format'
+import { SELF_USE_STATUSES, cny, formatMoney, formatRate, profitClass } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { DEFAULT_PART_TYPES, PART_TABS, hasPartContent, isBlankPart, partTab } from '@/constants/parts'
 import { useAutoSave } from '@/composables/useAutoSave'
@@ -552,6 +550,15 @@ function partSale(part) {
     && Number(saved.sale_amount) === Number(part.sale_amount)
   if (synced && saved.money?.sale_cny != null) return cny(saved.money.sale_cny)
   return formatMoney(part.sale_amount, part.sale_currency)
+}
+
+// 部件一览右边那一格：卖了显示售价；自用的写「自用」——它不用填售价，标红只会一直催人；
+// 填了内容还没卖的才标红「未出售」
+function partState(part) {
+  if (isSold(part)) return { text: partSale(part), cls: '' }
+  if (SELF_USE_STATUSES.has(part.status)) return { text: t('status.self_use'), cls: 'pcr-dim' }
+  if (hasPartContent(part)) return { text: t('device.unsold'), cls: 'pl-unsold' }
+  return { text: '', cls: '' }
 }
 
 // 图片增删只改显示用的角标，不该触发一次整机保存

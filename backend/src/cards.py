@@ -41,6 +41,20 @@ _RATE_UNIT = Decimal(str(RATE_UNIT))
 # 走到这些状态说明卡已经出手了，出售侧金额才算数
 SOLD_STATUSES = {"received", "paid"}
 
+# 留下自己用、不再出售的状态。这样的货**不用填售价也算处理完了**：不在库、不标「未出售」，
+# 整机里自用的部件也不拦着整台结清。但它不是「卖了」——没有收入，不进售出件数与收入合计，
+# 所以和 SOLD_STATUSES 分开放，别并进去。
+SELF_USE_STATUSES = {"self_use"}
+
+
+def is_settled(row: Dict[str, Any]) -> bool:
+    """一张卡 / 一个部件处理完了没有：卖了（填了售价），或者留着自用。
+
+    库存列表的「在库 / 结清」、整机的「部件全部处理完」、概览页的库存数都按这一个判断，
+    各写一份的下场是某处漏了自用，同一件货在这页算在库、在那页算结清。
+    """
+    return row.get("sale_amount") is not None or row.get("status") in SELF_USE_STATUSES
+
 
 # ── 管理编号 ────────────────────────────────────────────────────────────── #
 

@@ -149,7 +149,8 @@ export default {
     poolOwed: "The pool is short; {amount} is still owed and estimated at the purchase-date rate. It is recalculated once funds are added.",
     poolReturnTo: "Sold in JPY: the proceeds return to {name}'s pool at the sale-date rate.",
     poolReturnNoOwner: "Sold in JPY, but no owner is set, so the proceeds do not return to the pool.",
-    poolReturnNeedDate: "Sold in JPY: once the sale date is filled in, the proceeds return to the pool at that day's rate."
+    poolReturnNeedDate: "Sold in JPY: once the sale date is filled in, the proceeds return to the pool at that day's rate.",
+    selfUseNoSale: "Kept for personal use — no sale details needed. Change the status if you decide to sell it."
   },
   inv: {
     kind: 'Type',
@@ -195,6 +196,10 @@ export default {
     incomplete: 'Missing FX',
     poolDrawn: 'Drawn',
     poolUndrawn: 'Not drawn',
+    slots: 'Parts',
+    slotsComplete: 'All 7 entered',
+    slotsMissing: 'Missing parts',
+    slotsMissingType: 'Missing {type}',
     costMin: 'Cost ≥',
     costMax: 'Cost ≤',
     showIncomplete: 'Show them'
@@ -242,7 +247,7 @@ export default {
     revenue: 'Recovered',
     profit: 'P/L',
     recovery: 'Recovery',
-    settledHint: 'Every part is sold — this is the final P/L for the system.',
+    settledHint: 'Every part is sold or kept for personal use — this is the final P/L for the system.',
     addPart: 'Add part',
     addPartOfType: 'Add {name}'
   },

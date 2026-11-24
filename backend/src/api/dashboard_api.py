@@ -172,7 +172,7 @@ def summary(
     by_status: Dict[str, int] = {s: 0 for s in CARD_STATUSES}
     in_stock_by_status: Dict[str, int] = {}
     all_cost, all_revenue, all_profit, in_stock_cost = [], [], [], []
-    sold_total = incomplete = 0
+    sold_total = in_stock_total = incomplete = 0
     for row in rows:
         m = money[row["id"]]
         by_status[row["status"]] = by_status.get(row["status"], 0) + 1
@@ -183,7 +183,9 @@ def summary(
             sold_total += 1
             all_revenue.append(m["sale_cny"])
             all_profit.append(m["profit_cny"])
-        else:
+        elif not cards.is_settled(row):
+            # 自用的既不是卖了也不在库：不占「库存占用资金」，不然那笔钱永远挂在库存里
+            in_stock_total += 1
             in_stock_by_status[row["status"]] = in_stock_by_status.get(row["status"], 0) + 1
             in_stock_cost.append(m["cost_total_cny"])
 
@@ -204,7 +206,7 @@ def summary(
         "stock": {
             "total_cards": len(rows),
             "sold_cards": sold_total,
-            "in_stock_cards": len(rows) - sold_total,
+            "in_stock_cards": in_stock_total,
             "in_stock_cost_cny": _sum(in_stock_cost),
             "total_cost_cny": _sum(all_cost),
             "total_revenue_cny": total_revenue,

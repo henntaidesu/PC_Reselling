@@ -44,7 +44,7 @@
       <el-form-item :label="t('card.serialNo')">
         <el-input v-model="part.serial_no" autocapitalize="off" autocorrect="off" spellcheck="false" />
       </el-form-item>
-      <el-form-item :label="t('card.saleDate')">
+      <el-form-item v-if="!selfUse" :label="t('card.saleDate')">
         <el-date-picker v-model="part.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
       </el-form-item>
       <el-form-item :label="t('card.status')">
@@ -55,14 +55,18 @@
         <OwnerSelect v-model="part.owner_id"
           :placeholder="deviceOwner ? t('owner.followDeviceOf', { name: deviceOwner }) : t('owner.followDevice')" />
       </el-form-item>
-      <el-form-item :label="t('card.saleAmount')">
-        <MoneyInput :amount="part.sale_amount" v-model:currency="part.sale_currency"
-          @update:amount="setSaleAmount" />
-      </el-form-item>
-      <el-form-item :label="t('card.domesticShipping')">
-        <MoneyInput v-model:amount="part.domestic_shipping_amount"
-          v-model:currency="part.domestic_shipping_currency" />
-      </el-form-item>
+      <!-- 自用的不出售：出售那三格收起来，换成一句说明（理由见 selfUse） -->
+      <div v-if="selfUse" class="pcr-span-2 pd-note pe-hint">{{ t('card.selfUseNoSale') }}</div>
+      <template v-else>
+        <el-form-item :label="t('card.saleAmount')">
+          <MoneyInput :amount="part.sale_amount" v-model:currency="part.sale_currency"
+            @update:amount="setSaleAmount" />
+        </el-form-item>
+        <el-form-item :label="t('card.domesticShipping')">
+          <MoneyInput v-model:amount="part.domestic_shipping_amount"
+            v-model:currency="part.domestic_shipping_currency" />
+        </el-form-item>
+      </template>
       <!-- 以日元卖掉的部件，售价按出售日汇率回流归属人的资金池（funds.sync_sale_returns） -->
       <div v-if="saleReturnHint" class="pcr-span-2 pd-note pe-hint">{{ saleReturnHint }}</div>
       <el-form-item :label="t('card.note')" class="pcr-span-2">
@@ -77,7 +81,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete, Switch } from '@element-plus/icons-vue'
-import { cny, todayIso } from '@/utils/format'
+import { SELF_USE_STATUSES, cny, todayIso } from '@/utils/format'
 import { hasPartContent, partSchema, specLabelKey } from '@/constants/parts'
 import { useMetaStore } from '@/stores/meta'
 import { useIsTouch } from '@/composables/useIsMobile'
@@ -126,6 +130,9 @@ const sold = computed(() => {
   const v = props.part.sale_amount
   return v !== null && v !== undefined && v !== ''
 })
+// 设成自用就不用填出售信息，那几格干脆收起来，免得像是漏填了什么。已经填了售价的照常
+// 摆着——自用却有售价是自相矛盾的，得让人看得见、改得了，而不是藏起来
+const selfUse = computed(() => SELF_USE_STATUSES.has(props.part.status) && !sold.value)
 // 置换按库里的那一行来换，所以必须已经存过（有 id）；卖掉的在买家手里，换不了
 const swappable = computed(() =>
   props.part.part_type === 'gpu' && Boolean(props.part.id) && !sold.value &&

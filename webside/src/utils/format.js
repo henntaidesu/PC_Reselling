@@ -30,6 +30,9 @@ export const STATUS_COLOR = {
 // 画成描边而不是实心的状态：东西还没买下来，不该和已经花了钱的那些长得一样重。
 export const STATUS_OUTLINED = new Set(['intent'])
 
+// 留着自用、不再出售的状态：不用填售价，也不标红「未出售」。与后端 cards.SELF_USE_STATUSES 一致
+export const SELF_USE_STATUSES = new Set(['self_use'])
+
 export function statusColor(status) {
   return STATUS_COLOR[status] || STATUS_COLOR.purchased
 }

@@ -146,7 +146,9 @@
         </section>
         <section class="pd-card">
           <div class="pd-card-head"><span class="pd-card-title">{{ t('detail.modSale') }}</span></div>
-          <el-form label-position="top" size="small" class="pd-form pd-grid" @submit.prevent>
+          <!-- 自用的不出售：这张卡里的四格收起来，换成一句说明（理由见 selfUse） -->
+          <div v-if="selfUse" class="pd-note">{{ t('card.selfUseNoSale') }}</div>
+          <el-form v-else label-position="top" size="small" class="pd-form pd-grid" @submit.prevent>
             <el-form-item :label="t('card.saleDate')">
               <el-date-picker v-model="form.sale_date" type="date" value-format="YYYY-MM-DD" :editable="!isTouch" />
             </el-form-item>
@@ -252,7 +254,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Delete, Picture, Switch, WarningFilled } from '@element-plus/icons-vue'
 import { cardsApi, optionsApi, systemApi } from '@/api'
-import { cny, firstImage, formatRate, jpy, profitClass, todayIso } from '@/utils/format'
+import { SELF_USE_STATUSES, cny, firstImage, formatRate, jpy, profitClass, todayIso } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useAutoSave } from '@/composables/useAutoSave'
 import { useItemDelete } from '@/composables/useItemDelete'
@@ -367,6 +369,11 @@ function setSaleAmount(v) {
   form.sale_amount = v
   if (v !== null && v !== undefined && v !== '' && !form.sale_date) form.sale_date = todayIso()
 }
+
+// 设成自用就不用填出售信息，那几格干脆收起来，免得像是漏填了什么。已经填了售价的照常
+// 摆着——自用却有售价是自相矛盾的，得让人看得见、改得了，而不是藏起来。整机部件同理（DevicePartPanel）
+const selfUse = computed(() =>
+  SELF_USE_STATUSES.has(form.status) && (form.sale_amount ?? '') === '')
 
 async function doSave() {
   const payload = { ...form }

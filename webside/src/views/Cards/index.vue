@@ -196,8 +196,8 @@
         <el-select v-for="sel in DERIVED_SELECTS" :key="sel.key" v-model="filters[sel.key]"
           :placeholder="t(sel.placeholder)" clearable class="f-small" @change="reload">
           <el-option v-for="o in facetOptions(sel.key, filters[sel.key])" :key="o.value"
-            :label="t(sel.labels[o.value])" :value="o.value">
-            <FacetLabel :label="t(sel.labels[o.value])" :count="o.count" />
+            :label="derivedLabel(sel, o.value)" :value="o.value">
+            <FacetLabel :label="derivedLabel(sel, o.value)" :count="o.count" />
           </el-option>
         </el-select>
         <!-- 成本区间按人民币总成本（含两笔运费），与「总成本」列同一个数。
@@ -736,8 +736,15 @@ const DERIVED_SELECTS = [
     placeholder: 'inv.profitState',
     labels: { gain: 'inv.gain', loss: 'inv.loss', incomplete: 'inv.incomplete' }
   },
-  { key: 'pool', placeholder: 'card.poolDraw', labels: { drawn: 'inv.poolDrawn', undrawn: 'inv.poolUndrawn' } }
+  { key: 'pool', placeholder: 'card.poolDraw', labels: { drawn: 'inv.poolDrawn', undrawn: 'inv.poolUndrawn' } },
+  // 整机七类必有部件录齐没有（后端 inventory_api._slot_hit）。「缺 xx」逐类列出，
+  // 后面的件数一眼就能看出哪类部件最常漏录
+  { key: 'slots', placeholder: 'inv.slots', labels: { complete: 'inv.slotsComplete', missing: 'inv.slotsMissing' } }
 ]
+function derivedLabel(sel, value) {
+  if (value.startsWith('missing:')) return t('inv.slotsMissingType', { type: t('partType.' + value.slice(8)) })
+  return t(sel.labels[value])
+}
 
 // 只认最后一次请求的结果：筛选连着改几下时，先发的请求可能后回来，
 // 拿旧条件算的选项盖掉新的，下拉里就会出现选了也筛不出东西的值。
@@ -752,7 +759,7 @@ async function fetchFacets() {
 
 const blankFilters = () => ({
   keyword: '', kind: null, status: [], brand: null, model: null, source_platform: null, owner: [],
-  stock: null, profit: null, pool: null, costMin: null, costMax: null
+  stock: null, profit: null, pool: null, slots: null, costMin: null, costMax: null
 })
 const filters = reactive(blankFilters())
 // 购入 / 出售日期区间：绑定 daterange 选择器，拆成 *_from / *_to 传后端
@@ -765,7 +772,7 @@ const filtersOpen = ref(false)
 const moreOpen = ref(false)
 const moreFilterCount = computed(() => {
   const f = filters
-  return [saleRange.value, f.stock, f.profit, f.pool, f.costMin != null || f.costMax != null]
+  return [saleRange.value, f.stock, f.profit, f.pool, f.slots, f.costMin != null || f.costMax != null]
     .filter(Boolean).length
 })
 // 开关按钮上的角标。不含关键词——搜索框一直摆在外面，它有没有值本来就看得见；
@@ -904,6 +911,7 @@ function filterParams() {
     stock: filters.stock || undefined,
     profit: filters.profit || undefined,
     pool: filters.pool || undefined,
+    slots: filters.slots || undefined,
     // 0 是合法的下限，不能用 || 判空
     cost_min: filters.costMin ?? undefined,
     cost_max: filters.costMax ?? undefined

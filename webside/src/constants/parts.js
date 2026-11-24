@@ -8,9 +8,12 @@
 // 日本站上的原始标注对得上。除 CPU 外都允许现场输入清单外的值（filterable +
 // allow-create），清单只是省事的默认项，不是白名单。
 
+import { SELF_USE_STATUSES } from '@/utils/format'
+
 // 一台机器必然有的七个部件槽位，顺序即标签页顺序。它们**每类至少留一件**：
 // 不用每次点七下「添加」，也删不到零（详情页在只剩一件时不给删除按钮）。
 // 空槽位不会落库，摆着不会污染数据。
+// 后端 schema.REQUIRED_PART_TYPES 是同一份清单（库存列表的「录入 x/7」与缺件筛选），两边一起改。
 export const DEFAULT_PART_TYPES = ['cpu', 'gpu', 'ram', 'disk', 'motherboard', 'psu', 'cooler']
 
 // 详情页的部件标签页 = 七个必有槽位 + 一个「其他」。机箱这类历史类型没有自己的
@@ -72,7 +75,10 @@ const CONTENT_KEYS = [
 ]
 
 // 这一行填过东西没有。**只看内容**，用于界面上标「未填写」。
+// 状态一般不算（理由见上），但「自用」算：自用的不用填售价，给空槽位选个自用就是
+// 「这件在、我留着了」的全部内容，不算的话它会被当成空模板丢掉，选的自用悄悄没了
 export function hasPartContent(part) {
+  if (SELF_USE_STATUSES.has(part.status)) return true
   return CONTENT_KEYS.some((key) => {
     const value = part[key]
     return value !== null && value !== undefined && value !== ''
