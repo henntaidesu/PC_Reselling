@@ -76,8 +76,10 @@ export function todayIso() {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
+// 日元与人民币的符号本来都是 ¥，只靠半角 / 全角区分，列表里两种金额挨着摆时根本看不出
+// 哪个是哪个——¥50,000 会被读成卖了五万人民币。所以日元一律写成 JP¥。
 export function currencySymbol(code) {
-  return code === 'JPY' ? '¥' : '￥'
+  return code === 'JPY' ? 'JP¥' : '￥'
 }
 
 // 金额格式化：日元不留小数（日元没有分），人民币两位小数。
@@ -88,6 +90,19 @@ export function formatMoney(amount, currency = 'CNY') {
   const digits = currency === 'JPY' ? 0 : 2
   const symbol = currencySymbol(currency)
   return symbol + num.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+}
+
+// 统计卡用的粗略金额：满一万的按「万」取整（￥120万），不足一万的照常写到个位。
+// 统计卡是看量级的，￥1,202,696.14 这种十几位数一排五张摆不下，也没人去读小数点后面；
+// 精确值在卡片的悬浮提示里（Cards 页的 statCards）。
+export function wan(amount, currency = 'CNY') {
+  if (amount === null || amount === undefined || amount === '') return '—'
+  const num = Number(amount)
+  if (Number.isNaN(num)) return '—'
+  if (Math.abs(num) < 10000) {
+    return currencySymbol(currency) + Math.round(num).toLocaleString()
+  }
+  return currencySymbol(currency) + Math.round(num / 10000).toLocaleString() + '万'
 }
 
 // 人民币专用，概览页大量用

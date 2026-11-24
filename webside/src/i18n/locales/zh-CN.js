@@ -89,7 +89,7 @@ export default {
     mercari: '煤炉 Mercari',
     other: '其他'
   },
-  currency: { JPY: '日元 ¥', CNY: '人民币 ¥', JPY_short: '日元', CNY_short: '人民币' },
+  currency: { JPY: '日元 JP¥', CNY: '人民币 ¥', JPY_short: '日元', CNY_short: '人民币' },
   card: {
     mgmtNo: '管理编号',
     brand: '品牌',

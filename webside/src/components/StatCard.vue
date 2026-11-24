@@ -3,7 +3,7 @@
     <div class="stat-icon" :style="{ background: color + '20', color }">
       <el-icon :size="22"><component :is="iconComp" /></el-icon>
     </div>
-    <div class="stat-info">
+    <div class="stat-info" :title="hint || undefined">
       <div class="stat-value" :class="valueClass">{{ display }}</div>
       <!-- 同一个数的另一种说法（成本的日元口径）。压在主数字下面而不是并排：
            它是参考值，不该和主数字抢同一个视觉层级 -->
@@ -25,7 +25,9 @@ const props = defineProps({
   color: { type: String, default: '#409EFF' },
   valueClass: { type: String, default: '' },
   // 主数字下面的一行小字，留空就不渲染
-  sub: { type: String, default: '' }
+  sub: { type: String, default: '' },
+  // 悬浮提示（原生 title）：主数字是取整过的时候，精确值放这里
+  hint: { type: String, default: '' }
 })
 
 // Element 图标里没有 Sell，做个兜底映射，避免整卡渲染不出来

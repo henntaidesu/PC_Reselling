@@ -89,7 +89,7 @@ export default {
     mercari: 'メルカリ',
     other: 'その他'
   },
-  currency: { JPY: '円 ¥', CNY: '人民元 ¥', JPY_short: '円', CNY_short: '人民元' },
+  currency: { JPY: '円 JP¥', CNY: '人民元 ¥', JPY_short: '円', CNY_short: '人民元' },
   card: {
     mgmtNo: '管理番号',
     brand: 'ブランド',

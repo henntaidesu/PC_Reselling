@@ -5,21 +5,23 @@
     </div>
 
     <!-- 统计模块：随下方筛选联动，覆盖整个筛选结果（不只当前页），显卡与整机合计。
-         手机端不展示——8 张卡两列排下来要划掉大半屏才看得到表格。 -->
+         手机端不展示——几张卡两列排下来要划掉大半屏才看得到表格。
+         只给成本 / 收入 / 利润三个金额，按「万」取整；件数不单列（列表底下的分页就有总数）。 -->
     <el-card v-if="!isMobile" class="stats-card" shadow="never">
       <div v-loading="statsLoading">
-        <el-row :gutter="16" class="stat-row">
-          <el-col v-for="card in statCards" :key="card.key" :xs="12" :sm="8" :md="8" :lg="6" :xl="3">
-            <StatCard
-              :label="card.label"
-              :value="card.value"
-              :sub="card.sub"
-              :icon="card.icon"
-              :color="card.color"
-              :value-class="card.valueClass"
-            />
-          </el-col>
-        </el-row>
+        <div class="stat-row">
+          <StatCard
+            v-for="card in statCards"
+            :key="card.key"
+            :label="card.label"
+            :value="card.value"
+            :sub="card.sub"
+            :hint="card.hint"
+            :icon="card.icon"
+            :color="card.color"
+            :value-class="card.valueClass"
+          />
+        </div>
         <div v-if="stats.incomplete" class="stats-warn">
           <el-icon><WarningFilled /></el-icon>
           <span>{{ t('dashboard.incompleteWarn', { n: stats.incomplete }) }}</span>
@@ -661,7 +663,7 @@ import {
   WarningFilled
 } from '@element-plus/icons-vue'
 import { cardsApi, devicesApi, importApi, inventoryApi } from '@/api'
-import { cny, firstImage, jpy, profitClass } from '@/utils/format'
+import { cny, firstImage, jpy, profitClass, wan } from '@/utils/format'
 import { ElMessage } from '@/utils/notify'
 import { useIsCompact, useIsMobile, useIsTouch } from '@/composables/useIsMobile'
 import { usePlatforms } from '@/composables/usePlatforms'
@@ -836,30 +838,34 @@ const statsLoading = ref(false)
 const { platformLabel } = usePlatforms()
 
 // 顶部统计卡。顺序固定：先数量、后金额，颜色跟着指标走，不随数值变化重排
+// 金额按「万」取整（format.wan），精确值放进悬浮提示
 const statCards = computed(() => {
   const s = stats.value
   const profit = s.total_profit_cny
   return [
-    // 按状态筛时会有从整机里单独列出来的部件，它们只算件数、不进金额合计，在这里说一声
-    { key: 'total', label: t('inv.total'), value: s.total, sub: s.parts ? t('inv.partsIncluded', { n: s.parts }) : undefined, icon: 'Box', color: '#409EFF' },
-    { key: 'cards', label: t('inv.cards'), value: s.cards, icon: 'Cpu', color: '#5b8cff' },
-    { key: 'devices', label: t('inv.devices'), value: s.devices, icon: 'Monitor', color: '#E6A23C' },
-    { key: 'inStock', label: t('dashboard.inStock'), value: s.in_stock, icon: 'Goods', color: '#a78bfa' },
-    { key: 'settled', label: t('inv.settled'), value: s.settled, icon: 'Sell', color: '#67C23A' },
     {
       key: 'cost',
       label: t('dashboard.totalCost'),
-      value: cny(s.total_cost_cny),
+      value: wan(s.total_cost_cny),
       // 与列表里每一行同样的处理：日元是参考口径，压在主数字下面
-      sub: jpy(s.total_cost_jpy),
+      sub: wan(s.total_cost_jpy, 'JPY'),
+      hint: `${cny(s.total_cost_cny)} / ${jpy(s.total_cost_jpy)}`,
       icon: 'Coin',
       color: '#F56C6C'
     },
-    { key: 'revenue', label: t('dashboard.totalRevenue'), value: cny(s.total_revenue_cny), icon: 'Money', color: '#38bdf8' },
+    {
+      key: 'revenue',
+      label: t('dashboard.totalRevenue'),
+      value: wan(s.total_revenue_cny),
+      hint: cny(s.total_revenue_cny),
+      icon: 'Money',
+      color: '#38bdf8'
+    },
     {
       key: 'profit',
       label: t('dashboard.totalProfit'),
-      value: cny(profit),
+      value: wan(profit),
+      hint: cny(profit),
       icon: 'TrendCharts',
       color: profit > 0 ? '#67C23A' : profit < 0 ? '#F56C6C' : '#409EFF',
       valueClass: profitClass(profit)
@@ -1226,10 +1232,8 @@ onActivated(() => {
 
 /* 顶部统计卡（与 FreeMarket_Manager 库存页同一套版式） */
 .stats-card { margin-bottom: 16px; border-radius: 8px; }
-/* 换行后两排卡片之间的空隙由 el-col 的下边距给出；最后一排多出来的那 16px
-   用行的负下边距抵掉，否则卡片和卡片底之间会比左右留白宽一截 */
-.stat-row { margin-bottom: -16px; }
-.stat-row :deep(.el-col) { margin-bottom: 16px; }
+/* 三张金额卡一排 */
+.stat-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .stats-warn {
   display: flex;
   align-items: center;

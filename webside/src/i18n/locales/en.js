@@ -89,7 +89,7 @@ export default {
     mercari: 'Mercari',
     other: 'Other'
   },
-  currency: { JPY: 'JPY ¥', CNY: 'CNY ¥', JPY_short: 'JPY', CNY_short: 'CNY' },
+  currency: { JPY: 'JP¥', CNY: 'CNY ¥', JPY_short: 'JPY', CNY_short: 'CNY' },
   card: {
     mgmtNo: 'Mgmt No.',
     brand: 'Brand',
